@@ -1,0 +1,294 @@
+package com.kylin.plsql.core.config;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.reflect.TypeToken;
+import com.kylin.plsql.core.db.ConnectionInfo;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.*;
+import java.lang.reflect.Type;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.*;
+import java.util.*;
+
+public class ConfigManager {
+    private static final Logger log = LoggerFactory.getLogger(ConfigManager.class);
+    private static final String CONFIG_DIR = ".kylin-sql";
+    private static final String CONNECTIONS_FILE = "connections.json";
+    private static final String PREFERENCES_FILE = "preferences.json";
+    private static final String WORKSPACE_FILE = "workspace.json";
+
+    public static class TabState {
+        public String type;       // "file", "console", or "sourceviewer"
+        public String filePath;
+        public String connName;
+        public String schema;
+        public String content;    // content for console/unsaved tabs
+        public String tabName;    // console label
+        public String objectName; // for sourceviewer tabs
+        public String objectType; // for sourceviewer tabs
+    }
+
+    public static class WorkspaceState {
+        public int lastActiveIndex;
+        public String theme = "DARK";
+        public Map<String, String> colorOverrides = new HashMap<>();
+        public List<TabState> tabs = new ArrayList<>();
+        public Map<String, Map<String, String>> formatProfiles = new LinkedHashMap<>();
+        public String activeFormatProfile = "Oracle";
+        public Map<String, String> connectionDialects = new HashMap<>();
+    }
+
+    public static class SavedFileRecord {
+        public String filePath;
+        public String fileName;
+        public String notes;
+        public long lastOpened;
+    }
+
+    private static final String SAVED_FILES_FILE = "saved_files.json";
+
+    private final Path configPath;
+    private final Gson gson;
+    private Map<String, String> preferences;
+
+    public ConfigManager() {
+        String userHome = System.getProperty("user.home", ".");
+        configPath = Paths.get(userHome, CONFIG_DIR);
+        gson = new GsonBuilder().setPrettyPrinting().create();
+        preferences = new HashMap<>();
+        init();
+    }
+
+    private void init() {
+        try {
+            Files.createDirectories(configPath);
+            log.info("配置目录: {}", configPath.toAbsolutePath());
+            loadPreferences();
+        } catch (IOException e) {
+            log.error("创建配置目录失败", e);
+        }
+    }
+
+    public Path getConfigPath() {
+        return configPath;
+    }
+
+    // ── 连接管理 ──
+
+    public void saveConnections(List<ConnectionInfo> connections) {
+        File file = configPath.resolve(CONNECTIONS_FILE).toFile();
+        try (Writer writer = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8)) {
+            gson.toJson(connections, writer);
+            log.info("已保存 {} 个连接", connections.size());
+        } catch (IOException e) {
+            log.error("保存连接失败", e);
+        }
+    }
+
+    public List<ConnectionInfo> loadConnections() {
+        File file = configPath.resolve(CONNECTIONS_FILE).toFile();
+        if (!file.exists()) return new ArrayList<>();
+        try (Reader reader = new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8)) {
+            Type type = new TypeToken<List<ConnectionInfo>>() {}.getType();
+            List<ConnectionInfo> list = gson.fromJson(reader, type);
+            return list != null ? list : new ArrayList<>();
+        } catch (IOException e) {
+            log.error("加载连接失败", e);
+            return new ArrayList<>();
+        }
+    }
+
+    // ── 偏好设置 ──
+
+    public void setPreference(String key, String value) {
+        preferences.put(key, value);
+        savePreferences();
+    }
+
+    public String getPreference(String key, String defaultValue) {
+        return preferences.getOrDefault(key, defaultValue);
+    }
+
+    private void savePreferences() {
+        File file = configPath.resolve(PREFERENCES_FILE).toFile();
+        try (Writer writer = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8)) {
+            gson.toJson(preferences, writer);
+        } catch (IOException e) {
+            log.error("保存偏好设置失败", e);
+        }
+    }
+
+    public void saveWorkspace(WorkspaceState state) {
+        File file = configPath.resolve(WORKSPACE_FILE).toFile();
+        try (Writer w = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8)) {
+            gson.toJson(state, w);
+        } catch (IOException e) {
+            log.error("保存工作空间失败", e);
+        }
+    }
+
+    public WorkspaceState loadWorkspace() {
+        File file = configPath.resolve(WORKSPACE_FILE).toFile();
+        if (!file.exists()) return new WorkspaceState();
+        try (Reader r = new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8)) {
+            WorkspaceState s = gson.fromJson(r, WorkspaceState.class);
+            return s != null ? s : new WorkspaceState();
+        } catch (IOException e) {
+            log.error("加载工作空间失败", e);
+            return new WorkspaceState();
+        }
+    }
+
+    // ── 已保存文件记录 ──
+
+    public void saveFileRecord(SavedFileRecord record) {
+        List<SavedFileRecord> records = loadFileRecords();
+        records.removeIf(r -> r.filePath != null && r.filePath.equals(record.filePath));
+        records.add(record);
+        File file = configPath.resolve(SAVED_FILES_FILE).toFile();
+        try (Writer w = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8)) {
+            gson.toJson(records, w);
+        } catch (IOException e) {
+            log.error("保存文件记录失败", e);
+        }
+    }
+
+    public void removeFileRecord(String filePath) {
+        List<SavedFileRecord> records = loadFileRecords();
+        records.removeIf(r -> r.filePath != null && r.filePath.equals(filePath));
+        File file = configPath.resolve(SAVED_FILES_FILE).toFile();
+        try (Writer w = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8)) {
+            gson.toJson(records, w);
+        } catch (IOException e) {
+            log.error("删除文件记录失败", e);
+        }
+    }
+
+    public void updateFileNotes(String filePath, String notes) {
+        List<SavedFileRecord> records = loadFileRecords();
+        for (SavedFileRecord r : records) {
+            if (r.filePath != null && r.filePath.equals(filePath)) {
+                r.notes = notes;
+                break;
+            }
+        }
+        File file = configPath.resolve(SAVED_FILES_FILE).toFile();
+        try (Writer w = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8)) {
+            gson.toJson(records, w);
+        } catch (IOException e) {
+            log.error("更新文件备注失败", e);
+        }
+    }
+
+    public List<SavedFileRecord> loadFileRecords() {
+        File file = configPath.resolve(SAVED_FILES_FILE).toFile();
+        if (!file.exists()) return new ArrayList<>();
+        try (Reader r = new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8)) {
+            Type type = new TypeToken<List<SavedFileRecord>>() {}.getType();
+            List<SavedFileRecord> list = gson.fromJson(r, type);
+            return list != null ? list : new ArrayList<>();
+        } catch (IOException e) {
+            log.error("加载文件记录失败", e);
+            return new ArrayList<>();
+        }
+    }
+
+    private void loadPreferences() {
+        File file = configPath.resolve(PREFERENCES_FILE).toFile();
+        if (!file.exists()) return;
+        try (Reader reader = new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8)) {
+            Type type = new TypeToken<Map<String, String>>() {}.getType();
+            Map<String, String> loaded = gson.fromJson(reader, type);
+            if (loaded != null) preferences = loaded;
+        } catch (IOException e) {
+            log.error("加载偏好设置失败", e);
+        }
+    }
+
+    // ── 自动保存 ──
+
+    public boolean isAutoSaveEnabled() {
+        return "true".equals(getPreference("autoSaveEnabled", "false"));
+    }
+
+    public void setAutoSaveEnabled(boolean enabled) {
+        setPreference("autoSaveEnabled", String.valueOf(enabled));
+    }
+
+    public int getAutoSaveInterval() {
+        try {
+            return Integer.parseInt(getPreference("autoSaveInterval", "5"));
+        } catch (NumberFormatException e) {
+            return 5;
+        }
+    }
+
+    public void setAutoSaveInterval(int interval) {
+        setPreference("autoSaveInterval", String.valueOf(interval));
+    }
+
+    public String getAutoSaveUnit() {
+        String v = getPreference("autoSaveUnit", "minutes");
+        return v != null ? v : "minutes";
+    }
+
+    public void setAutoSaveUnit(String unit) {
+        setPreference("autoSaveUnit", unit);
+    }
+
+    public String getAutoSavePath() {
+        return getPreference("autoSavePath", configPath.resolve("auto-save").toAbsolutePath().toString());
+    }
+
+    public void setAutoSavePath(String path) {
+        setPreference("autoSavePath", path);
+    }
+
+    public java.util.List<String> getOpenFolders() {
+        String json = getPreference("openFolders", "[]");
+        try {
+            Type type = new TypeToken<java.util.List<String>>(){}.getType();
+            return gson.fromJson(json, type);
+        } catch (Exception e) {
+            return new java.util.ArrayList<>();
+        }
+    }
+
+    public void setOpenFolders(java.util.List<String> paths) {
+        setPreference("openFolders", gson.toJson(paths));
+    }
+
+    // ── 元数据配置 ──
+
+    private List<DbMetadataConfig> metadataConfigs;
+
+    public List<DbMetadataConfig> loadMetadataConfigs() {
+        if (metadataConfigs != null) return metadataConfigs;
+        String json = getPreference("metadataConfigs", "");
+        if (!json.isEmpty()) {
+            try {
+                Type type = new TypeToken<List<DbMetadataConfig>>() {}.getType();
+                List<DbMetadataConfig> list = gson.fromJson(json, type);
+                if (list != null) { metadataConfigs = list; return list; }
+            } catch (Exception e) {
+                log.warn("解析 metadataConfigs 失败，使用默认配置", e);
+            }
+        }
+        metadataConfigs = DbMetadataConfig.createDefaults();
+        return metadataConfigs;
+    }
+
+    public void saveMetadataConfigs(List<DbMetadataConfig> configs) {
+        this.metadataConfigs = configs;
+        setPreference("metadataConfigs", gson.toJson(configs));
+    }
+
+    public List<DbMetadataConfig> resetMetadataConfigs() {
+        List<DbMetadataConfig> defaults = DbMetadataConfig.createDefaults();
+        saveMetadataConfigs(defaults);
+        return defaults;
+    }
+}
