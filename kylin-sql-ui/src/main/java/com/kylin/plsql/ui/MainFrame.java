@@ -66,6 +66,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.util.List;
 
 public class MainFrame extends JFrame {
@@ -1690,7 +1692,10 @@ public class MainFrame extends JFrame {
                 sql = null;
                 editor.clearExecResults();
                 bottomPanel.setBatchExecuting(true);
-                try (var conn = connectionManager.getConnection(connName)) {
+                boolean closeConn1 = connectionManager.isAutoCommit(connName);
+                Connection conn = null;
+                try {
+                    conn = connectionManager.getConnection(connName);
                     var executor = new com.kylin.plsql.core.db.SqlExecutor();
                     boolean anySuccess = false;
                     for (int i = 0; i < parts.length; i++) {
@@ -1725,6 +1730,9 @@ public class MainFrame extends JFrame {
                     bottomPanel.showError(e.getMessage());
                 } finally {
                     bottomPanel.setBatchExecuting(false);
+                    if (closeConn1 && conn != null) {
+                        try { conn.close(); } catch (java.sql.SQLException ignored) {}
+                    }
                 }
                 bottomPanel.appendMessage("\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501");
                 return;
@@ -1746,9 +1754,12 @@ public class MainFrame extends JFrame {
         bottomPanel.appendMessage("\u5F00\u59CB\u65F6\u95F4: " + ts);
         bottomPanel.appendMessage("\u6267\u884C SQL: " + sql);
         editor.clearExecResults();
-        try (var conn = connectionManager.getConnection(connName)) {
+        boolean closeConn2 = connectionManager.isAutoCommit(connName);
+        Connection conn2 = null;
+        try {
+            conn2 = connectionManager.getConnection(connName);
             var executor = new com.kylin.plsql.core.db.SqlExecutor();
-            var result = executor.execute(conn, sql, qto);
+            var result = executor.execute(conn2, sql, qto);
             bottomPanel.appendMessage("\u6267\u884C\u8017\u65F6: " + result.elapsedMs + "ms");
             bottomPanel.appendMessage("\u7ED3\u679C: " + result.getSummary());
             bottomPanel.appendMessage("\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501");
@@ -1764,6 +1775,10 @@ public class MainFrame extends JFrame {
             statusBar.setMessage("\u6267\u884C\u5931\u8D25: " + e.getMessage());
             bottomPanel.showError(e.getMessage());
             editor.markExecResult(execLine, false);
+        } finally {
+            if (closeConn2 && conn2 != null) {
+                try { conn2.close(); } catch (java.sql.SQLException ignored) {}
+            }
         }
     }
 
