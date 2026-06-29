@@ -1,0 +1,46 @@
+
+## Summary
+
+### Goal
+全面重写 SQL 格式化引擎为模板驱动的体系，支持 4 种数据库方言（Oracle/OceanBase/MySQL/PostgreSQL），40+ 全方位可配置参数，DataGrip 风格设置 UI。
+
+### Progress
+
+| Phase | 内容 | 状态 | 文件 |
+|-------|------|------|------|
+| **1** | FormatOptions 40+ 参数 + 3预设Profile + FormatTemplate + TemplateRegistry + SqlType + SqlTypeClassifier | ✅ 完成 | FormatOptions.java, FormatTemplate.java, TemplateRegistry.java, SqlType.java, SqlTypeClassifier.java |
+| **2** | SqlDialect 接口扩展 + 4方言完整关键字集（Oracle/OB/MySQL/PG）| ✅ 完成 | SqlDialect.java, OracleDialect.java, OceanBaseDialect.java, MySqlDialect.java, PostgreSqlDialect.java |
+| **3** | SqlFormatter 模板化重构 — 基于模板的断行/缩进/对齐引擎，SqlTypeClassifier 分类 + TemplateRegistry 查模板 + FormatOptions 全参数驱动 | ✅ 完成 | SqlFormatter.java |
+| **4** | SubqueryHandler 子查询检测+括号匹配+INLINE/EXPAND/AUTO判断 + SqlFormatter 集成子查询递归 | ✅ 完成 | SubqueryHandler.java, SqlFormatter.java |
+| **5** | SettingsDialog UI 重构（左侧树+6面板+实时预览） | ⏳ 待开始 | SettingsDialog.java |
+| **6** | 集成路由 + 方言选择持久化 + assembly | ⏳ 待开始 | MainFrame.java, ConfigManager.java |
+
+### 编译状态
+- kylin-sql-core: BUILD SUCCESS（30源文件）
+- kylin-sql-ui: 需验证（Phase 5 UI 重构前编译正常）
+- assembly dist/ 清理仍偶发 ANTLR JAR 文件锁
+
+### 架构变更
+
+**旧架构：** `SqlFormatter.java` 硬编码关键字集 + 仅用 3 个 FormatOptions 参数 + 无 SQL 类型感知
+
+**新架构：**
+```
+SqlFormatter.format(source, options, dialect)
+  ├── SqlTypeClassifier → SqlType
+  ├── TemplateRegistry → FormatTemplate
+  ├── FormatOptions → 40+ 参数全部生效
+  └── TokenProcessor → 基于模板的断行/缩进/对齐 + 递归子查询
+```
+
+旧枚举（SelectColumnMode, WhereAndPosition 等 7 个文件）已被删除，全部合并到 `FormatOptions` 内部类。
+
+### 待定设计决策
+- 子查询展开风格（Inline/Expand/Auto）和位置独立控制
+- 每行 N 列（columnsPerRow）机制
+- SQL 类型分类的方言特定关键字路由
+
+### 对话记录参考
+- 当前会话：格式化引擎完整重写，Phase 1-3 完成
+- 前一阶段：SqlToolsDialog 改进（IN 子句/转义/复制按钮/Toast）
+- 前一阶段：MainFrame menu bar WindowFocusListener 修复

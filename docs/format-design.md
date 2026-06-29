@@ -1,541 +1,880 @@
-# SQL/PLSQL 格式化功能设计方案
+# SQL/PLSQL 格式化功能设计方案（v2.0）
 
-## 一、混合策略总览
-
-采用双入口混合方案，根据编辑器类型自动选择格式化引擎：
+## 一、总体架构
 
 ```
-用户触发 (Ctrl+Shift+F / 按钮)
-       │
-       ├── 当前激活的是 SqlEditorPanel
-       │   └── → SQL Quick Formatter（增强 Token 流）
-       │         SELECT/INSERT/UPDATE/DELETE/MERGE 专用
-       │         快速、轻量、精确对齐
-       │
-       └── 当前激活的是 SourceViewerPanel
-           └── → PL/SQL Full Formatter（嵌套栈 + 上下文分段）
-                 包/过程/函数/TYPE 专用
-                 处理 BEGIN/END/IF/LOOP/CASE/EXCEPTION
+SqlFormatter.format(source, options, dialect)
+  │
+  ├── SqlDialect (接口)
+  │     ├── OracleDialect
+  │     ├── OceanBaseDialect (extends Oracle)
+  │     ├── MySqlDialect
+  │     ├── PostgreSqlDialect
+  │     └── (预留: Db2, SQLite, H2, MariaDB, ...)
+  │     └── 外部注册: DialectManager.register(customDialect)
+  │
+  ├── SqlTypeClassifier          ← 方言关键字集判断 SQL 类型
+  │     └── 输出: SqlType (DQL/DML/DDL/PLSQL + 子类型)
+  │
+  ├── TemplateRegistry           ← SqlType → FormatTemplate
+  │     ├── 每个模板包含: lineBreakBefore/After, indentIncrease/Decrease
+  │     ├── 继承机制: 子类型继承父类型模板
+  │     └── 所有模板引用 FormatOptions 参数做决策
+  │
+  ├── FormatContext              ← 运行时状态
+  │     ├── currentIndent, parenDepth, subqueryStack
+  │     ├── selectListAlign, declarationAlign
+  │     ├── currentLineWidth, inXxx 标记
+  │     └── 方言特殊子句跟踪（LIMIT, RETURNING, ON CONFLICT 等）
+  │
+  ├── TokenProcessor (主循环，递归)
+  │     ├── 外层: 遍历 token 流，按模板断行/缩进/对齐
+  │     ├── 子查询: 遇到 `(` + SELECT → SubqueryHandler 递归
+  │     │     ├── INLINE: 合并为一行
+  │     │     ├── EXPAND: 展开换行缩进
+  │     │     └── AUTO: 根据 token 数 + maxLineWidth + 复杂度预判
+  │     ├── 方言子句: 遇到特殊关键字 → 按 SpecialClause 规则处理
+  │     └── maxLineWidth: 每个 token 后检查行宽 → 超限自动换行
+  │
+  └── PostProcessor
+        ├── lineEnding 替换 (LF/CRLF)
+        ├── trailingWhitespace 清理
+        └── blankLine 处理 (PRESERVE/COLLAPSE/STRIP)
 ```
 
-格式化前先检测当前连接数据库方言，加载对应的 **方言配置**（关键字集、特殊子句、标识符风格）。
+### 1.1 核心原则
+
+| 原则 | 说明 |
+|------|------|
+| **模板化** | 每类 SQL 绑定一个 FormatTemplate，定义断行/缩进/对齐规则 |
+| **参数化** | 所有行为由 FormatOptions 全部 40+ 参数驱动，UI 全可配 |
+| **递归** | 子查询作为独立的格式化子任务，递归调用 TokenProcessor |
+| **方言感知** | TokenProcessor 查 Dialect 的关键字集和特殊子句 |
+| **容错** | ANTLR 解析异常 → 返回原始输入，不崩溃 |
 
 ---
 
-## 二、总体架构
+## 二、SQL 类型分类引擎
+
+### 2.1 SqlType 枚举
+
+```java
+public enum SqlType {
+    // DQL
+    DQL_SELECT,          // SELECT ...
+    DQL_SELECT_JOIN,     // SELECT ... JOIN ... JOIN ...
+    DQL_SELECT_UNION,    // SELECT ... UNION SELECT ...
+    DQL_CTE,             // WITH ... AS (SELECT ...)
+    DQL_SUBQUERY,        // (SELECT ...) 作为子查询
+
+    // DML
+    DML_INSERT,          // INSERT INTO ... (VALUES | SELECT)
+    DML_UPDATE,          // UPDATE ... SET ... WHERE ...
+    DML_DELETE,          // DELETE FROM ... WHERE ...
+    DML_MERGE,           // MERGE INTO ... USING ... ON ...
+
+    // DDL
+    DDL_CREATE_TABLE,    // CREATE TABLE ...
+    DDL_CREATE_INDEX,    // CREATE [UNIQUE] INDEX ...
+    DDL_CREATE_VIEW,     // CREATE [OR REPLACE] VIEW ... AS ...
+    DDL_ALTER_TABLE,     // ALTER TABLE ... ADD|MODIFY|DROP ...
+    DDL_DROP,            // DROP TABLE|INDEX|VIEW|SEQUENCE ...
+    DDL_TRUNCATE,        // TRUNCATE TABLE ...
+    DDL_GRANT_REVOKE,    // GRANT|REVOKE ...
+    DDL_OTHER,           // COMMENT, RENAME, PURGE, FLASHBACK ...
+
+    // PL/SQL
+    PLSQL_BLOCK,         // [DECLARE] BEGIN ... END;
+    PLSQL_FUNCTION,      // CREATE [OR REPLACE] FUNCTION ...
+    PLSQL_PROCEDURE,     // CREATE [OR REPLACE] PROCEDURE ...
+    PLSQL_PACKAGE,       // CREATE [OR REPLACE] PACKAGE ...
+    PLSQL_PACKAGE_BODY,  // CREATE [OR REPLACE] PACKAGE BODY ...
+    PLSQL_TRIGGER,       // CREATE [OR REPLACE] TRIGGER ...
+    PLSQL_TYPE,          // CREATE [OR REPLACE] TYPE ...
+
+    // Other
+    OTHER,               // EXPLAIN, CALL, LOCK, SET, etc.
+    UNKNOWN;
+}
+```
+
+### 2.2 SqlTypeClassifier 分类逻辑
+
+扫描 token 直到第一个非注释、非括号 token，按以下规则判断：
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                    Profile 预设管理                        │
-│  ┌─ "默认 (Oracle)" ──┐  ┌─ "紧凑型" ──┐  ┌─ "..." ──┐ │
-│  │ keywordCase: UPPER │  │ indent: 2   │  │          │ │
-│  │ indent: 4          │  │ and: LINE_  │  │          │ │
-│  │ and: LINE_START    │  │ START       │  │          │ │
-│  └────────────────────┘  └─────────────┘  └──────────┘ │
-│                  当前选中 Profile → 一组 FormatOptions   │
-└──────────────────────────┬───────────────────────────────┘
-                           │
-┌──────────────────────────▼───────────────────────────────┐
-│                    FormatOptions                          │
-│  ┌──────────┬───────────┬──────────┬──────────┐          │
-│  │ 通用设置  │ DML 设置  │ PLSQL 设│ DDL 设置 │          │
-│  │ keyword   │ select    │ begin    │ column   │          │
-│  │ case      │ align     │ then     │ def      │          │
-│  │ indent    │ from/join │ loop     │ align    │          │
-│  │ max width │ where and │ if/case  │ storage  │          │
-│  │ line end  │ comma     │ decl     │          │          │
-│  └──────────┴───────────┴──────────┴──────────┘          │
-└──────────────────────────┬───────────────────────────────┘
-                           │ 当前方言选择
-┌──────────────────────────▼───────────────────────────────┐
-│                   方言配置适配层                            │
-│                                                          │
-│  ┌────────────────────────────────────────────────────┐  │
-│  │  SqlDialect (接口)                                 │  │
-│  │  ├── 关键字集 (KEYWORDS, INDENT_INCREASE, ...)      │  │
-│  │  ├── 标识符引用风格 (双引号/反引号/无引号)          │  │
-│  │  ├── 特殊子句列表 (LIMIT/OFFSET/RETURNING/... )     │  │
-│  │  └── 默认格式化偏好                                 │  │
-│  └────────────────────────────────────────────────────┘  │
-│       ▲          ▲          ▲          ▲                  │
-│       │          │          │          │                  │
-│  ┌────┴───┐ ┌───┴────┐ ┌──┴────┐ ┌───┴─────┐            │
-│  │Oracle  │ │OceanBase│ │MySQL  │ │PostgreSQL│            │
-│  │Dialect │ │ Dialect │ │Dialect│ │ Dialect  │            │
-│  │(默认)  │ │(同Oracle)│ │       │ │          │            │
-│  └────────┘ └─────────┘ └───────┘ └──────────┘            │
-└──────────────────────────┬───────────────────────────────┘
-                           │
-     ┌─────────────────────┼─────────────────────┐
-     ▼                     ▼                     ▼
-┌────────────┐     ┌──────────────┐     ┌────────────────┐
-│ 词法分析器  │     │ SQL格式化器   │     │ PLSQL格式化器   │
-│ (Lexer)    │     │ SqlFormatter │     │ PlSqlFormatter  │
-│ ANTLR      │ ──→ │ DML 专用     │     │ 嵌套栈+分段     │
-│ PlSqlLexer │     │ 对齐+缩进    │     │                │
-│ 共享实例   │     │ 读取方言配置  │     │ 读取方言配置    │
-└────────────┘     └──────────────┘     └────────────────┘
+1. token = SELECT
+   ├── 前面有 WITH → DQL_CTE
+   ├── 嵌套在 ( ... ) 内 → DQL_SUBQUERY
+   └── 否则 → DQL_SELECT
+   继续扫描后面是否出现: UNION/MINUS/INTERSECT → DQL_SELECT_UNION
+                           JOIN → DQL_SELECT_JOIN
+
+2. token = INSERT → DML_INSERT
+3. token = UPDATE → DML_UPDATE
+4. token = DELETE → DML_DELETE
+5. token = MERGE  → DML_MERGE
+
+6. token = CREATE → 看下一个 token
+   ├── TABLE    → DDL_CREATE_TABLE
+   ├── INDEX    → DDL_CREATE_INDEX
+   ├── [OR REPLACE] VIEW → DDL_CREATE_VIEW
+   ├── [OR REPLACE] [EDITIONABLE|NONEDITIONABLE] FUNCTION  → PLSQL_FUNCTION
+   ├── [OR REPLACE] [EDITIONABLE|NONEDITIONABLE] PROCEDURE → PLSQL_PROCEDURE
+   ├── [OR REPLACE] PACKAGE BODY → PLSQL_PACKAGE_BODY
+   ├── [OR REPLACE] PACKAGE     → PLSQL_PACKAGE
+   ├── [OR REPLACE] [OR REPLACE] TRIGGER → PLSQL_TRIGGER
+   ├── [OR REPLACE] TYPE → PLSQL_TYPE
+   ├── SEQUENCE  → DDL_OTHER
+   └── 其他      → DDL_OTHER
+
+7. token = ALTER   → DDL_ALTER_TABLE
+8. token = DROP    → DDL_DROP
+9. token = TRUNCATE → DDL_TRUNCATE
+10. token = GRANT|REVOKE → DDL_GRANT_REVOKE
+
+11. token = BEGIN|DECLARE → PLSQL_BLOCK
+
+12. token = EXPLAIN|CALL|LOCK|SET|COMMIT|ROLLBACK → OTHER
+```
+
+方言影响：MySQL 的 `LIMIT` 不是 SQL 类型判断依据，只是特殊子句。PostgreSQL 的 `RETURNING` 同理。
+
+---
+
+## 三、FormatTemplate 模板体系
+
+### 3.1 模板定义
+
+```java
+public class FormatTemplate {
+
+    // ── 断行规则 ──
+    Set<String> lineBreakBefore;     // 在该关键字前换行
+    Set<String> lineBreakAfter;      // 在该关键字后换行
+
+    // ── 缩进规则 ──
+    Set<String> indentIncrease;      // 缩进 +1（BEGIN, THEN, LOOP...）
+    Set<String> indentDecrease;      // 缩进 -1（END, ELSIF...）
+
+    // ── 对齐规则 ──
+    boolean selectColumnAlign;       // SELECT 列对齐
+    boolean declarationAlign;        // PL/SQL 声明对齐
+    boolean columnDefAlign;          // DDL 列定义对齐
+    boolean joinOnAlign;             // ON 条件对齐
+    boolean setAlign;                // UPDATE SET 等号对齐
+
+    // ── 逗号规则 ──
+    CommaPosition commaPosition;     // TRAILING / LEADING
+    boolean commaBreak;              // 逗号后换行
+
+    // ── 条件规则 ──
+    boolean whereBreakBefore;        // WHERE 前换行
+    WhereAndPosition whereAndPosition; // LINE_START / LINE_END
+    boolean joinBreakBefore;         // JOIN 前换行
+    boolean onBreakBefore;           // ON 前换行
+    boolean fromBreakBefore;         // FROM 前换行
+    boolean setOperatorBreakBefore;  // UNION/MINUS 前换行
+
+    // ── PL/SQL 规则 ──
+    boolean thenBreakBefore;         // THEN 在 IF/WHEN 后也要换行
+    boolean loopBreakBefore;         // LOOP 在 FOR/WHILE 后也要换行
+    boolean elseBreakBefore;         // ELSE 独立行
+    boolean exceptionBreakBefore;    // EXCEPTION 前换行
+    boolean endBreakBefore;          // END 前换行
+    boolean returnBreakBefore;       // RETURN 前换行 (PL/SQL 函数)
+    boolean forBreakBefore;          // FOR 前换行 (cursor FOR loop)
+
+    // ── DDL 规则 ──
+    boolean createBreakAfter;        // CREATE 后换行
+    boolean tableBreakAfter;         // TABLE 后换行
+    boolean parenthesisBreakAfter;   // ( 后换行
+    boolean constraintBreakBefore;   // CONSTRAINT 前换行
+    boolean referencesBreakBefore;   // REFERENCES 前换行
+    boolean storageBreakBefore;      // TABLESPACE/STORAGE 前换行
+
+    // ── DML 规则 ──
+    boolean intoBreakAfter;          // INSERT INTO 后换行
+    boolean valuesBreakBefore;       // VALUES 前换行
+    boolean usingBreakBefore;        // MERGE USING 前换行
+    boolean whenBreakBefore;         // WHEN MATCHED 前换行
+}
+```
+
+### 3.2 模板继承体系
+
+```
+BaseTemplate (空集合，所有 false)
+├── DQL_BASE
+│   ├── DQL_SELECT
+│   ├── DQL_SELECT_JOIN
+│   ├── DQL_SELECT_UNION
+│   ├── DQL_CTE
+│   └── DQL_SUBQUERY (继承 DQL_SELECT，但 fromBreakBefore = false 等)
+├── DML_BASE
+│   ├── DML_INSERT
+│   ├── DML_UPDATE
+│   ├── DML_DELETE
+│   └── DML_MERGE
+├── DDL_BASE
+│   ├── DDL_CREATE_TABLE
+│   ├── DDL_CREATE_INDEX
+│   ├── DDL_CREATE_VIEW
+│   └── DDL_ALTER_TABLE
+└── PLSQL_BASE
+    ├── PLSQL_BLOCK
+    ├── PLSQL_FUNCTION
+    ├── PLSQL_PROCEDURE
+    ├── PLSQL_PACKAGE
+    ├── PLSQL_PACKAGE_BODY
+    ├── PLSQL_TRIGGER
+    └── PLSQL_TYPE
+```
+
+模板的 `lineBreakBefore`/`indentIncrease` 等集合初始化时先复制父模板，再添加/删除特有项。
+
+### 3.3 模板示例
+
+#### DQL_SELECT 模板
+
+```java
+lineBreakBefore: {
+    FROM, WHERE, GROUP, ORDER, HAVING,
+    UNION, MINUS, INTERSECT, EXCEPT,
+    START, CONNECT, FETCH, OFFSET, LIMIT
+}
+lineBreakAfter:  { SELECT }
+indentIncrease:  { SELECT, CASE, WHEN, BEGIN, THEN, LOOP }
+indentDecrease:  { END, ELSIF, ELSE, EXCEPTION }
+commaPosition:   FormatOptions.commaPosition  // 用户配置
+commaBreak:      true  // 逗号后换行（当 selectColumnMode != COMPACT 时）
+selectColumnAlign: true // 当 selectColumnMode == ALIGN 时
+whereBreakBefore: true
+whereAndPosition: FormatOptions.whereAndPosition
+joinBreakBefore:  FormatOptions.joinOnNewline
+onBreakBefore:    FormatOptions.joinOnNewline && FormatOptions.joinOnAlign
+fromBreakBefore:  FormatOptions.fromClauseNewline
+```
+
+#### DDL_CREATE_TABLE 模板
+
+```java
+lineBreakBefore: {
+    (, CONSTRAINT, REFERENCES, TABLESPACE, PCTFREE, PCTUSED,
+    INITRANS, MAXTRANS, STORAGE, LOGGING, NOLOGGING,
+    COMPRESS, NOCOMPRESS, MONITORING, NOMONITORING,
+    PARTITION, SUBPARTITION, RANGE, HASH, LIST
+}
+lineBreakAfter:  { CREATE, TABLE, (, CONSTRAINT, PARTITION }
+indentIncrease:  { (, CONSTRAINT }
+indentDecrease:  { ) }
+columnDefAlign:  FormatOptions.columnDefAlign
+constraintBreakBefore: FormatOptions.constraintFormat == SEPARATE_LINE ? true : false
+storageBreakBefore: FormatOptions.storageClauseFormat == LINE_BREAK ? true : false
+```
+
+#### PLSQL_FUNCTION 模板
+
+```java
+lineBreakBefore: {
+    DECLARE, BEGIN, EXCEPTION, END,
+    IF, THEN, ELSE, ELSIF, END IF,
+    LOOP, END LOOP, FOR, WHILE,
+    CASE, WHEN, ELSE, END CASE,
+    RETURN, EXIT, CONTINUE, NULL,
+    OPEN, FETCH, CLOSE,
+    RAISE, PRAGMA, COMMIT, ROLLBACK,
+    SAVEPOINT, EXECUTE, IMMEDIATE, INTO,
+    IS, AS
+}
+lineBreakAfter:  { IS, AS, DECLARE, BEGIN }
+indentIncrease:  { BEGIN, DECLARE, LOOP, THEN, CASE, WHEN, IF }
+indentDecrease:  { END, ELSIF, ELSE, EXCEPTION, END IF, END LOOP, END CASE }
+declarationAlign: FormatOptions.declarationAlign
+thenBreakBefore:  FormatOptions.thenOnNewLine
+loopBreakBefore:  FormatOptions.loopOnNewLine
+elseBreakBefore:  FormatOptions.elseOnNewLine
 ```
 
 ---
 
-## 三、方言配置层
+## 四、FormatOptions 完整参数表（全部 40+ 项，100% UI 可配置）
 
-### 3.1 设计
+### 4.1 通用（5）
 
-方言配置不是独立解析器，而是一系列 **配置化参数**，格式化引擎根据当前激活的方言加载对应配置。
+| 参数 | 键名 | 类型 | 默认值 | UI 控件 |
+|------|------|------|--------|---------|
+| 方言 | `dialect` | String | Oracle | 下拉框（Oracle/OceanBase/MySQL/PostgreSQL + 自定义） |
+| 关键字大小写 | `keywordCase` | UPPER/LOWER/PRESERVE | UPPER | 下拉框 |
+| 缩进空格数 | `indentSize` | int | 4 | 微调框 1-8 |
+| 最大行宽 | `maxLineWidth` | int | 120 | 微调框 0-999（0=不限） |
+| 换行符 | `lineEnding` | LF/CRLF | LF | 下拉框 |
+
+### 4.2 DQL（19）
+
+| 参数 | 键名 | 类型 | 默认值 | UI 控件 |
+|------|------|------|--------|---------|
+| SELECT 列模式 | `selectColumnMode` | ALIGN/COMPACT/ONE_PER_LINE | ALIGN | 下拉框 |
+| SELECT 没列一行几个 | `selectColumnsPerRow` | int | 0(不限) | 微调框（COMPACT 模式生效） |
+| FROM 前换行 | `fromClauseNewline` | boolean | true | 复选框 |
+| FROM 额外缩进 | `fromClauseIndent` | int | 0 | 微调框 |
+| JOIN 换行 | `joinOnNewline` | boolean | true | 复选框 |
+| ON 条件对齐 | `joinOnAlign` | boolean | true | 复选框 |
+| AND/OR 位置 | `whereAndPosition` | LINE_START/LINE_END | LINE_START | 下拉框 |
+| WHERE 条件缩进 | `whereIndentSize` | int | (同 indentSize) | 微调框 |
+| 逗号位置 | `commaPosition` | TRAILING/LEADING | TRAILING | 下拉框 |
+| 子查询风格 | `subqueryStyle` | INLINE/EXPAND/AUTO | AUTO | 下拉框 |
+| 子查询展开阈值 | `subqueryThreshold` | int | 80 | 微调框（AUTO 模式） |
+| 子查询内 SELECT 列模式 | `subquerySelectMode` | ALIGN/COMPACT/ONE_PER_LINE | ALIGN | 下拉框 |
+| 子查询内 FROM 换行 | `subqueryFromNewline` | boolean | true | 复选框 |
+| CTE 格式 | `cteFormat` | COMPACT/ONE_PER_LINE/ALIGN | ONE_PER_LINE | 下拉框 |
+| 集合操作符前换行 | `setOperatorNewline` | boolean | true | 复选框 |
+| 集合操作两侧对齐 | `setOperatorAlign` | boolean | true | 复选框 |
+| IN 列表格式 | `inListFormat` | COMPACT/ONE_PER_LINE | COMPACT | 下拉框 |
+| IN 列表每行几个值 | `inListColumnsPerRow` | int | 5 | 微调框（COMPACT 模式） |
+| IN 列表自动换行阈值 | `inListThreshold` | int | 10 | 微调框 |
+
+### 4.3 DML（11）
+
+| 参数 | 键名 | 类型 | 默认值 | UI 控件 |
+|------|------|------|--------|---------|
+| INSERT 列格式 | `insertColumnFormat` | COMPACT/ONE_PER_LINE | COMPACT | 下拉框 |
+| INSERT 值格式 | `insertValueFormat` | COMPACT/ONE_PER_LINE | COMPACT | 下拉框 |
+| INSERT 列每行几个 | `insertColumnsPerRow` | int | 0(不限) | 微调框 |
+| INSERT 值每行几个 | `insertValuesPerRow` | int | 0(不限) | 微调框 |
+| INSERT 子查询风格 | `insertSubqueryStyle` | INLINE/EXPAND/AUTO | AUTO | 下拉框 |
+| UPDATE SET 对齐 | `updateSetAlign` | boolean | true | 复选框 |
+| UPDATE SET 每行几个 | `updateSetColumnsPerRow` | int | 0(不限) | 微调框 |
+| UPDATE SET 逗号位置 | `updateSetCommaPosition` | TRAILING/LEADING | TRAILING | 下拉框 |
+| DELETE FROM 换行 | `deleteFromNewline` | boolean | true | 复选框 |
+| MERGE INTO 换行 | `mergeIntoNewline` | boolean | true | 复选框 |
+| MERGE WHEN 换行 | `mergeWhenNewline` | boolean | true | 复选框 |
+
+### 4.4 DDL（10）
+
+| 参数 | 键名 | 类型 | 默认值 | UI 控件 |
+|------|------|------|--------|---------|
+| 列定义对齐 | `columnDefAlign` | boolean | true | 复选框 |
+| 列定义每行几个 | `columnDefColumnsPerRow` | int | 0(每列一行) | 微调框 |
+| 列定义类型大小写 | `columnDefTypeCase` | UPPER/LOWER/PRESERVE | PRESERVE | 下拉框 |
+| 约束格式 | `constraintFormat` | INLINE/SEPARATE_LINE | SEPARATE_LINE | 下拉框 |
+| 约束列每行几个 | `constraintColumnsPerRow` | int | 5 | 微调框 |
+| 存储子句格式 | `storageClauseFormat` | COMPACT/LINE_BREAK | COMPACT | 下拉框 |
+| 索引列格式 | `indexColumnFormat` | COMPACT/ONE_PER_LINE | COMPACT | 下拉框 |
+| 索引列每行几个 | `indexColumnsPerRow` | int | 5 | 微调框 |
+| 分区格式 | `partitionFormat` | COMPACT/EXPAND | COMPACT | 下拉框 |
+| 分区列每行几个 | `partitionColumnsPerRow` | int | 3 | 微调框 |
+
+### 4.5 PL/SQL（14）
+
+| 参数 | 键名 | 类型 | 默认值 | UI 控件 |
+|------|------|------|--------|---------|
+| 声明对齐 | `declarationAlign` | boolean | true | 复选框 |
+| 参数列表模式 | `parameterListMode` | COMPACT/ONE_PER_LINE | COMPACT | 下拉框 |
+| 参数每行几个 | `parameterColumnsPerRow` | int | 3 | 微调框（COMPACT 模式） |
+| 参数 IN/OUT 大小写 | `parameterDirectionCase` | UPPER/LOWER/PRESERVE | UPPER | 下拉框 |
+| 参数类型大小写 | `parameterTypeCase` | UPPER/LOWER/PRESERVE | PRESERVE | 下拉框 |
+| THEN 换行 | `thenOnNewLine` | boolean | false | 复选框 |
+| LOOP 换行 | `loopOnNewLine` | boolean | false | 复选框 |
+| ELSE 独立行 | `elseOnNewLine` | boolean | true | 复选框 |
+| EXCEPTION 对齐 | `exceptionAlign` | INDENT/OUTDENT | INDENT | 下拉框 |
+| END 对齐 | `endAlign` | boolean | true | 复选框 |
+| 括号间距 | `parenthesisSpacing` | NONE/INSIDE/BOTH | NONE | 下拉框 |
+| FOR LOOP 格式 | `forLoopFormat` | COMPACT/EXPAND | COMPACT | 下拉框 |
+| CASE 格式 | `caseExpressionFormat` | COMPACT/EXPAND | EXPAND | 下拉框 |
+| INTO 变量对齐 | `intoVariableAlign` | boolean | true | 复选框 |
+
+### 4.6 子查询自定义控制（3）
+
+这是你特别提到的，按子查询出现位置独立控制：
+
+| 参数 | 键名 | 说明 | 默认值 |
+|------|------|------|--------|
+| SELECT 列中子查询 | `selectListSubqueryStyle` | INLINE/EXPAND/AUTO | AUTO |
+| WHERE/条件中子查询 | `whereSubqueryStyle` | INLINE/EXPAND/AUTO | AUTO |
+| FROM 子句子查询（派生表） | `fromSubqueryStyle` | INLINE/EXPAND/AUTO | AUTO |
+
+这三个参数互不影响。例如：`FROM` 中的子查询通常想展开（让人看到数据源结构），而 `WHERE IN (SELECT ...)` 中短子查询可以内联。
+
+### 4.7 注释与空白（5）
+
+| 参数 | 键名 | 类型 | 默认值 | UI 控件 |
+|------|------|------|--------|---------|
+| 注释保留 | `commentPreserve` | PRESERVE/STRIP | PRESERVE | 下拉框 |
+| 注释缩进 | `commentIndent` | boolean | true | 复选框 |
+| 空行处理 | `blankLineHandling` | PRESERVE/COLLAPSE/STRIP | COLLAPSE | 下拉框 |
+| 行尾空格清理 | `trailingWhitespaceTrim` | boolean | true | 复选框 |
+| 块开括号前空行 | `blankLineBeforeBlock` | boolean | false | 复选框 |
+
+### 4.8 "每行N列"设计说明
+
+部分参数采用 `columnsPerRow` 后缀设计，支持更精细的行长度控制：
+
+```
+columnsPerRow = 0: 不按列数限制（仍然受 maxLineWidth 约束）
+columnsPerRow = 5: 每行最多放5个值/列，然后换行
+columnsPerRow = 8: 每行最多放8个值/列
+
+适用场景举例:
+  - IN (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+    → inListColumnsPerRow=5 时:
+      IN (1, 2, 3, 4, 5,
+          6, 7, 8, 9, 10)
+
+  - CREATE TABLE t (a NUMBER, b VARCHAR2(10), c DATE, d NUMBER)
+    → columnDefColumnsPerRow=0(默认，每列一行):
+      CREATE TABLE t (
+          a NUMBER,
+          b VARCHAR2(10),
+          c DATE,
+          d NUMBER
+      )
+    → columnDefColumnsPerRow=2:
+      CREATE TABLE t (
+          a NUMBER,       b VARCHAR2(10),
+          c DATE,         d NUMBER
+      )
+
+  - INSERT INTO t VALUES (1, 'a', SYSDATE, 100, 200, 300)
+    → insertValuesPerRow=4:
+      INSERT INTO t VALUES (1, 'a', SYSDATE, 100,
+                            200, 300)
+```
+
+`columnsPerRow` 和 `maxLineWidth` 同时生效，**先到者先换行**。
+
+---
+
+## 五、子查询智能处理
+
+### 5.1 检测时机
+
+当 TokenProcessor 遇到 `(` 时，检查下一个有效 token：
+
+```
+( + SELECT / WITH → 标记为子查询子序列
+( + 非 SELECT     → 普通括号，不特殊处理
+```
+
+### 5.2 括号匹配
+
+```java
+class SubqueryHandler {
+    // 找到匹配的 )
+    int findMatchingParen(List<Token> tokens, int openIndex) {
+        int depth = 1;
+        for (int i = openIndex + 1; i < tokens.size(); i++) {
+            switch (tokens.get(i).getType()) {
+                case LPAREN -> depth++;
+                case RPAREN -> depth--;
+                case EOF -> return -1;
+            }
+            if (depth == 0) return i;
+        }
+        return -1;
+    }
+
+    // 格式化子查询
+    String formatSubquery(List<Token> subTokens, SqlType type,
+                          FormatOptions opts, FormatTemplate tmpl, int indent) {
+
+        int subqueryStyle = getStyle(type, opts); // 根据子查询位置决定
+        // selectListSubqueryStyle / whereSubqueryStyle / fromSubqueryStyle
+
+        if (subqueryStyle == INLINE) {
+            return formatInline(subTokens, opts);
+        }
+        if (subqueryStyle == EXPAND) {
+            return formatExpanded(subTokens, opts, tmpl, indent + 1);
+        }
+        // AUTO: 预判复杂度
+        if (shouldExpand(subTokens, opts)) {
+            return formatExpanded(subTokens, opts, tmpl, indent + 1);
+        }
+        return formatInline(subTokens, opts);
+    }
+
+    // AUTO 模式判断
+    boolean shouldExpand(List<Token> tokens, FormatOptions opts) {
+        // 1. 字符数超过阈值
+        int totalChars = tokens.stream().mapToInt(t -> t.getText().length()).sum();
+        if (totalChars > opts.getSubqueryThreshold()) return true;
+
+        // 2. 包含复杂子句
+        String joined = String.join(" ", tokens.stream().map(Token::getText).toList());
+        String upper = joined.toUpperCase();
+        if (upper.contains("JOIN") || upper.contains("GROUP BY")
+            || upper.contains("HAVING") || upper.contains("ORDER BY")
+            || upper.contains("UNION") || upper.contains("WHERE")) return true;
+
+        // 3. 列数 > 1
+        // (估算: SELECT 到 FROM 之间的逗号数)
+        // 简单启发式: 如果有 FROM 之前的逗号数 > 0
+
+        // 默认: 不展开
+        return false;
+    }
+
+    // 位置感知: 同一个子查询，在 FROM 子句中默认展开
+    // 在 WHERE IN 中默认内联（短）/ 展开（长）
+    private int getStyle(SqlType parentType, FormatOptions opts) {
+        return switch (parentType) {
+            case DQL_SELECT -> opts.getSelectListSubqueryStyle();
+            case DQL_SUBQUERY -> opts.getWhereSubqueryStyle(); // 条件子查询
+            case DQL_SELECT_JOIN -> opts.getFromSubqueryStyle(); // FROM 子查询
+            case DML_INSERT -> opts.getInsertSubqueryStyle();
+            default -> opts.getSubqueryStyle(); // 通用
+        };
+    }
+}
+```
+
+### 5.3 输出对比
+
+```sql
+-- SELECT 列中的子查询（selectListSubqueryStyle=INLINE）
+SELECT e.id, (SELECT name FROM projects WHERE id = e.project_id) AS project_name
+FROM employees e;
+
+-- WHERE 中的子查询（whereSubqueryStyle=EXPAND）
+SELECT * FROM employees
+WHERE dept_id IN (
+    SELECT dept_id
+    FROM departments
+    WHERE location = 'Tokyo'
+);
+
+-- FROM 中的派生表（fromSubqueryStyle=EXPAND）
+SELECT a.id, a.total
+FROM (
+    SELECT id, SUM(amount) AS total
+    FROM orders
+    WHERE status = 'COMPLETED'
+    GROUP BY id
+) a
+WHERE a.total > 1000;
+```
+
+---
+
+## 六、方言体系
+
+### 6.1 SqlDialect 接口
 
 ```java
 public interface SqlDialect {
-    String getName();                          // "Oracle", "MySQL", ...
-    Set<String> getKeywords();                 // 方言关键字集
-    Set<String> getIndentIncrease();           // 缩进增加关键字
-    Set<String> getIndentDecrease();           // 缩进减少关键字
-    String quoteIdentifier(String name);       // 标识符引用（"name" / `name` / name）
-    List<SpecialClause> getSpecialClauses();   // 特殊子句（LIMIT, RETURNING 等）
-    FormatOptions getDefaultOptions();         // 该方言的默认格式化偏好
-}
+    String getName();
+    String quoteIdentifier(String name);           // Oracle: "name", MySQL: `name`, PG: "name"
+    List<SpecialClause> getSpecialClauses();        // LIMIT, RETURNING, ON DUPLICATE KEY...
+    FormatOptions getDefaultOptions();              // 方言默认格式化偏好
 
-// 内置方言
-SqlDialect ORACLE     = new OracleDialect();     // 默认
-SqlDialect OCEANBASE  = new OceanBaseDialect();  // 同 Oracle
-SqlDialect MYSQL      = new MySqlDialect();
-SqlDialect PG         = new PostgreSqlDialect();
+    // 模板层关键字集
+    Set<String> getLineBreakBeforeKeywords();       // 模板 lineBreakBefore 的方言补充
+    Set<String> getLineBreakAfterKeywords();        // 模板 lineBreakAfter 的方言补充
+    Set<String> getDqlKeywords();                   // DQL 识别用
+    Set<String> getDdlKeywords();                   // DDL 识别用
+    Set<String> getPlsqlKeywords();                 // PL/SQL 识别用
+
+    // 方言特有标识符规则
+    boolean isReservedWord(String word);            // 判断是否关键字（用于决定是否加引号）
+
+    record SpecialClause(String keyword, int position) {
+        static int BEFORE = 0;  // 在该关键字前换行
+        static int AFTER  = 1;  // 在该关键字后换行
+    }
+}
 ```
 
-### 3.2 方言差异示例
+### 6.2 四种内置方言
 
-| 特性 | Oracle | MySQL | PostgreSQL |
-|------|--------|-------|------------|
-| 标识符引用 | `"name"` | `` `name` `` | `"name"` |
-| SELECT 限制 | `WHERE ROWNUM` | `LIMIT n OFFSET m` | `LIMIT n OFFSET m` |
-| INSERT 扩展 | 无 | `ON DUPLICATE KEY` | `ON CONFLICT DO` |
-| UPDATE 扩展 | 无 | `LIMIT` | `RETURNING` |
-| DELETE 扩展 | 无 | `LIMIT` | `RETURNING` |
-| MERGE | 支持 | 不支持 | 不支持 |
-| 关键字集 | PL/SQL 全量 | MySQL 专属 | PG 专属 |
+| 特性 | Oracle | OceanBase | MySQL | PostgreSQL |
+|------|--------|-----------|-------|------------|
+| 标识符引用 | `"name"` | `"name"` | `` `name` `` | `"name"` |
+| 特殊子句 | — | — | `LIMIT n OFFSET m` | `LIMIT n OFFSET m` |
+| | | | `ON DUPLICATE KEY` | `ON CONFLICT DO` |
+| | | | | `RETURNING` |
+| | | | | `DO UPDATE SET` |
+| DQL 额外 | `CONNECT BY` `START WITH` | 同 Oracle | — | `DISTINCT ON` |
+| PL/SQL | 完整支持 | 同 Oracle | 不支持 | `$$PLSQL` |
+| 默认列对齐 | ALIGN | ALIGN | COMPACT | ALIGN |
+| 默认缩进 | 4 | 4 | 2 | 4 |
 
-### 3.3 方言检测
+### 6.3 方言扩展机制（外部注册）
 
 ```java
-// 根据连接自动检测（由 ConnectionManager.getDbType() 驱动）
-SqlDialect dialect = DialectManager.detect(conn);  // 自动
-// 或手动选择（Settings 中可覆盖）
-SqlDialect dialect = DialectManager.forName("MySQL");
+// 外部调用方可以注册自定义方言
+DialectManager.register(new Db2Dialect());
+DialectManager.register(new H2Dialect());
+DialectManager.register(new MariaDBDialect());
+DialectManager.register(new SQLiteDialect());
+DialectManager.register(new SnowflakeDialect());
+DialectManager.register(new RedshiftDialect());
+DialectManager.register(new BigQueryDialect());
+
+// 注册后可通过名称使用
+SqlDialect dialect = DialectManager.forName("DB2");
 ```
 
-方言选择存储在每个连接的 ConnectionInfo 中，也可在格式化时通过连接名查询。
+自定义方言只需要实现 `SqlDialect` 接口的 8 个方法，不需要修改格式化引擎。
 
 ---
 
-## 四、两个格式化入口设计
+## 七、SettingsDialog UI 设计（参考 DataGrip 布局）
 
-### 4.1 Entry 1: SQL Quick Formatter（增强现有 SqlFormatter）
-
-**适用场景**：SqlEditorPanel 中的 SQL 语句
-
-**现有基础**：`SqlFormatter.java`（215行，ANTLR Lexer + 关键字识别）
-
-**增强计划**：
-
-| 改进项 | 当前 | 目标 |
-|--------|------|------|
-| 子句识别 | 仅 SELECT | SELECT/INSERT/UPDATE/DELETE/MERGE |
-| FROM/JOIN | 无处理 | 独立行、ON 对齐 |
-| WHERE/AND | 无处理 | AND 行首/行尾可选、条件对齐 |
-| INSERT 列 | 无处理 | 列列表对齐 |
-| UPDATE SET | 无处理 | SET 列=值对齐 |
-| 逗号换行 | 仅 SELECT 列表 | 可配置（结尾/开头）|
-| 函数调用 | 无处理 | 括号内空格控制 |
-| 注释保留 | 有（基本） | 保留位置 + 对齐 |
-| 方言适配 | 硬编码 Oracle | 读取 SqlDialect |
-
-**核心算法**（保持 Token 流方式）：
+### 7.1 整体布局
 
 ```
-Token 流 → 加载 SqlDialect → 上下文检测器 → DML 子句路由
-  ├── SELECT 段 → SELECT 对齐器（列/FROM/WHERE + 方言特殊子句）
-  ├── INSERT 段 → INSERT 格式化器（列列表/VALUES + 方言扩展）
-  ├── UPDATE 段 → UPDATE 格式化器（SET 对齐 + RETURNING）
-  └── DELETE 段 → DELETE 格式化器（WHERE 对齐 + LIMIT）
+┌── Settings (模态) ────────────────────────────────────────────────────┐
+│                                                                         │
+│  ┌────────────┬────────────────────────────────────────────────────────┐ │
+│  │            │  SQL 格式化                                             │ │
+│  │  外观与行为  │  ┌─ 方言: [Oracle            ▼] ───────────────────┐  │ │
+│  │  ├── 外观    │  │ Profile: [默认 (Oracle)    ▼] [▼保存] [导入] [导出] │  │ │
+│  │  │  • 主题   │  └──────────────────────────────────────────────────┘  │ │
+│  │  │          │                                                        │ │
+│  │  ├── 编辑器  │  ┌──────────────────────────────────────────────────┐  │ │
+│  │  │  • 自动保存│  │ [通用] [DQL] [DML] [DDL] [PL/SQL] [注释/空白]     │  │ │
+│  │  │          │  │                                                    │  │ │
+│  │  ├── SQL    │  │  左侧配置面板 ← → 右侧预览                        │  │ │
+│  │  │  • 格式化 │  │                                                    │  │ │
+│  │  │          │  │  ┌──────────────┐  ┌────────────────────┐         │  │ │
+│  │  ├── 数据库  │  │  │ 缩进空格数: 4 │  │ SELECT id,          │         │  │ │
+│  │  │  • 连接   │  │  │ 关键字大小写:  │  │        name          │         │  │ │
+│  │  │  • 元数据 │  │  │ [UPPER    ▼] │  │   FROM employees    │         │  │ │
+│  │  │          │  │  │ 最大行宽: 120 │  │  WHERE status = 'A'  │         │  │ │
+│  │  │          │  │  │ 换行符: [LF ▼]│  │  ORDER BY id;       │         │  │ │
+│  │  │          │  │  │              │  │                      │         │  │ │
+│  │  │          │  │  └──────────────┘  └────────────────────┘         │  │ │
+│  │  └──────────┘  └──────────────────────────────────────────────────┘  │ │
+│  │                                                                      │ │
+│  │                                     [恢复默认]       [应用] [取消]    │ │
+│  └──────────────────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
-**性能要求**：< 50ms 对任意 SQL
-
-### 4.2 Entry 2: PL/SQL Full Formatter（新增）
-
-**适用场景**：SourceViewerPanel 中的包/过程/函数/TYPE
-
-**新类**：`PlSqlFormatter.java`
-
-**核心改进**：
-
-#### 4.2.1 嵌套深度跟踪（栈，非计数器）
-
-当前使用计数器（`indent++`/`indent--`），问题是 ELSE 会抵消 IF 的缩进，END 不能区分关闭哪个结构。
-
-改为栈：
+### 7.2 左侧树结构
 
 ```
-栈结构示例:
-[CASE]           → 缩进 +1
-[CASE, WHEN]     → 缩进 +2
-[CASE, WHEN, IF] → 缩进 +3 (IF 嵌套在 WHEN 内)
-[WHEN, IF]       → 遇到 THEN? 缩进不变
-[CASE, WHEN]     → END IF 弹出 IF
-[CASE]           → END CASE 弹出 CASE
+Settings
+├── 外观 (Appearance & Behavior)
+│   ├── 主题 (Theme) ← 从外观移到设置树
+│   └── ...
+├── 编辑器 (Editor)
+│   └── 自动保存 (Auto Save) ← 从外观移到设置树
+├── SQL (SQL)
+│   ├── 格式化 (Formatting) ← current "SQL 格式化" tab
+│   │   ├── 通用 (General)
+│   │   ├── 查询 (DQL)
+│   │   ├── 数据操作 (DML)
+│   │   ├── 数据定义 (DDL)
+│   │   ├── PL/SQL
+│   │   └── 注释/空白 (Comments)
+│   └── ...
+├── 数据库 (Database)
+│   ├── 连接 (Connections)
+│   ├── 元数据 (Metadata)
+│   └── ...
 ```
 
-#### 4.2.2 上下文分段
+### 7.3 右侧面板分区
 
-根据关键字将代码划分为段落，每段有独立格式化规则：
+每个格式化分类（通用/DQL/DML/DDL/PLSQL/注释）独立为 `JPanel`，点击左侧树节点时切换。
 
-| 段落类型 | 检测关键字 | 格式化规则 |
-|----------|-----------|-----------|
-| **头部段** | CREATE OR REPLACE | 参数列表换行、IS/AS 对齐 |
-| **声明段** | IS/AS 后 → DECLARE/BEGIN | 变量 := 对齐、TYPE 声明格式 |
-| **可执行段** | BEGIN ... END | IF/CASE/LOOP 缩进、赋值对齐 |
-| **异常段** | EXCEPTION | WHEN 缩进、OTHERS 格式 |
-| **子程序段** | FUNCTION/PROCEDURE（嵌套）| 嵌套子程序独立格式化 |
-| **SQL 段** | SELECT/INSERT/UPDATE（PLSQL 内）| 复用 SqlFormatter 规则 |
-
-#### 4.2.3 结构识别
-
-新增识别和正确缩进的 PL/SQL 结构：
-
-| 结构 | 缩进策略 | 关闭关键字 |
-|------|---------|-----------|
-| IF-THEN | THEN 后 +1 | END IF |
-| IF-THEN-ELSE | ELSE 对齐 IF, ELSE 后 +1 | END IF |
-| CASE-WHEN | CASE +1, WHEN 对齐, WHEN 后 +1 | END CASE |
-| FOR-LOOP | LOOP 后 +1 | END LOOP |
-| WHILE-LOOP | LOOP 后 +1 | END LOOP |
-| LOOP | 直接 +1 | END LOOP |
-| BEGIN-EXCEPTION | BEGIN +1, EXCEPTION 对齐 | END |
-| DECLARE | 声明区 +1 | BEGIN (过渡) |
-| FUNCTION/PROCEDURE | IS/AS 后 +1 | END [name] |
-
----
-
-## 五、FormatOptions + Profile 预设
-
-### 5.1 FormatOptions 分组与字段
+**通用面板：**
 
 ```
-┌─ 通用 ───────────────────────────────────────────────┐
-│  keywordCase: UPPER / LOWER / PRESERVE                │ (已有)
-│  indentSize: 1-8, 默认 4                              │ (已有)
-│  maxLineWidth: 0=不限制 / 80 / 100 / 120              │ (新增)
-│  lineEnding: LF / CRLF                                │ (新增)
-├─ DML ─────────────────────────────────────────────────┤
-│  selectColumnMode: ALIGN / COMPACT / ONE_PER_LINE     │ (新增)
-│  fromClauseNewline: true / false                      │ (新增)
-│  joinOnNewline: true / false                          │ (新增)
-│  joinOnAlign: true / false                            │ (新增, ON 对齐)
-│  whereAndPosition: LINE_START / LINE_END              │ (新增)
-│  commaPosition: TRAILING / LEADING                    │ (新增)
-│  insertColumnMode: COMPACT / ONE_PER_LINE             │ (新增)
-│  updateSetAlign: true / false                         │ (新增)
-├─ PLSQL ───────────────────────────────────────────────┤
-│  thenOnNewLine: false / true                          │ (新增, THEN 是否换行)
-│  loopOnNewLine: false / true                          │ (新增, LOOP 是否换行)
-│  elseOnNewLine: true / false                          │ (新增, ELSE 是否单独行)
-│  exceptionAlign: INDENT / OUTDENT                     │ (新增)
-│  declarationAlign: true / false                       │ (新增, := 对齐)
-│  parameterListMode: COMPACT / ONE_PER_LINE            │ (新增)
-│  parenthesisSpacing: NONE / INSIDE / BOTH             │ (新增)
-├─ DDL ─────────────────────────────────────────────────┤
-│  columnDefAlign: true / false                         │ (新增, TYPE/列对齐)
-│  storageClauseFormat: COMPACT / LINE_BREAK            │ (新增)
+┌─ 通用 ──────────────────────────────────────────────┐
+│                                                       │
+│  换行:                                                │
+│    □ 在长行处自动换行   最大行宽: [120 ▲ ▼]             │
+│    □ 空行折叠                                           │
+│                                                       │
+│  缩进:                                                │
+│    缩进空格数: [4 ▲ ▼]                                 │
+│                                                       │
+│  大小写:                                              │
+│    关键字: [UPPER ▼]                                   │
+│                                                       │
+│  换行符: [LF ▼]                                       │
+│                                                       │
 └───────────────────────────────────────────────────────┘
 ```
 
-### 5.2 Profile 预设管理
+**DQL 面板（最复杂，分组呈现）：**
 
-Profile 是**一组 FormatOptions 的命名快照**。目的是保存多套配置方案，一键切换。
-
-```java
-public class FormatOptions {
-    // ── 实际格式化选项（同上 20+ 字段）──
-
-    // ── Profile 管理 ──
-    private String activeProfile = "默认 (Oracle)";
-    private Map<String, FormatOptions> profiles = new LinkedHashMap<>();
-
-    // 默认预设（初始化时创建）
-    public void initDefaults() {
-        profiles.put("默认 (Oracle)",   createOracleDefault());
-        profiles.put("紧凑型",          createCompactProfile());
-        profiles.put("宽排版",          createWideProfile());
-    }
-
-    // 切换到指定 Profile
-    public void switchTo(String name) {
-        FormatOptions target = profiles.get(name);
-        if (target != null) {
-            copyFrom(target);
-            activeProfile = name;
-        }
-    }
-
-    // 当前配置另存为新 Profile
-    public void saveAs(String name) {
-        profiles.put(name, snapshot());
-        activeProfile = name;
-    }
-
-    // 导入/导出
-    public String exportProfile(String name) { /* → JSON 字符串 */ }
-    public void importProfile(String name, String json) { /* ← JSON 字符串 */ }
-
-    // 序列化（存到 WorkspaceState）
-    public Map<String, String> toMap() { ... }
-    public static FormatOptions fromMap(Map<String, String> map) { ... }
-}
+```
+┌─ DQL ──────────────────────────────────────────────┐
+│ ┌─ SELECT 列 ─────────────────────────────────────┐ │
+│ │  列模式: [ALIGN                       ▼]         │ │
+│ │  COMPACT 时每行: [0(不限) ▲ ▼] 个列              │ │
+│ │  逗号位置: [行尾(TRAILING) ▼]                    │ │
+│ │  □ SELECT 列内子查询展开                          │ │
+│ └──────────────────────────────────────────────────┘ │
+│ ┌─ FROM/JOIN ─────────────────────────────────────┐ │
+│ │  □ FROM 前换行                                    │ │
+│ │  □ JOIN 前换行                                    │ │
+│ │  □ ON 条件对齐                                    │ │
+│ │  FROM 额外缩进: [0 ▲ ▼]                           │ │
+│ │  FROM 中派生表: [展开(EXPAND)           ▼]        │ │
+│ └──────────────────────────────────────────────────┘ │
+│ ┌─ WHERE ──────────────────────────────────────────┐ │
+│ │  AND/OR 位置: [行首(LINE_START) ▼]               │ │
+│ │  条件缩进: [相同(indentSize) ▼]                   │ │
+│ │  子查询: [自动(AUTO) ▼]                          │ │
+│ └──────────────────────────────────────────────────┘ │
+│ ┌─ 集合操作 ───────────────────────────────────────┐ │
+│ │  □ UNION/MINUS 前换行                             │ │
+│ │  □ UNION 两侧对齐                                  │ │
+│ └──────────────────────────────────────────────────┘ │
+│ ┌─ IN 列表 ────────────────────────────────────────┐ │
+│ │  列表格式: [紧凑(COMPACT) ▼]                      │ │
+│ │  每行: [5 ▲ ▼] 个值后换行                          │ │
+│ └──────────────────────────────────────────────────┘ │
+│ ┌─ CTE ────────────────────────────────────────────┐ │
+│ │  CTE 格式: [每行一个(ONE_PER_LINE) ▼]             │ │
+│ └──────────────────────────────────────────────────┘ │
+│                                                      │
+│ ── 预览 ──────────────────────────────────────────  │
+│ (实时更新的 JTextArea，只读，Monospaced 字体)        │
+│ SELECT  id                                           │
+│        ,name                                         │
+│   FROM  employees                                    │
+│  WHERE  status = 'A'                                 │
+│                                                      │
+└──────────────────────────────────────────────────────┘
 ```
 
-### 5.3 Profile 使用场景
+**DDL 面板：**
 
-| 场景 | 操作 |
+```
+┌─ DDL ──────────────────────────────────────────────┐
+│ ┌─ CREATE TABLE ──────────────────────────────────┐ │
+│ │  □ 列定义对齐                                     │ │
+│ │  每个: [0(仅按行宽) ▲ ▼] 列后换行                  │ │
+│ │  类型大小写: [保持不变(PRESERVE) ▼]                │ │
+│ │  约束格式: [独立行(SEPARATE_LINE) ▼]               │ │
+│ │  约束内每: [5 ▲ ▼] 列后换行                        │ │
+│ │  存储子句: [紧凑(COMPACT) ▼]                       │ │
+│ └──────────────────────────────────────────────────┘ │
+│ ┌─ INDEX ──────────────────────────────────────────┐ │
+│ │  索引列模式: [紧凑(COMPACT) ▼]                    │ │
+│ │  每: [5 ▲ ▼] 列后换行                              │ │
+│ └──────────────────────────────────────────────────┘ │
+│ ┌─ 分区 ───────────────────────────────────────────┐ │
+│ │  分区格式: [紧凑(COMPACT) ▼]                      │ │
+│ │  每: [3 ▲ ▼] 分区后换行                            │ │
+│ └──────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────┘
+```
+
+**PL/SQL 面板：**
+
+```
+┌─ PL/SQL ──────────────────────────────────────────┐
+│ ┌─ 声明/参数 ─────────────────────────────────────┐ │
+│ │  □ 声明对齐 (:= 纵向对齐)                         │ │
+│ │  参数列表: [紧凑(COMPACT) ▼]                      │ │
+│ │  每行: [3 ▲ ▼] 个参数                              │ │
+│ │  参数 IN/OUT 大小写: [UPPER ▼]                    │ │
+│ │  参数类型大小写: [PRESERVE ▼]                      │ │
+│ │  □ INTO 变量对齐                                   │ │
+│ └──────────────────────────────────────────────────┘ │
+│ ┌─ 控制结构 ───────────────────────────────────────┐ │
+│ │  □ THEN 换行                                      │ │
+│ │  □ LOOP 换行                                      │ │
+│ │  □ ELSE 独立行                                     │ │
+│ │  □ END 对齐                                       │ │
+│ │  EXCEPTION: [缩进(INDENT) ▼]                      │ │
+│ │  FOR LOOP: [紧凑(COMPACT) ▼]                      │ │
+│ │  CASE: [展开(EXPAND) ▼]                           │ │
+│ └──────────────────────────────────────────────────┘ │
+│ ┌─ 括号间距 ───────────────────────────────────────┐ │
+│ │  括号内空格: [无(NONE) ▼]                         │ │
+│ └──────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────┘
+```
+
+### 7.4 预览实时更新
+
+- 每次用户修改任一选项 → 预览区域即时重新格式化预览文本
+- 预览文本为固定的标准 SQL（可选择：SELECT/INSERT/CREATE TABLE/PLSQL BLOCK）
+- 左下角显示当前方言
+
+---
+
+## 八、实施计划
+
+### Phase 1: 基础结构搭建
+
+| 任务 | 文件 | 行数 |
+|------|------|------|
+| FormatOptions 扩展（40+ 参数 + toMap/fromMap + fromIni/export/import） | `FormatOptions.java` | ~200 |
+| FormatTemplate + TemplateRegistry | 2 个新文件 | ~150 |
+| SqlType 枚举 + SqlTypeClassifier | 2 个新文件 | ~150 |
+| TokenProcessor 重构（基于模板的断行/缩进/对齐） | 重写 `SqlFormatter.java` | ~400 |
+
+### Phase 2: 子查询与方言
+
+| 任务 | 文件 | 行数 |
+|------|------|------|
+| SubqueryHandler（检测 + 括号匹配 + AUTO 判断 + 递归格式化） | 新文件 | ~200 |
+| SqlDialect 扩展 + 四种方言全部参数 | `SqlDialect.java` + 4 个 Dialect | ~200 |
+| 方言扩展注册机制 | `DialectManager.java` | ~30 |
+
+### Phase 3: DQL/DML 全对齐
+
+| 任务 | 行数 |
 |------|------|
-| 个人多项目 | 下拉切换「项目A规范」/「项目B规范」|
-| 团队统一 | 张三导出 `.json` → 李四导入 |
-| 方言切换 | Oracle 用一套、MySQL 用另一套（自动或手动）|
+| selectColumnMode ALIGN/COMPACT/ONE_PER_LINE | ~100 |
+| from/join/on/where 全部选项 | ~150 |
+| commaPosition LEADING | ~50 |
+| INSERT/UPDATE/DELETE/MERGE 模板 | ~200 |
+| IN 列表格式 + columnsPerRow | ~80 |
 
-### 5.4 方言与 Profile 的关系
+### Phase 4: DDL/PLSQL 全对齐
 
-- **方言**控制的是"引擎能识别什么语法"（关键字集、特殊子句）
-- **Profile**控制的是"格式化成什么样子"（缩进、大小写、对齐方式）
-- 两者正交：同一方言可以有多个 Profile，同一 Profile 也可以应用于不同方言
+| 任务 | 行数 |
+|------|------|
+| DDL CREATE TABLE 列对齐 + constraint/storage | ~150 |
+| DDL INDEX/PARTITION 格式 | ~80 |
+| PLSQL declarationAlign/parameterListMode | ~150 |
+| PLSQL 控制结构对齐 | ~150 |
 
----
+### Phase 5: SettingsDialog UI
 
-## 六、设置面板设计
+| 任务 | 行数 |
+|------|------|
+| 左侧树重构 + 节点选择路由 | ~100 |
+| 通用面板 | ~50 |
+| DQL 面板（最复杂，分组） | ~200 |
+| DML 面板 | ~100 |
+| DDL 面板 | ~100 |
+| PL/SQL 面板 | ~150 |
+| 注释面板 | ~50 |
+| Profile 工具栏（保存/导入/导出） | ~80 |
+| 实时预览 | ~80 |
+| 预览模板选择 | ~30 |
+| 设置持久化（WorkspaceState） | ~50 |
 
-### 6.1 当前（单列 3 个控件）
+### Phase 6: 收尾
 
-```
-┌─ SQL 格式化 ──────┐
-│ 关键字大小写: [▼]  │
-│ 缩进空格数:   [4]  │
-│ SELECT 列对齐: [√] │
-└────────────────────┘
-```
+| 任务 | 行数 |
+|------|------|
+| MainFrame 集成路由 | ~50 |
+| 回归测试 | ~200 |
+| 边界情况处理 | ~100 |
 
-### 6.2 改后（Preset 下拉 + JTabbedPane 四标签页 + 预览）
-
-```
-┌─ SQL 格式化 ──────────────────────────────────────────────┐
-│ [配置方案: 默认 (Oracle) ▼]  [▼ 另存为] [导入] [导出]     │
-├────────────────────────────────────────────────────────────┤
-│ [通用]  [DML]  [PL/SQL]  [DDL]                            │
-├────────────────────────────────────────────────────────────┤
-│ 关键字大小写:    [UPPER       ▼]   最大行宽: [120 ▲ ▼]   │
-│ 缩进空格数:      [4 ▲ ▼]          换行符: [LF        ▼]  │
-│                                                            │
-│ ── 预览 ────────────────────────────────────────────────  │
-│ SELECT  a                                                  │
-│       ,b                                                   │
-│   FROM  t                                                  │
-│  WHERE  x = 1                                              │
-│    AND  y = 2                                              │
-│                                                            │
-│ [恢复默认值]                    [当前数据库方言: Oracle]   │
-└────────────────────────────────────────────────────────────┘
-```
-
-每个标签页：
-- 两列 GridBagLayout（标签 + 控件）
-- 底部实时预览区域（JTextArea，只读）
-- 预览内容随选项变化即时更新
-- 切换 Profile 时所有选项 + 预览同步切换
-- 左下角显示当前连接检测到的方言
+**总计估算：约 3000-3500 行新代码**
 
 ---
 
-## 七、集成入口
-
-### 7.1 MainFrame.formatSql() 升级
-
-```java
-private void formatSql() {
-    Component editor = editorTabs.getSelectedComponent();
-    if (editor == null) return;
-
-    // 检测当前连接的方言
-    SqlDialect dialect = detectCurrentDialect();
-    // 加载当前 Profile 的格式化选项
-    FormatOptions options = formatOptionsManager.resolve(dialect);
-    //                     ↑ 可按（方言+Profile名）匹配最佳 Profile
-
-    if (editor instanceof SqlEditorPanel sqlEditor) {
-        String sql = sqlEditor.getSelectedText();
-        if (sql == null || sql.isBlank()) sql = sqlEditor.getText();
-        String formatted = SqlFormatter.format(sql, options, dialect);
-        sqlEditor.replaceSelection(formatted);
-        statusLabel.setText("格式化完成");
-
-    } else if (editor instanceof SourceViewerPanel sourceViewer) {
-        if (!sourceViewer.isEditable()) {
-            statusLabel.setText("只读模式下无法格式化，请先点击 E 进入编辑");
-            return;
-        }
-        String source = sourceViewer.getTextArea().getText();
-        String formatted = PlSqlFormatter.format(source, options,
-            sourceViewer.getObjectType());
-        sourceViewer.getTextArea().setText(formatted);
-        statusLabel.setText("格式化完成");
-    }
-}
-```
-
-### 7.2 新增入口
-
-| 位置 | 类型 | 触发 |
-|------|------|------|
-| SourceViewerPanel 编辑模式下右键 | 右键菜单「格式化 (Ctrl+Shift+F)」| 格式化全文 |
-| ObjectBrowser → 查看 DDL 对话框 | 按钮「格式化 DDL」 | 对 DDL 文本应用 DDL 格式化器 |
-| 工具栏 ⚙ 按钮（已有）| 保持不变 | 自动路由到对应入口 |
-| Ctrl+Shift+F（已有）| 快捷键 | 同上 |
-
----
-
-## 八、持久化方案
-
-### 8.1 WorkspaceState 扩展
-
-```java
-public static class WorkspaceState {
-    // 已有
-    public int lastActiveIndex;
-    public String theme = "DARK";
-    public Map<String, String> colorOverrides = new HashMap<>();
-    public List<TabState> tabs = new ArrayList<>();
-
-    // 新增
-    public String activeFormatProfile = "默认 (Oracle)";          // 当前选中 Profile
-    public Map<String, Map<String, String>> formatProfiles;       // name → option map
-    public Map<String, String> connectionDialects;                // 连接名 → 方言名（可选覆盖）
-}
-```
-
-### 8.2 方言选择持久化
-
-每个连接可手选方言（在连接属性或 Settings 中设置），存储在 `connectionDialects`，自动检测的方言不存储：
-
-```
-connectionDialects: {
-    "MyOracleConn": "Oracle",
-    "MyOceanBaseConn": "Oracle",   // OceanBase Oracle 模式归 Oracle
-    "MyMySQLConn": "MySQL",
-    "MyPGConn": "PostgreSQL"
-}
-```
-
-未在 map 中的连接使用自动检测。
-
-### 8.3 保存时机
-
-- `SettingsDialog` 点「OK」：保存当前 Profile + 所有 Profiles + 方言覆盖
-- `MainFrame.saveWorkspace()`：同上
-- Profile 切换或另存为：立即保存
-
-### 8.4 加载时机
-
-- `MainFrame` 初始化时：恢复 activeProfile + profiles + connectionDialects
-- `SettingsDialog` 打开时：加载当前 Profiles 列表
-- 格式化触发时：根据当前连接获取方言 + 对应 Profile
-
----
-
-## 九、实施路线图
-
-| 阶段 | 内容 | 工作量 |
-|------|------|--------|
-| 阶段 | 内容 | 工作量 | 状态 |
-|------|------|--------|------|
-| **1A** | `FormatOptions` 扩展（全部字段 + Profile 管理 + toMap/fromMap）| ~1天 | ✅ 完成 |
-| **1B** | `SqlDialect` 接口 + 四种方言配置（Oracle/OB/MySQL/PG）| ~1天 | ✅ 完成 |
-| **1C** | `SettingsDialog` 格式化面板改造（Profile 下拉 + 四标签页 + 预览）| ~1天 | ✅ 完成 |
-| **1D** | 配置持久化（WorkspaceState + save/load）| ~半天 | ✅ 完成 |
-| **2A** | `SqlFormatter` 增强（方言适配 + DML 子句对齐）| ~2天 | 🔄 进行中（方言重载已加，DML 增强待续）|
-| **2B** | `PlSqlFormatter` 新建（嵌套栈 + 上下文分段 + 控制结构）| ~3天 | ⏳ 待开始 |
-| **3A** | 集成（MainFrame 路由 + 右键菜单 + DDL 格式化）| ~1天 | 🔄 进行中（路由 + SqlEditorPanel 右键完成）|
-| **3B** | 测试 + 边界情况处理 | ~1天 | ⏳ 待开始 |
-
-**总计：约 10-11 人天**（已实施约 4 天）
-
-### Phase 1A-1D 实施总结
-
-| 模块 | 文件 | 变更说明 |
-|------|------|----------|
-| 枚举类 | 7 个新文件 | `SelectColumnMode`, `WhereAndPosition`, `CommaPosition`, `ParameterListMode`, `ExceptionAlign`, `ParenthesisSpacing`, `StorageClauseFormat` |
-| FormatOptions | `format/FormatOptions.java` | 21 字段 + `initDefaults()` 三预设 + `switchTo/saveAs/delete/export/import` + `toMap/fromMap/profilesToMap/profilesFromMap` |
-| 方言接口 | `format/dialect/SqlDialect.java` | 接口定义（keywords/indentIncreaseDecrease/quoteIdentifier/SpecialClauses/defaultOptions）|
-| Oracle 方言 | `format/dialect/OracleDialect.java` | ~150 关键字 + PL/SQL 控制结构缩进 |
-| OceanBase 方言 | `format/dialect/OceanBaseDialect.java` | 继承 OracleDialect |
-| MySQL 方言 | `format/dialect/MySqlDialect.java` | 反引号引用 + LIMIT/OFFSET 子句 + 2空格缩进 |
-| PostgreSQL 方言 | `format/dialect/PostgreSqlDialect.java` | ILIKE/RETURNING/ON CONFLICT + LIMIT/OFFSET |
-| DialectManager | `format/dialect/DialectManager.java` | 注册/按名称查询/按 Connection 自动检测 |
-| ConfigManager | `config/ConfigManager.java` | WorkspaceState 新增 `formatProfiles`/`activeFormatProfile`/`connectionDialects` |
-| SettingsDialog | `ui/dialog/SettingsDialog.java` | Profile 工具栏（另存为/删除/导入/导出）+ 4 标签页（通用/DML/PLSQL/DDL）共 21 控件 |
-| SqlFormatter | `format/SqlFormatter.java` | 新增 `format(source, options, dialect)` 重载 |
-| MainFrame | `ui/MainFrame.java` | `formatSql()` 方言路由 + WorkspaceState 持久化 Profile/方言 + `setOnFormat` 注册 |
-| SqlEditorPanel | `ui/component/SqlEditorPanel.java` | `onFormat` 回调 + 右键菜单「格式化」项 |
-| BottomPanel | `ui/component/BottomPanel.java` | `connectionDialects` 字段及 getter/setter |
-
----
-
-### 近期 Bugfix
-
-| 问题 | 根因 | 修复 |
-|------|------|------|
-| SqlFormatter 初始化崩溃 (NoClassDefFoundError) | `Set.of()` 中包含重复元素 `"IN"`（第13行和第26行各一个） | 删除第26行重复 `"IN"` |
-| 结果区背景不跟随主题 | `ResultPanel.applyTheme()` 只遍历 JScrollPane，漏掉 JPanel 结果标签及其内部 JTable | 新增 `applyComponentTreeTheme()` 递归遍历所有子组件并更新 JPanel/JTable/JTableHeader/JViewport/JToolBar |
-| ALL_SCHEMA 弹窗不同步 | ALL_SCHEMA 只改 hidden 集合不更新单项；单项也不更新 ALL_SCHEMA | 收集所有 schema checkbox 到列表，双向同步：ALL_SCHEMA 变则遍历设置单项；单项变则检查全选中状态 |
-| 连接树背景不随主题变 | ObjectBrowser 无 `applyTheme()` 方法；连接节点渲染器用硬编码 `UIManager.getColor()` + fallback 色值 | ObjectBrowser 新增 `applyTheme()`；LeftPanel 存储 browser 引用并调用；渲染器改用 `theme.resolve()` 色键 |
-| 连接树默认 schema 不自动展开 | `rebuildConnectionNode` 只展开到连接层级 | 遍历子节点找到默认 schema 后额外调用 `expandPath` |
-
-### 标签页图标
-
-编辑器标签页和结果集标签页现在显示方块字母图标（16x16 圆角方框 + 白色字母），风格与左侧 ObjectBrowser 树节点图标一致。
-
-**编辑器标签：**
-
-| 标签类型 | 图标 | 颜色 |
-|---|---|---|
-| SqlEditorPanel (SQL 编辑器/控制台) | S | 蓝 `0x337AB7` |
-| SourceViewer PACKAGE | K | 棕 `0xA0522D` |
-| SourceViewer PROCEDURE | P | 红 `0xD9534F` |
-| SourceViewer FUNCTION | F | 红 `0xD9534F` |
-| SourceViewer 其他 | V | 青 `0x5BC0DE` |
-
-**结果集标签：**
-
-| 标签名来源 | 图标 | 颜色 |
-|---|---|---|
-| 表名（`guessLabel` 成功） | T | 蓝 `0x337AB7` |
-| 默认（result1/result2...） | R | 蓝 `0x337AB7` |
-
-### 关闭按钮效果
-
-- 默认态：灰色 `×` 无背景
-- 鼠标悬浮：`#E81123` 红色实心圆形背景 + 白色 `×`
-- 使用 `getModel().isRollover()` + 自定义 `paintComponent` 实现
-- 标签页组件布局：`icon → 2px → label → 2px → glue → closeBtn → 2px`，使关闭按钮紧贴右侧
-
----
-
-## 十、关键设计决策
+## 九、关键设计决策
 
 | 决策 | 选择 | 理由 |
 |------|------|------|
-| 方言支持 | 一套引擎 + 方言配置（非独立解析器）| 复用 80% 共性逻辑，低成本覆盖 4 方言 |
-| Profile 预设 | 命名快照方案（Map<String, FormatOptions>）| 实现简单，用户直观 |
-| 方言检测 | 自动检测 + 手动覆盖 | 自动省事，手动兜底 |
-| 格式化引擎 | Token 流 + 嵌套栈（非 AST）| OceanBase 兼容性好，语法错误不崩溃 |
-| 双入口路由 | 按编辑器类型自动选择 | 对用户透明，一个按钮处理所有场景 |
-| 配置存储 | WorkspaceState JSON | 与现有持久化机制一致 |
-| 预览 | 设置面板内实时预览 | 所见即所得，降低配置学习成本 |
-| PLSQL 对象类型传参 | 传给 PlSqlFormatter 辅助检测 | PACKAGE/BODY/FUNCTION 头部格式不同 |
-| 注释处理 | 保留原文位置 + 可选对齐 | 不破坏手写注释 |
+| 子查询位置独立控制 | 3 个参数（SELECT列/WHERE/FROM）| 不同位置的子查询对可读性要求不同 |
+| columnsPerRow 与 maxLineWidth 双约束 | 同时生效，先到先换行 | 兼容"按列数换行"和"按行宽换行"两类需求 |
+| 方言通过 DialectManager 注册 | 插件式 SPI | 不修改内核即可支持新方言 |
+| Template 继承父类 | 子类型模板继承父类型 | 减少重复，维护方便，DQL_SELECT_JOIN 只需在 DQL_SELECT 基础上增加 JOIN 规则 |
+| 设置面板左侧树 + 右侧配置 | DataGrip 风格 | 分类清晰，大量参数不会让用户迷失 |
+| preview in settings | 实时预览 | 所见即所得，降低配置门槛 |
