@@ -210,8 +210,11 @@ public class SearchReplacePanel extends JPanel {
         java.awt.event.ItemListener togBorder = e -> {
             JToggleButton b = (JToggleButton) e.getSource();
             Color accent = ThemeManager.getInstance().resolve("accent.green");
-            Color border = ThemeManager.getInstance().resolve("border.default");
-            b.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, b.isSelected() ? accent : border));
+            if (b.isSelected()) {
+                b.setBackground(new Color(accent.getRed(), accent.getGreen(), accent.getBlue(), 40));
+            } else {
+                b.setBackground(new Color(0, 0, 0, 0));
+            }
         };
         matchCaseBtn.addItemListener(togBorder);
         wordsBtn.addItemListener(togBorder);
@@ -261,7 +264,7 @@ public class SearchReplacePanel extends JPanel {
         b.setFocusPainted(false);
         b.setCursor(new Cursor(Cursor.HAND_CURSOR));
         b.setOpaque(false);
-        b.setBorder(BorderFactory.createEmptyBorder(3, 6, 3, 6));
+        b.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
     }
 
     private static void styleTogBtn(JToggleButton b) {
@@ -617,7 +620,7 @@ public class SearchReplacePanel extends JPanel {
             fg = new Color(0x333333);
         }
         bgColor = ThemeManager.getInstance().resolve("bg.toolbar");
-        hoverBg = new Color(fg.getRed(), fg.getGreen(), fg.getBlue(), 25);
+        hoverBg = new Color(fg.getRed(), fg.getGreen(), fg.getBlue(), 60);
         matchCountLabel.setForeground(fg);
         searchField.setForeground(fg);
         searchField.setCaretColor(fg);
@@ -629,23 +632,17 @@ public class SearchReplacePanel extends JPanel {
         for (JComponent b : new JComponent[]{prevBtn, nextBtn, matchCaseBtn, wordsBtn, regexBtn,
                 closeBtn, replaceBtn, replaceAllBtn}) {
             b.setForeground(fg);
+            b.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
         }
-        matchCaseBtn.setSelected(matchCaseBtn.isSelected());
-        wordsBtn.setSelected(wordsBtn.isSelected());
-        regexBtn.setSelected(regexBtn.isSelected());
-        Color borderColor = ThemeManager.getInstance().resolve("border.default");
         Color accentColor = ThemeManager.getInstance().resolve("accent.green");
-        for (JComponent b : new JComponent[]{prevBtn, nextBtn, matchCaseBtn, wordsBtn, regexBtn}) {
-            b.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 1, borderColor));
-        }
-        closeBtn.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, borderColor));
-        replaceBtn.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 1, borderColor));
-        replaceAllBtn.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, borderColor));
         for (JToggleButton b : new JToggleButton[]{matchCaseBtn, wordsBtn, regexBtn}) {
             if (b.isSelected()) {
-                b.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 1, accentColor));
+                b.setBackground(new Color(accentColor.getRed(), accentColor.getGreen(), accentColor.getBlue(), 40));
+            } else {
+                b.setBackground(new Color(0, 0, 0, 0));
             }
         }
+        Color borderColor = ThemeManager.getInstance().resolve("border.default");
         setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, borderColor));
     }
 
