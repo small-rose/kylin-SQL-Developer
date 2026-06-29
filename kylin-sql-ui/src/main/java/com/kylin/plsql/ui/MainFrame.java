@@ -2242,6 +2242,23 @@ public class MainFrame extends JFrame {
             tabContainer.setBorder(BorderFactory.createMatteBorder(0, 1, 1, 1,
                 ThemeManager.getInstance().resolve("border.light")));
         }
+        Color tabBg = ThemeManager.getInstance().resolve("bg.toolbar");
+        Color panelBg = ThemeManager.getInstance().resolve("bg.panel");
+        Color editorBg = ThemeManager.getInstance().resolve("bg.editor");
+        Color activeFg = ThemeManager.getInstance().resolve("fg.tab.active");
+        Color inactiveFg = ThemeManager.getInstance().resolve("fg.tab.inactive");
+        UIManager.put("TabbedPane.tabAreaBackground", tabBg);
+        UIManager.put("TabbedPane.background", panelBg);
+        UIManager.put("TabbedPane.selectedBackground", editorBg);
+        UIManager.put("TabbedPane.contentAreaColor", editorBg);
+        UIManager.put("TabbedPane.foreground", inactiveFg);
+        UIManager.put("TabbedPane.selectedForeground", activeFg);
+        editorTabs.updateUI();
+        editorTabs.setBackground(editorBg);
+        if (secondaryTabs != null) {
+            secondaryTabs.updateUI();
+            secondaryTabs.setBackground(editorBg);
+        }
         if (toolbar != null) {
             toolbar.setBackground(ThemeManager.getInstance().resolve("bg.toolbar"));
             toolbar.setBorder(BorderFactory.createMatteBorder(1, 0, 1, 0,
