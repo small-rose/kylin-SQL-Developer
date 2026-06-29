@@ -43,6 +43,7 @@ public class SqlEditorPanel extends JPanel {
     private final JCheckBox autoCommitCheck;
     private final JButton commitBtn;
     private final JButton rollbackBtn;
+    private Color hoverBg;
 
     private Object segmentPainterTag;
     private final DynamicSegmentPainter segmentPainter = new DynamicSegmentPainter();
@@ -91,10 +92,12 @@ public class SqlEditorPanel extends JPanel {
         toolBar.add(autoCommitCheck);
 
         commitBtn = flatBtn("\u63D0\u4EA4", null, e -> doCommit());
+        styleBtn(commitBtn);
         commitBtn.setEnabled(false);
         toolBar.add(commitBtn);
 
         rollbackBtn = flatBtn("\u56DE\u6EDA", null, e -> doRollback());
+        styleBtn(rollbackBtn);
         rollbackBtn.setEnabled(false);
         toolBar.add(rollbackBtn);
 
@@ -588,12 +591,31 @@ public class SqlEditorPanel extends JPanel {
         Color tb = theme.resolve("bg.toolbar");
         toolBar.setBackground(tb);
         topWrapper.setBackground(tb);
-        Color bc = theme.resolve("border.default");
-        for (Component c : toolBar.getComponents()) {
-            if (c instanceof JButton b) {
-                b.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, bc));
+        Color fg = theme.resolve("fg.main");
+        hoverBg = new Color(fg.getRed(), fg.getGreen(), fg.getBlue(), 60);
+        commitBtn.setForeground(fg);
+        rollbackBtn.setForeground(fg);
+    }
+
+    private void styleBtn(JButton b) {
+        b.setContentAreaFilled(true);
+        b.setOpaque(false);
+        b.setBorder(BorderFactory.createEmptyBorder(2, 8, 2, 8));
+        b.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        b.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseEntered(java.awt.event.MouseEvent e) {
+                if (hoverBg != null) {
+                    b.setBackground(hoverBg);
+                    b.repaint();
+                }
             }
-        }
+            @Override
+            public void mouseExited(java.awt.event.MouseEvent e) {
+                b.setBackground(new Color(0, 0, 0, 0));
+                b.repaint();
+            }
+        });
     }
 
     private void applyEditorTheme() {
