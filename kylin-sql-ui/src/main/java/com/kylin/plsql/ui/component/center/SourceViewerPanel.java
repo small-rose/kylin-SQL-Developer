@@ -1,4 +1,4 @@
-package com.kylin.plsql.ui.component;
+package com.kylin.plsql.ui.component.center;
 
 import java.awt.*;
 import java.sql.Connection;
@@ -55,6 +55,11 @@ public class SourceViewerPanel extends JPanel {
     private JPanel leftPanel;
     private JPanel outHeader;
     private JLabel outTitle;
+    private final JPanel toolBar;
+    private final JPanel leftBar;
+    private final JPanel rightBar;
+    private JScrollPane methodScroll;
+    private JSplitPane split;
 
     private static class MethodInfo {
         final String name;
@@ -104,8 +109,10 @@ public class SourceViewerPanel extends JPanel {
         setLayout(new BorderLayout());
 
         // ── Top toolbar ──
-        JPanel toolBar = new JPanel(new BorderLayout(0, 0));
-        JPanel leftBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        toolBar = new JPanel(new BorderLayout(0, 0));
+        toolBar.setBackground(theme.resolve("bg.main"));
+        leftBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        leftBar.setBackground(theme.resolve("bg.main"));
         String typeLabel = "PACKAGE".equals(this.objectType) ? "PACKAGE" :
                            "PACKAGE_BODY".equals(this.objectType) ? "PACKAGE BODY" : this.objectType;
         JLabel title = new JLabel(typeLabel + " " + schema + "." + objectName);
@@ -138,7 +145,8 @@ public class SourceViewerPanel extends JPanel {
 
         toolBar.add(leftBar, BorderLayout.WEST);
 
-        JPanel rightBar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 2));
+        rightBar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 2));
+        rightBar.setBackground(theme.resolve("bg.main"));
         editBtn = flatBtn("E", e -> toggleEdit());
         editBtn.setToolTipText("Toggle edit mode");
         rightBar.add(editBtn);
@@ -162,6 +170,7 @@ public class SourceViewerPanel extends JPanel {
         textArea.setForeground(theme.resolve("fg.main"));
         textArea.setCaretColor(theme.resolve("editor.caret"));
         textArea.setSelectionColor(theme.resolve("selection.bg"));
+        textArea.getInputMap().put(KeyStroke.getKeyStroke("control P"), "none");
 
         RTextScrollPane scrollPane = new RTextScrollPane(textArea);
         scrollPane.setFoldIndicatorEnabled(true);
@@ -185,7 +194,7 @@ public class SourceViewerPanel extends JPanel {
             public boolean getScrollableTracksViewportWidth() { return true; }
         };
         methodList.setFont(new Font("Segoe UI", Font.PLAIN, 13));
-        methodList.setBackground(theme.resolve("list.bg"));
+        methodList.setBackground(theme.resolve("bg.main"));
         methodList.setForeground(theme.resolve("list.fg"));
         methodList.setSelectionBackground(theme.resolve("selection.listBg"));
         methodList.setSelectionForeground(theme.resolve("selection.listFg"));
@@ -226,22 +235,24 @@ public class SourceViewerPanel extends JPanel {
         ToolTipManager.sharedInstance().setInitialDelay(200);
 
         JPanel leftPanel = new JPanel(new BorderLayout());
-        leftPanel.setBackground(theme.resolve("bg.panel"));
+        leftPanel.setBackground(theme.resolve("bg.main"));
         JLabel header = new JLabel(" Methods");
         header.setFont(new Font("Segoe UI", Font.BOLD, 11));
         header.setForeground(theme.resolve("fg.muted"));
+        header.setOpaque(true);
+        header.setBackground(theme.resolve("bg.main"));
         header.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, theme.resolve("border.default")));
         header.setPreferredSize(new Dimension(0, 24));
         leftPanel.add(header, BorderLayout.NORTH);
         this.header = header;
         this.leftPanel = leftPanel;
 
-        JScrollPane methodScroll = new JScrollPane(methodList);
+        methodScroll = new JScrollPane(methodList);
         methodScroll.setBorder(BorderFactory.createEmptyBorder());
-        methodScroll.setBackground(theme.resolve("scroll.bg"));
+        methodScroll.setBackground(theme.resolve("bg.main"));
         leftPanel.add(methodScroll, BorderLayout.CENTER);
 
-        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPanel, scrollPane);
+        split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPanel, scrollPane);
         split.setResizeWeight(0.20);
         split.setDividerSize(3);
         split.setBorder(BorderFactory.createEmptyBorder());
@@ -285,13 +296,24 @@ public class SourceViewerPanel extends JPanel {
     }
 
     public void applyTheme() {
-        setBackground(theme.resolve("bg.main"));
-        if (leftPanel != null) leftPanel.setBackground(theme.resolve("bg.panel"));
+        Color mainBg = theme.resolve("bg.main");
+        setBackground(mainBg);
+        toolBar.setBackground(mainBg);
+        leftBar.setBackground(mainBg);
+        rightBar.setBackground(mainBg);
+        if (leftPanel != null) leftPanel.setBackground(mainBg);
         if (header != null) {
+            header.setOpaque(true);
+            header.setBackground(mainBg);
             header.setForeground(theme.resolve("fg.muted"));
             header.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, theme.resolve("border.default")));
         }
-        methodList.setBackground(theme.resolve("list.bg"));
+        if (methodScroll != null) {
+            methodScroll.getViewport().setBackground(mainBg);
+            methodScroll.setBackground(mainBg);
+        }
+        if (split != null) split.setBackground(mainBg);
+        methodList.setBackground(mainBg);
         methodList.setForeground(theme.resolve("list.fg"));
         methodList.setSelectionBackground(theme.resolve("selection.listBg"));
         methodList.setSelectionForeground(theme.resolve("selection.listFg"));

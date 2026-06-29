@@ -1,4 +1,4 @@
-package com.kylin.plsql.ui.component;
+package com.kylin.plsql.ui.component.bottom;
 
 import com.kylin.plsql.core.config.ThemeManager;
 import com.kylin.plsql.core.db.SqlExecutor;

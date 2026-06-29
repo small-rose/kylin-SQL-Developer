@@ -1,6 +1,8 @@
-package com.kylin.plsql.ui.component;
+package com.kylin.plsql.ui.component.left;
 
 import com.kylin.plsql.core.cache.MetadataCache;
+import com.kylin.plsql.core.config.ConfigManager;
+import com.kylin.plsql.core.config.DbMetadataConfig;
 import com.kylin.plsql.core.config.ThemeManager;
 import com.kylin.plsql.core.db.ConnectionInfo;
 import com.kylin.plsql.core.db.ConnectionManager;
@@ -47,18 +49,31 @@ public class ObjectBrowser extends JPanel {
     private ConnectionManager cm;
     private String currentType; // last detected db type for column queries
 
+    private ConfigManager configManager;
+
+    public void setConfigManager(ConfigManager cm) { this.configManager = cm; }
+
     // ── Object type config ──
 
     private static class ObjectType {
-        final String label, typeCode, querySql;
+        final String label, typeCode;
+        final String querySql;       // null for FIXED_LIST
+        final List<String> fixedValues; // null for SQL
         final boolean expandable;
         ObjectType(String label, String typeCode, String querySql, boolean expandable) {
             this.label = label; this.typeCode = typeCode;
-            this.querySql = querySql; this.expandable = expandable;
+            this.querySql = querySql; this.fixedValues = null;
+            this.expandable = expandable;
+        }
+        ObjectType(String label, String typeCode, List<String> fixedValues, boolean expandable) {
+            this.label = label; this.typeCode = typeCode;
+            this.querySql = null; this.fixedValues = fixedValues;
+            this.expandable = expandable;
         }
     }
 
     private static final List<ObjectType> ORACLE_TYPES = List.of(
+        new ObjectType("模式", "SCHEMA",    java.util.Collections.emptyList(), false),
         new ObjectType("表", "TABLE",     "SELECT table_name FROM all_tables WHERE owner = ? ORDER BY table_name", true),
         new ObjectType("视图", "VIEW",    "SELECT view_name FROM all_views WHERE owner = ? ORDER BY view_name", false),
         new ObjectType("索引", "INDEX",   "SELECT index_name FROM all_indexes WHERE owner = ? ORDER BY index_name", false),
@@ -70,6 +85,7 @@ public class ObjectBrowser extends JPanel {
     );
 
     private static final List<ObjectType> PG_TYPES = List.of(
+        new ObjectType("模式", "SCHEMA",    java.util.Collections.emptyList(), false),
         new ObjectType("表", "TABLE",     "SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = ? ORDER BY tablename", true),
         new ObjectType("视图", "VIEW",    "SELECT viewname FROM pg_catalog.pg_views WHERE schemaname = ? ORDER BY viewname", false),
         new ObjectType("索引", "INDEX",   "SELECT indexname FROM pg_catalog.pg_indexes WHERE schemaname = ? ORDER BY indexname", false),
@@ -79,18 +95,35 @@ public class ObjectBrowser extends JPanel {
     );
 
     private static final List<ObjectType> MYSQL_TYPES = List.of(
+        new ObjectType("模式", "SCHEMA",    java.util.Collections.emptyList(), false),
         new ObjectType("表", "TABLE",     "SELECT table_name FROM information_schema.tables WHERE table_schema = ? AND table_type = 'BASE TABLE' ORDER BY table_name", true),
         new ObjectType("视图", "VIEW",    "SELECT table_name FROM information_schema.views WHERE table_schema = ? ORDER BY table_name", false),
         new ObjectType("函数", "FUNCTION", "SELECT routine_name FROM information_schema.routines WHERE routine_schema = ? AND routine_type = 'FUNCTION' ORDER BY routine_name", false),
         new ObjectType("过程", "PROCEDURE","SELECT routine_name FROM information_schema.routines WHERE routine_schema = ? AND routine_type = 'PROCEDURE' ORDER BY routine_name", false)
     );
 
+    private static final List<ObjectType> OB_ORACLE_TYPES = List.of(
+        new ObjectType("模式", "SCHEMA",    java.util.Collections.emptyList(), false),
+        new ObjectType("表", "TABLE",       "SELECT table_name FROM all_tables WHERE owner = ? ORDER BY table_name", true),
+        new ObjectType("视图", "VIEW",      "SELECT view_name FROM all_views WHERE owner = ? ORDER BY view_name", false),
+        new ObjectType("索引", "INDEX",     "SELECT index_name FROM all_indexes WHERE owner = ? ORDER BY index_name", false),
+        new ObjectType("序列", "SEQUENCE",  "SELECT sequence_name FROM all_sequences WHERE sequence_owner = ? ORDER BY sequence_name", false),
+        new ObjectType("同义词", "SYNONYM", "SELECT synonym_name FROM all_synonyms WHERE owner = ? ORDER BY synonym_name", false),
+        new ObjectType("函数", "FUNCTION",  "SELECT object_name FROM all_objects WHERE owner = ? AND object_type = 'FUNCTION' ORDER BY object_name", false),
+        new ObjectType("过程", "PROCEDURE", "SELECT object_name FROM all_objects WHERE owner = ? AND object_type = 'PROCEDURE' ORDER BY object_name", false),
+        new ObjectType("包", "PACKAGE",     "SELECT DISTINCT object_name FROM all_procedures WHERE owner = ? AND object_type IN ('PACKAGE','PACKAGE BODY') ORDER BY object_name", true)
+    );
+
     private static final Map<String, String> LABEL_TO_CODE = new LinkedHashMap<>();
+    private static final Map<String, String> CODE_TO_LABEL = new LinkedHashMap<>();
     static {
-        for (var t : ORACLE_TYPES) LABEL_TO_CODE.put(t.label, t.typeCode);
-        for (var t : PG_TYPES) LABEL_TO_CODE.put(t.label, t.typeCode);
-        for (var t : MYSQL_TYPES) LABEL_TO_CODE.put(t.label, t.typeCode);
+        for (var t : ORACLE_TYPES) { LABEL_TO_CODE.put(t.label, t.typeCode); CODE_TO_LABEL.put(t.typeCode, t.label); }
+        for (var t : PG_TYPES) { LABEL_TO_CODE.put(t.label, t.typeCode); CODE_TO_LABEL.put(t.typeCode, t.label); }
+        for (var t : MYSQL_TYPES) { LABEL_TO_CODE.put(t.label, t.typeCode); CODE_TO_LABEL.put(t.typeCode, t.label); }
+        for (var t : OB_ORACLE_TYPES) { LABEL_TO_CODE.put(t.label, t.typeCode); CODE_TO_LABEL.put(t.typeCode, t.label); }
     }
+    // PACKAGE_BODY also maps to "包"
+    static { CODE_TO_LABEL.put("PACKAGE_BODY", "包"); }
 
     // ── Column info holder for table child nodes ──
 
@@ -120,7 +153,7 @@ public class ObjectBrowser extends JPanel {
         g.setColor(bg);
         g.fillRoundRect(1, 1, 14, 14, 3, 3);
         g.setColor(Color.WHITE);
-        g.setFont(new Font("Segoe UI", Font.BOLD, 9));
+        g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 9));
         FontMetrics fm = g.getFontMetrics();
         int x = (16 - fm.stringWidth(text)) / 2;
         int y = (16 + fm.getAscent()) / 2 - 1;
@@ -133,10 +166,10 @@ public class ObjectBrowser extends JPanel {
 
     // ── Toolbar icons (same approach as tree icons) ──
 
-    private static final Icon ICON_NEW  = makeIcon18("\u002B", new Color(0x5CB85C));
-    private static final Icon ICON_PROP = makeIcon18("\u2699", new Color(0x337AB7));
-    private static final Icon ICON_REFR = makeIcon18("\u21BB", new Color(0xF0AD4E));
-    private static final Icon ICON_SQL  = makeIcon18("\u25B6", new Color(0x5CB85C));
+    private static final Icon ICON_NEW  = makeIcon("\u002B", new Color(0x5CB85C));
+    private static final Icon ICON_PROP = makeIcon("\u2699", new Color(0x337AB7));
+    private static final Icon ICON_REFR = makeIcon("\u21BB", new Color(0xF0AD4E));
+    private static final Icon ICON_SQL  = makeIcon("\u25B6", new Color(0x5CB85C));
 
     private static ImageIcon makeIcon18(String text, Color bg) {
         BufferedImage img = new BufferedImage(18, 18, BufferedImage.TYPE_INT_ARGB);
@@ -221,10 +254,10 @@ public class ObjectBrowser extends JPanel {
                     JPanel p = new JPanel(new BorderLayout(10, 0));
                     p.setOpaque(true); p.setBackground(bg);
                     JLabel nl = new JLabel(cn);
-                    nl.setFont(new Font("Segoe UI", Font.BOLD, 12)); nl.setForeground(fg);
+                    nl.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12)); nl.setForeground(fg);
                     p.add(nl, BorderLayout.CENTER);
                     JLabel bl = new JLabel(shown + "  of  " + total);
-                    bl.setFont(new Font("Segoe UI", Font.PLAIN, 10));
+                    bl.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
                     bl.setForeground(sel ? fg : theme.resolve("fg.muted")); bl.setBorder(BorderFactory.createEmptyBorder(0, 6, 0, 4));
                     p.add(bl, BorderLayout.EAST);
                     JPanel wrap = new JPanel(new BorderLayout(6, 0));
@@ -343,25 +376,24 @@ public class ObjectBrowser extends JPanel {
         return depth < objs.length && objs[depth] != null ? objs[depth].toString() : "";
     }
 
+    public JTree getTree() { return tree; }
+
     public void applyTheme() {
-        Color bg = theme.resolve("list.bg");
+        Color bg = theme.resolve("bg.main");
         Color fg = theme.resolve("list.fg");
+        setBackground(bg);
         tree.setBackground(bg);
         tree.setForeground(fg);
         for (Component c : getComponents()) {
             if (c instanceof JScrollPane sp) {
                 sp.getViewport().setBackground(bg);
-                sp.setBorder(null);
+                sp.setBorder(BorderFactory.createMatteBorder(0, 0, 0, 1, theme.resolve("border.default")));
+            }
+            if (c instanceof JToolBar tb) {
+                tb.setBackground(bg);
+                tb.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 1, theme.resolve("border.default")));
             }
         }
-        // Save and restore expanded paths so theme switch doesn't collapse the tree
-        java.util.List<TreePath> expanded = new java.util.ArrayList<>();
-        for (int i = 0; i < tree.getRowCount(); i++) {
-            TreePath p = tree.getPathForRow(i);
-            if (p != null && tree.isExpanded(p)) expanded.add(p);
-        }
-        treeModel.reload();
-        for (TreePath p : expanded) tree.expandPath(p);
         tree.repaint();
     }
 
@@ -483,6 +515,55 @@ public class ObjectBrowser extends JPanel {
         treeModel.reload();
     }
 
+    public void locateObject(String connName, String schema, String objectType, String objectName) {
+        DefaultMutableTreeNode connNode = null;
+        for (int i = 0; i < root.getChildCount(); i++) {
+            DefaultMutableTreeNode n = (DefaultMutableTreeNode) root.getChildAt(i);
+            if (n.getUserObject() instanceof ConnHolder ch && ch.info.getName().equals(connName)) {
+                connNode = n;
+                break;
+            }
+        }
+        if (connNode == null) return;
+
+        // If connection not yet loaded, trigger load
+        if (connNode.getChildCount() == 1) {
+            Object first = connNode.getFirstChild();
+            if (first instanceof DefaultMutableTreeNode && "\u52A0\u8F7D\u4E2D...".equals(((DefaultMutableTreeNode) first).getUserObject())) {
+                loadConnection(connNode);
+            }
+        }
+
+        String typeLabel = CODE_TO_LABEL.getOrDefault(objectType, objectType);
+
+        // Depth-first search for schema → typeLabel → objectName
+        DefaultMutableTreeNode target = findDescendant(connNode, schema, typeLabel, objectName);
+        if (target != null) {
+            TreePath path = new TreePath(target.getPath());
+            tree.expandPath(path);
+            tree.setSelectionPath(path);
+            tree.scrollPathToVisible(path);
+        }
+    }
+
+    private static DefaultMutableTreeNode findDescendant(DefaultMutableTreeNode node, String... labels) {
+        java.util.List<DefaultMutableTreeNode> candidates = java.util.Collections.singletonList(node);
+        for (String label : labels) {
+            java.util.List<DefaultMutableTreeNode> next = new java.util.ArrayList<>();
+            for (DefaultMutableTreeNode c : candidates) {
+                for (int i = 0; i < c.getChildCount(); i++) {
+                    DefaultMutableTreeNode child = (DefaultMutableTreeNode) c.getChildAt(i);
+                    if (label.equals(child.getUserObject().toString())) {
+                        next.add(child);
+                    }
+                }
+            }
+            if (next.isEmpty()) return null;
+            candidates = next;
+        }
+        return candidates.isEmpty() ? null : candidates.get(0);
+    }
+
     public void refreshAll() {
         refreshBtn.setEnabled(false);
         List<ConnectionInfo> conns = new ArrayList<>();
@@ -510,14 +591,76 @@ public class ObjectBrowser extends JPanel {
                 p = (DefaultMutableTreeNode) p.getParent();
             }
         }
-        if (connNode != null) {
-            String cname = ((ConnHolder) connNode.getUserObject()).info.getName();
-            MetadataCache.getInstance().clearConnection(cname);
-            loadConnection(connNode);
-            tree.expandPath(new TreePath(connNode.getPath()));
-        } else {
-            refreshAll();
-        }
+        if (connNode == null) { refreshAll(); return; }
+
+        ConnHolder h = (ConnHolder) connNode.getUserObject();
+        String cname = h.info.getName();
+        final DefaultMutableTreeNode finalConnNode = connNode;
+
+        finalConnNode.removeAllChildren();
+        finalConnNode.add(new DefaultMutableTreeNode("\u5237\u65B0\u4E2D..."));
+        treeModel.reload(finalConnNode);
+        refreshBtn.setEnabled(false);
+
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() {
+                MetadataCache.getInstance().clearConnection(cname);
+                if (!cm.isConnected(cname)) {
+                    try {
+                        cm.connect(h.info);
+                    } catch (Exception e) {
+                        log.warn("\u81EA\u52A8\u8FDE\u63A5 '{}' \u5931\u8D25: {}", cname, e.getMessage());
+                        return null;
+                    }
+                }
+                try (Connection conn = cm.getConnection(cname)) {
+                    String dbProduct = conn.getMetaData().getDatabaseProductName().toLowerCase();
+                    h.dbType = dbProduct;
+                    List<ObjectType> types = detectTypes(dbProduct);
+                    java.util.Set<String> schemas = collectSchemas(conn, dbProduct.contains("oracle") || dbProduct.contains("oceanbase"));
+
+                    MetadataCache mc = MetadataCache.getInstance();
+                    mc.putSchemas(cname, dbProduct, schemas);
+                    java.util.List<String> schemaList = new ArrayList<>(schemas);
+                    connFullSchemas.put(cname, schemaList);
+                    initHiddenSchemas(h, schemaList);
+
+                    if (!schemas.isEmpty()) {
+                        for (String schema : schemas) {
+                            for (ObjectType ot : types) {
+                                if ("SCHEMA".equals(ot.typeCode)) continue;
+                                List<String> objects = queryObjects(conn, ot, schema);
+                                mc.putObjects(cname, schema, ot.typeCode, objects);
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    log.error("\u5237\u65B0\u8FDE\u63A5 '{}' \u5931\u8D25", cname, e);
+                }
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    get();
+                    if (MetadataCache.getInstance().hasMetadata(cname)) {
+                        loadConnection(finalConnNode);
+                    } else {
+                        finalConnNode.removeAllChildren();
+                        finalConnNode.add(new DefaultMutableTreeNode("\u5237\u65B0\u5931\u8D25"));
+                        treeModel.reload(finalConnNode);
+                    }
+                } catch (Exception e) {
+                    finalConnNode.removeAllChildren();
+                    finalConnNode.add(new DefaultMutableTreeNode("\u5237\u65B0\u5931\u8D25: " + e.getMessage()));
+                    treeModel.reload(finalConnNode);
+                } finally {
+                    refreshBtn.setEnabled(true);
+                }
+            }
+        }.execute();
     }
 
     private void showSchemaPopup(DefaultMutableTreeNode connNode, int x, int y) {
@@ -537,7 +680,7 @@ public class ObjectBrowser extends JPanel {
 
         // ALL_SCHEMA checkbox
         JCheckBox allCb = new JCheckBox("ALL SCHEMA");
-        allCb.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        allCb.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
         allCb.setSelected(hidden.isEmpty());
         allCb.addActionListener(ev -> {
             if (allCb.isSelected()) hidden.clear();
@@ -560,7 +703,7 @@ public class ObjectBrowser extends JPanel {
 
         for (String s : all) {
             JCheckBox cb = new JCheckBox(s);
-            cb.setFont(new Font("Segoe UI", hasDefault && s.equals(defaultSchema) ? Font.BOLD : Font.PLAIN, 11));
+            cb.setFont(new Font(Font.SANS_SERIF, hasDefault && s.equals(defaultSchema) ? Font.BOLD : Font.PLAIN, 11));
             cb.setSelected(!hidden.contains(s));
             cb.addActionListener(ev -> {
                 if (cb.isSelected()) hidden.remove(s);
@@ -663,6 +806,7 @@ public class ObjectBrowser extends JPanel {
             if (!schemas.isEmpty()) {
                 for (String schema : schemas) {
                     for (ObjectType ot : types) {
+                        if ("SCHEMA".equals(ot.typeCode)) continue;
                         List<String> objects = queryObjects(conn, ot, schema);
                         cache.putObjects(name, schema, ot.typeCode, objects);
                     }
@@ -698,6 +842,7 @@ public class ObjectBrowser extends JPanel {
             DefaultMutableTreeNode schemaNode = new DefaultMutableTreeNode(schema);
             connNode.add(schemaNode);
             for (ObjectType ot : types) {
+                if ("SCHEMA".equals(ot.typeCode)) continue;
                 java.util.List<String> objs = cache.getObjects(name, schema, ot.typeCode);
                 if (objs != null && !objs.isEmpty()) {
                     DefaultMutableTreeNode catNode = new DefaultMutableTreeNode(ot.label);
@@ -755,6 +900,10 @@ public class ObjectBrowser extends JPanel {
     // ── Object queries ──
 
     private List<String> queryObjects(Connection conn, ObjectType type, String schema) {
+        // FIXED_LIST type: return predefined values directly
+        if (type.fixedValues != null) {
+            return new ArrayList<>(type.fixedValues);
+        }
         List<String> names = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(type.querySql)) {
             ps.setString(1, schema);
@@ -765,9 +914,37 @@ public class ObjectBrowser extends JPanel {
     }
 
     private List<ObjectType> detectTypes(String dbProduct) {
+        // Check metadata config first
+        if (configManager != null) {
+            String key = dbProductToKey(dbProduct);
+            for (DbMetadataConfig cfg : configManager.loadMetadataConfigs()) {
+                if (cfg.getDbTypeKey().equals(key) && cfg.isEnabled()) {
+                    return cfg.getTypes().stream()
+                        .map(td -> {
+                            if ("FIXED_LIST".equals(td.getQueryType())) {
+                                return new ObjectType(td.getLabel(), td.getTypeCode(),
+                                    new ArrayList<>(td.getFixedValues() != null ? td.getFixedValues() : List.of()),
+                                    td.isExpandable());
+                            }
+                            return new ObjectType(td.getLabel(), td.getTypeCode(),
+                                td.getQuerySql(), td.isExpandable());
+                        })
+                        .collect(Collectors.toList());
+                }
+            }
+        }
+        // Fallback to hardcoded
         if (dbProduct.contains("mysql") || dbProduct.contains("mariadb")) return MYSQL_TYPES;
         if (dbProduct.contains("postgresql") || dbProduct.contains("edb")) return PG_TYPES;
+        if (dbProduct.contains("oceanbase")) return OB_ORACLE_TYPES;
         return ORACLE_TYPES;
+    }
+
+    private static String dbProductToKey(String dbProduct) {
+        if (dbProduct.contains("mysql") || dbProduct.contains("mariadb")) return "mysql";
+        if (dbProduct.contains("postgresql") || dbProduct.contains("edb")) return "postgresql";
+        if (dbProduct.contains("oceanbase")) return "oceanbase";
+        return "oracle";
     }
 
     // ── Expand package ──

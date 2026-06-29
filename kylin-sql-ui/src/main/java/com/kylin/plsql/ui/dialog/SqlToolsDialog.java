@@ -1,6 +1,6 @@
 package com.kylin.plsql.ui.dialog;
 
-import com.kylin.plsql.ui.component.ToastManager;
+import com.kylin.plsql.ui.component.common.ToastManager;
 
 import javax.swing.*;
 import java.awt.*;

@@ -164,7 +164,7 @@ public class TextDiffDialog extends BaseToolDialog {
                 }
                 target.setText(sb.toString());
             } catch (Exception ex) {
-                com.kylin.plsql.ui.component.ToastManager.showError(this,
+                com.kylin.plsql.ui.component.common.ToastManager.showError(this,
                         "\u6253\u5F00\u6587\u4EF6\u5931\u8D25: " + ex.getMessage());
             }
         }

@@ -1,4 +1,4 @@
-package com.kylin.plsql.ui.component;
+package com.kylin.plsql.ui.component.common;
 
 import org.fife.ui.rsyntaxtextarea.AbstractTokenMaker;
 import org.fife.ui.rsyntaxtextarea.RSyntaxUtilities;

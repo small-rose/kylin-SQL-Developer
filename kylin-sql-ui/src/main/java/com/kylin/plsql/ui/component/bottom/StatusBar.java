@@ -1,6 +1,7 @@
-package com.kylin.plsql.ui.component;
+package com.kylin.plsql.ui.component.bottom;
 
 import com.kylin.plsql.core.config.ThemeManager;
+import com.kylin.plsql.ui.component.center.SqlEditorPanel;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;

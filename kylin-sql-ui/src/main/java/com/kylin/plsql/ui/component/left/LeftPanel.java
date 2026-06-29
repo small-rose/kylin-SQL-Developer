@@ -1,6 +1,7 @@
-package com.kylin.plsql.ui.component;
+package com.kylin.plsql.ui.component.left;
 
 import com.kylin.plsql.core.config.ThemeManager;
+import com.kylin.plsql.ui.component.common.VerticalTabButton;
 
 import javax.swing.*;
 import java.awt.*;

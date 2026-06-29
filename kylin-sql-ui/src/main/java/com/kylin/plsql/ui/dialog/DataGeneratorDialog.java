@@ -1,6 +1,6 @@
 package com.kylin.plsql.ui.dialog;
 
-import com.kylin.plsql.ui.component.ToastManager;
+import com.kylin.plsql.ui.component.common.ToastManager;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 

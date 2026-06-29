@@ -1,8 +1,11 @@
-package com.kylin.plsql.ui.component;
+package com.kylin.plsql.ui.component.right;
 
 import com.kylin.plsql.core.config.ConfigManager;
 import com.kylin.plsql.core.config.ConfigManager.SavedFileRecord;
 import com.kylin.plsql.core.config.ThemeManager;
+import com.kylin.plsql.ui.component.center.SourceViewerPanel;
+import com.kylin.plsql.ui.component.center.SqlEditorPanel;
+import com.kylin.plsql.ui.component.common.VerticalTabButton;
 
 import javax.swing.*;
 import java.awt.*;

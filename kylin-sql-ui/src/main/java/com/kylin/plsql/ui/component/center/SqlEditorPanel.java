@@ -1,4 +1,4 @@
-package com.kylin.plsql.ui.component;
+package com.kylin.plsql.ui.component.center;
 
 import com.kylin.plsql.core.cache.MetadataCache;
 import com.kylin.plsql.core.db.ConnectionInfo;
