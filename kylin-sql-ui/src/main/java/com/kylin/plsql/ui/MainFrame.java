@@ -526,6 +526,11 @@ public class MainFrame extends JFrame {
     private void setupMenu() {
         Color mc = ThemeManager.getInstance().resolve("bg.toolbar");
         UIManager.put("MenuBar.background", mc);
+        UIManager.put("MenuBar.borderColor", mc);
+        UIManager.put("Menu.background", mc);
+        UIManager.put("MenuItem.background", mc);
+        UIManager.put("TitlePane.background", mc);
+        UIManager.put("TitlePane.unifiedBackground", false);
         menuBar = new JMenuBar() {
             @Override
             protected void paintComponent(Graphics g) {
@@ -2159,7 +2164,18 @@ public class MainFrame extends JFrame {
         Color treeFg = theme.resolve("list.fg");
         UIManager.put("Tree.foreground", treeFg);
         UIManager.put("Tree.iconForeground", treeFg);
+        Color mc = theme.resolve("bg.toolbar");
+        UIManager.put("MenuBar.background", mc);
+        UIManager.put("MenuBar.borderColor", mc);
+        UIManager.put("Menu.background", mc);
+        UIManager.put("MenuItem.background", mc);
+        UIManager.put("TitlePane.background", mc);
+        UIManager.put("TitlePane.unifiedBackground", false);
+        // Prevent FlatLaf's PanelUI.installDefaults from overwriting FlatTitlePane background
+        Color savedPanelBg = UIManager.getColor("Panel.background");
+        UIManager.put("Panel.background", mc);
         SwingUtilities.updateComponentTreeUI(this);
+        UIManager.put("Panel.background", savedPanelBg);
 
         // 2) Now fire ThemeManager listeners — UIManager colors are already correct
         ThemeManager.getInstance().switchTo(theme);
@@ -2223,6 +2239,11 @@ public class MainFrame extends JFrame {
         if (menuBar != null) {
             Color mc = ThemeManager.getInstance().resolve("bg.toolbar");
             UIManager.put("MenuBar.background", mc);
+            UIManager.put("MenuBar.borderColor", mc);
+            UIManager.put("Menu.background", mc);
+            UIManager.put("MenuItem.background", mc);
+            UIManager.put("TitlePane.background", mc);
+            UIManager.put("TitlePane.unifiedBackground", false);
             menuBar.updateUI();
             menuBar.setBackground(mc);
             menuBar.setOpaque(true);
