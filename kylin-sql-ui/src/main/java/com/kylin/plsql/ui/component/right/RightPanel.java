@@ -14,6 +14,8 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 import java.io.File;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 public class RightPanel extends JPanel {
@@ -22,7 +24,7 @@ public class RightPanel extends JPanel {
         void onFileSelected(String filePath);
     }
 
-    private enum TabLabel { FILES, THUMBNAIL }
+    private enum TabLabel { FILES, THUMBNAIL, HISTORY }
 
     private final ThemeManager theme = ThemeManager.getInstance();
     private final CardLayout cardLayout = new CardLayout();
@@ -30,6 +32,7 @@ public class RightPanel extends JPanel {
     private final JPanel tabStrip = new JPanel();
     private final FilesContent filesContent;
     private final ThumbnailContent thumbnailContent;
+    private final HistoryContent historyContent;
     private final transient Callback callback;
     private final transient Runnable onToggle;
     private final transient ConfigManager configManager;
@@ -50,15 +53,18 @@ public class RightPanel extends JPanel {
 
         filesContent = new FilesContent();
         thumbnailContent = new ThumbnailContent();
+        historyContent = new HistoryContent();
 
         contentPanel.add(filesContent, "FILES");
         contentPanel.add(thumbnailContent, "THUMBNAIL");
+        contentPanel.add(historyContent, "HISTORY");
 
         add(contentPanel, BorderLayout.CENTER);
         add(tabStrip, BorderLayout.EAST);
 
         addTab("SQL", TabLabel.FILES);
-        addTab("THUMBNAIL", TabLabel.THUMBNAIL);
+        addTab("THUMB", TabLabel.THUMBNAIL);
+        addTab("HIST", TabLabel.HISTORY);
 
         selectTab(TabLabel.FILES);
         tabStrip.add(Box.createVerticalGlue());
@@ -84,6 +90,25 @@ public class RightPanel extends JPanel {
         if (wasCollapsed && onToggle != null) onToggle.run();
     }
 
+    public void selectHistoryTab() {
+        boolean wasCollapsed = !expanded;
+        activeTab = TabLabel.HISTORY;
+        cardLayout.show(contentPanel, TabLabel.HISTORY.name());
+        if (wasCollapsed || !contentPanel.isVisible()) {
+            expanded = true;
+            contentPanel.setVisible(true);
+            historyContent.refresh();
+        }
+        updateTabActive();
+        revalidate();
+        repaint();
+        if (wasCollapsed && onToggle != null) onToggle.run();
+    }
+
+    public void addHistoryEntry(String sql, boolean success, long elapsedMs, String timestamp) {
+        historyContent.addEntry(sql, success, elapsedMs, timestamp);
+    }
+
     public void applyTheme() {
         setBackground(theme.resolve("bg.main"));
         tabStrip.setBackground(theme.resolve("bg.main"));
@@ -92,6 +117,7 @@ public class RightPanel extends JPanel {
         contentPanel.setBorder(BorderFactory.createMatteBorder(0, 1, 1, 0, theme.resolve("border.default")));
         filesContent.applyTheme();
         thumbnailContent.applyTheme();
+        if (historyContent != null) historyContent.applyTheme();
     }
 
     private void addTab(String label, TabLabel tab) {
@@ -437,6 +463,8 @@ public class RightPanel extends JPanel {
         private String text = "";
         private int caretLine = 1;
         private int totalLines = 1;
+        private SqlEditorPanel previousEditor;
+        private javax.swing.event.DocumentListener currentDocListener;
 
         ThumbnailContent() {
             setLayout(null);
@@ -469,14 +497,19 @@ public class RightPanel extends JPanel {
         }
 
         void setEditor(SqlEditorPanel editor) {
+            if (previousEditor != null && currentDocListener != null) {
+                previousEditor.getTextArea().getDocument().removeDocumentListener(currentDocListener);
+            }
             this.text = editor.getText();
             this.totalLines = Math.max(editor.getTextArea().getLineCount(), 1);
             this.onNavigate = editor::navigateToLine;
-            editor.getTextArea().getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            currentDocListener = new javax.swing.event.DocumentListener() {
                 public void insertUpdate(javax.swing.event.DocumentEvent e) { text = editor.getText(); totalLines = Math.max(editor.getTextArea().getLineCount(), 1); repaint(); }
                 public void removeUpdate(javax.swing.event.DocumentEvent e) { text = editor.getText(); totalLines = Math.max(editor.getTextArea().getLineCount(), 1); repaint(); }
                 public void changedUpdate(javax.swing.event.DocumentEvent e) { text = editor.getText(); totalLines = Math.max(editor.getTextArea().getLineCount(), 1); repaint(); }
-            });
+            };
+            editor.getTextArea().getDocument().addDocumentListener(currentDocListener);
+            previousEditor = editor;
             repaint();
         }
 
@@ -528,6 +561,136 @@ public class RightPanel extends JPanel {
             g.setColor(theme.resolve("accent.green"));
             int caretY = startY + (caretLine - 1) * lineH;
             g.fillRect(2, caretY, w - 4, lineH);
+        }
+    }
+
+    // ── History Content ──
+
+    class HistoryContent extends JPanel {
+        private final DefaultListModel<HistoryItem> listModel;
+        private final JList<HistoryItem> list;
+        private static final int MAX = 200;
+
+        static class HistoryItem {
+            final String sql; final boolean success; final long elapsedMs; final String timestamp;
+            HistoryItem(String sql, boolean success, long elapsedMs, String timestamp) {
+                this.sql = sql.replace("\n", " ").replace("\r", " ").trim();
+                this.success = success;
+                this.elapsedMs = elapsedMs;
+                this.timestamp = timestamp;
+            }
+        }
+
+        HistoryContent() {
+            setLayout(new BorderLayout());
+            setBackground(theme.resolve("bg.main"));
+            listModel = new DefaultListModel<>();
+            list = new JList<>(listModel);
+            list.setFixedCellHeight(52);
+            list.setBorder(BorderFactory.createEmptyBorder(4, 0, 4, 0));
+            list.setBackground(theme.resolve("bg.main"));
+            list.setForeground(theme.resolve("fg.main"));
+            list.setCellRenderer(new HistoryRenderer());
+            list.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    int idx = list.locationToIndex(e.getPoint());
+                    if (idx < 0) return;
+                    if (e.getClickCount() == 2) {
+                        HistoryItem item = listModel.getElementAt(idx);
+                        if (item != null) {
+                            var editor = findActiveEditor();
+                            if (editor != null) editor.getTextArea().replaceSelection(item.sql);
+                        }
+                    }
+                }
+            });
+            list.addComponentListener(new java.awt.event.ComponentAdapter() {
+                @Override public void componentResized(java.awt.event.ComponentEvent e) { list.repaint(); }
+            });
+            JScrollPane scroll = new JScrollPane(list);
+            scroll.setBorder(BorderFactory.createEmptyBorder());
+            add(scroll, BorderLayout.CENTER);
+        }
+
+        private SqlEditorPanel findActiveEditor() {
+            Window w = SwingUtilities.getWindowAncestor(RightPanel.this);
+            if (w instanceof JFrame f) {
+                Component sel = ((JTabbedPane) findComponent(f, JTabbedPane.class)).getSelectedComponent();
+                if (sel instanceof SqlEditorPanel ep) return ep;
+            }
+            return null;
+        }
+
+        private static Component findComponent(Container parent, Class<?> type) {
+            for (Component c : parent.getComponents()) {
+                if (type.isInstance(c)) return c;
+                if (c instanceof Container cont) {
+                    Component found = findComponent(cont, type);
+                    if (found != null) return found;
+                }
+            }
+            return null;
+        }
+
+        void addEntry(String sql, boolean success, long elapsedMs, String timestamp) {
+            listModel.insertElementAt(new HistoryItem(sql, success, elapsedMs, timestamp), 0);
+            while (listModel.size() > MAX) listModel.removeElementAt(listModel.size() - 1);
+            list.ensureIndexIsVisible(0);
+        }
+
+        void refresh() { list.repaint(); }
+
+        void applyTheme() {
+            setBackground(theme.resolve("bg.main"));
+            list.setBackground(theme.resolve("bg.main"));
+            list.setForeground(theme.resolve("fg.main"));
+        }
+
+        private class HistoryRenderer extends JPanel implements ListCellRenderer<HistoryItem> {
+            private final JLabel sqlLabel = new JLabel();
+            private final JLabel infoLabel = new JLabel();
+            private static final int PAD = 4;
+
+            HistoryRenderer() {
+                setLayout(new BorderLayout());
+                sqlLabel.setFont(sqlLabel.getFont().deriveFont(12f));
+                sqlLabel.setBorder(BorderFactory.createEmptyBorder(PAD, PAD, 0, PAD));
+                infoLabel.setFont(infoLabel.getFont().deriveFont(10f));
+                infoLabel.setBorder(BorderFactory.createEmptyBorder(0, PAD, PAD, PAD));
+                add(sqlLabel, BorderLayout.CENTER);
+                add(infoLabel, BorderLayout.SOUTH);
+            }
+
+            @Override
+            public Component getListCellRendererComponent(JList<? extends HistoryItem> list, HistoryItem item, int idx,
+                    boolean isSelected, boolean hasFocus) {
+                if (item == null) return this;
+                int availW = list.getWidth() - 8;
+                FontMetrics fm = sqlLabel.getFontMetrics(sqlLabel.getFont());
+                String display = item.sql;
+                if (fm.stringWidth(display) > availW) {
+                    for (int i = display.length() - 1; i > 0; i--) {
+                        if (fm.stringWidth(display.substring(0, i) + "\u2026") <= availW) {
+                            display = display.substring(0, i) + "\u2026";
+                            break;
+                        }
+                    }
+                }
+                sqlLabel.setText(display);
+                String status = item.success ? "\u2713" : "\u2717";
+                Color statusColor = item.success ? new Color(0x5CB85C) : new Color(0xD9534F);
+                infoLabel.setText(item.timestamp + "  " + status + " " + item.elapsedMs + "ms");
+                infoLabel.setForeground(theme.resolve("fg.muted"));
+                if (isSelected) {
+                    setBackground(theme.resolve("selection.bg"));
+                    sqlLabel.setForeground(theme.resolve("selection.fg"));
+                } else {
+                    setBackground(theme.resolve("bg.main"));
+                    sqlLabel.setForeground(theme.resolve("fg.main"));
+                }
+                return this;
+            }
         }
     }
 }

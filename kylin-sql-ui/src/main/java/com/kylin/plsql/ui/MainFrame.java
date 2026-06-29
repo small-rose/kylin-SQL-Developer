@@ -138,6 +138,7 @@ public class MainFrame extends JFrame {
         bottomPanel.refreshConnTree();
         restartAutoSaveTimer();
         statusBar.startMemoryMonitor();
+        startConnectionMonitor();
         setExtendedState(JFrame.MAXIMIZED_BOTH);
         reapplyTheme();
     }
@@ -389,13 +390,20 @@ public class MainFrame extends JFrame {
         });
         bottomPanel.setRefreshExecutor((connName, sql) -> {
             if (connName == null || connName.isEmpty()) return;
-            try (var conn = connectionManager.getConnection(connName)) {
+            boolean closeConn = connectionManager.isAutoCommit(connName);
+            java.sql.Connection conn = null;
+            try {
+                conn = connectionManager.getConnection(connName);
                 int qto = connectionManager.getQueryTimeout(connName);
                 var executor = new com.kylin.plsql.core.db.SqlExecutor();
                 var result = executor.execute(conn, sql, qto);
                 bottomPanel.showResult(sql, result, connName);
             } catch (Exception ex) {
                 bottomPanel.showError(ex.getMessage());
+            } finally {
+                if (closeConn && conn != null) {
+                    try { conn.close(); } catch (java.sql.SQLException ignored) {}
+                }
             }
         });
 
@@ -432,6 +440,9 @@ public class MainFrame extends JFrame {
 
         editorTabs.addChangeListener(e -> {
             Component comp = editorTabs.getSelectedComponent();
+            for (int i = 0; i < editorTabs.getTabCount(); i++) {
+                updateEditorTabComponent(i, editorTabs);
+            }
             if (comp instanceof SqlEditorPanel ae) {
                 rightPanel.setActiveEditor(ae);
                 installCaretListener(ae);
@@ -468,7 +479,7 @@ public class MainFrame extends JFrame {
     private void updateStatusBar() {
         Component comp = editorTabs.getSelectedComponent();
         if (comp instanceof SqlEditorPanel ae) {
-            statusBar.setConnection(ae.getConnectionName());
+            statusBar.setConnection(ae.getConnectionName(), connectionManager.isConnected(ae.getConnectionName()));
             String title = ae.getTabTitle();
             int idx = title.lastIndexOf(" @");
             if (idx > 0) title = title.substring(0, idx);
@@ -763,6 +774,11 @@ public class MainFrame extends JFrame {
         editor.setOnExecute(() -> executeActiveEditor());
         editor.setOnAppendExecute(() -> executeAppendEditor());
         editor.setOnFormat(this::formatSql);
+        editor.setOnStatusMessage(msg -> {
+    bottomPanel.showToast(msg);
+    statusBar.setStatusText(msg);
+});
+editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         showEditorTabs();
         editorTabs.addTab(editor.getTabTitle(), editor);
         int idx = editorTabs.indexOfComponent(editor);
@@ -812,11 +828,16 @@ public class MainFrame extends JFrame {
                        : panel instanceof SourceViewerPanel sv ? sv.getTabTitle()
                        : tabs.getTitleAt(index);
         JLabel label = new JLabel(title);
+        boolean isSelected = tabs.getSelectedIndex() == index;
+        label.setForeground(isSelected
+            ? ThemeManager.getInstance().resolve("fg.tab.active")
+            : ThemeManager.getInstance().resolve("fg.tab.inactive"));
         if (panel instanceof SqlEditorPanel editor) {
             editor.setOnModifiedChange(() -> label.setText(editor.getTabTitle()));
         }
 
         JButton closeBtn = createCloseButton();
+        closeBtn.setForeground(ThemeManager.getInstance().resolve("fg.muted"));
         closeBtn.addActionListener(e -> {
             int i = tabs.indexOfComponent(panel);
             if (i >= 0) closeTab(tabs, i);
@@ -927,6 +948,11 @@ public class MainFrame extends JFrame {
         editor.setOnExecute(() -> executeActiveEditor());
         editor.setOnAppendExecute(() -> executeAppendEditor());
         editor.setOnFormat(this::formatSql);
+        editor.setOnStatusMessage(msg -> {
+    bottomPanel.showToast(msg);
+    statusBar.setStatusText(msg);
+});
+editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         editor.setOnConnectionChange(() -> bottomPanel.refreshConnTree());
         showEditorTabs();
         editorTabs.addTab(editor.getTabTitle(), editor);
@@ -975,6 +1001,18 @@ public class MainFrame extends JFrame {
         autoSaveTimer.setRepeats(true);
         autoSaveTimer.start();
         log.info("自动保存已启动, 间隔={}ms", millis);
+    }
+
+    private void startConnectionMonitor() {
+        new javax.swing.Timer(5000, e -> {
+            Component comp = editorTabs.getSelectedComponent();
+            if (comp instanceof SqlEditorPanel ae) {
+                String cn = ae.getConnectionName();
+                if (cn != null && !cn.isEmpty()) {
+                    statusBar.setConnection(cn, connectionManager.isConnected(cn));
+                }
+            }
+        }).start();
     }
 
     private void autoSaveAll() {
@@ -1056,7 +1094,7 @@ public class MainFrame extends JFrame {
                 editorTabs.setTitleAt(idx, editor.getTabTitle());
                 JPanel tabPanel = (JPanel) editorTabs.getTabComponentAt(idx);
                 if (tabPanel != null) {
-                    JLabel label = (JLabel) tabPanel.getComponent(0);
+                    JLabel label = (JLabel) tabPanel.getComponent(2);
                     label.setText(editor.getTabTitle());
                 }
             }
@@ -1723,6 +1761,8 @@ public class MainFrame extends JFrame {
                     }
                     if (sql != null) {
                         sqlHistory.add(sql);
+                        rightPanel.addHistoryEntry(sql, anySuccess, 0,
+                            LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
                         statusBar.setMessage(anySuccess ? "\u591A\u8BED\u53E5\u6267\u884C\u5B8C\u6210" : "\u591A\u8BED\u53E5\u6267\u884C\u5931\u8D25");
                     }
                 } catch (Exception e) {
@@ -1768,6 +1808,8 @@ public class MainFrame extends JFrame {
             bottomPanel.setBatchExecuting(false);
             statusBar.setMessage(result.getSummary());
             editor.markExecResult(execLine, result.isSuccess());
+            rightPanel.addHistoryEntry(sql, result.isSuccess(), result.elapsedMs,
+                LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
         } catch (Exception e) {
             editor.clearExecResults();
             bottomPanel.appendMessage("\u6267\u884C\u5931\u8D25: " + e.getMessage());
@@ -1775,6 +1817,8 @@ public class MainFrame extends JFrame {
             statusBar.setMessage("\u6267\u884C\u5931\u8D25: " + e.getMessage());
             bottomPanel.showError(e.getMessage());
             editor.markExecResult(execLine, false);
+            rightPanel.addHistoryEntry(sql, false, 0,
+                LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
         } finally {
             if (closeConn2 && conn2 != null) {
                 try { conn2.close(); } catch (java.sql.SQLException ignored) {}
@@ -1840,7 +1884,10 @@ public class MainFrame extends JFrame {
         String sql = editor.getSelectedText();
         if (sql == null || sql.isBlank()) sql = editor.getText();
         int qto = connectionManager.getQueryTimeout(connName);
-        try (var conn = connectionManager.getConnection(connName)) {
+        boolean closeConn = connectionManager.isAutoCommit(connName);
+        java.sql.Connection conn = null;
+        try {
+            conn = connectionManager.getConnection(connName);
             var executor = new com.kylin.plsql.core.db.SqlExecutor();
             var result = executor.execute(conn, "EXPLAIN PLAN FOR " + sql, qto);
             if (!result.isSuccess()) {
@@ -1864,6 +1911,10 @@ public class MainFrame extends JFrame {
             }
         } catch (Exception e) {
             statusBar.setMessage("\u6267\u884C\u8BA1\u5212\u5931\u8D25: " + e.getMessage());
+        } finally {
+            if (closeConn && conn != null) {
+                try { conn.close(); } catch (java.sql.SQLException ignored) {}
+            }
         }
     }
 
@@ -1940,7 +1991,10 @@ public class MainFrame extends JFrame {
         var mainFrame = this;
         SwingWorker<Void, Void> worker = new SwingWorker<>() {
             @Override protected Void doInBackground() {
-                try (var conn = connectionManager.getConnection(connName)) {
+                boolean closeConn = connectionManager.isAutoCommit(connName);
+                java.sql.Connection conn = null;
+                try {
+                    conn = connectionManager.getConnection(connName);
                     var executor = new SqlExecutor();
                     switch (action) {
                         case "SELECT", "INSERT", "UPDATE", "DELETE" -> {
@@ -1951,7 +2005,10 @@ public class MainFrame extends JFrame {
                         case "PREVIEW" -> {
                             int qto2 = connectionManager.getQueryTimeout(connName);
                             var sql = executor.generatePreviewSQL(conn, schema, objectName);
-                            try (var execConn = connectionManager.getConnection(connName)) {
+                            boolean closeExecConn = connectionManager.isAutoCommit(connName);
+                            java.sql.Connection execConn = null;
+                            try {
+                                execConn = connectionManager.getConnection(connName);
                                 var executor2 = new SqlExecutor();
                                 var result = executor2.execute(execConn, sql, qto2);
                                 SwingUtilities.invokeLater(() -> {
@@ -1963,6 +2020,10 @@ public class MainFrame extends JFrame {
                                     statusBar.setMessage("\u6267\u884C\u5931\u8D25: " + ex.getMessage());
                                     bottomPanel.showError(ex.getMessage());
                                 });
+                            } finally {
+                                if (closeExecConn && execConn != null) {
+                                    try { execConn.close(); } catch (java.sql.SQLException ignored) {}
+                                }
                             }
                         }
                         case "DDL" -> {
@@ -1980,6 +2041,10 @@ public class MainFrame extends JFrame {
                     log.error("\u5BF9\u8C61\u64CD\u4F5C\u5931\u8D25", e);
                     SwingUtilities.invokeLater(() ->
                         JOptionPane.showMessageDialog(mainFrame, "\u64CD\u4F5C\u5931\u8D25: " + e.getMessage()));
+                } finally {
+                    if (closeConn && conn != null) {
+                        try { conn.close(); } catch (java.sql.SQLException ignored) {}
+                    }
                 }
                 return null;
             }
@@ -2055,6 +2120,11 @@ public class MainFrame extends JFrame {
         editor.setOnExecute(() -> executeActiveEditor());
         editor.setOnAppendExecute(() -> executeAppendEditor());
         editor.setOnFormat(this::formatSql);
+        editor.setOnStatusMessage(msg -> {
+    bottomPanel.showToast(msg);
+    statusBar.setStatusText(msg);
+});
+editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         editor.setOnConnectionChange(() -> bottomPanel.refreshConnTree());
             editor.getTextArea().setCaretPosition(0);
             editorTabs.addTab(ts.tabName != null ? ts.tabName : editor.getTabTitle(), editor);
@@ -2110,6 +2180,11 @@ public class MainFrame extends JFrame {
         editor.setOnExecute(() -> executeActiveEditor());
         editor.setOnAppendExecute(() -> executeAppendEditor());
         editor.setOnFormat(this::formatSql);
+        editor.setOnStatusMessage(msg -> {
+    bottomPanel.showToast(msg);
+    statusBar.setStatusText(msg);
+});
+editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         editor.setOnConnectionChange(() -> bottomPanel.refreshConnTree());
         showEditorTabs();
         editorTabs.addTab(editor.getTabTitle(), editor);
@@ -2175,6 +2250,11 @@ public class MainFrame extends JFrame {
             editor.setOnExecute(() -> executeActiveEditor());
             editor.setOnAppendExecute(() -> executeAppendEditor());
             editor.setOnFormat(this::formatSql);
+            editor.setOnStatusMessage(msg -> {
+    bottomPanel.showToast(msg);
+    statusBar.setStatusText(msg);
+});
+editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             editor.setOnConnectionChange(() -> bottomPanel.refreshConnTree());
         showEditorTabs();
 
@@ -2267,14 +2347,15 @@ public class MainFrame extends JFrame {
                 }
             }
         }
+        Color tabBg = ThemeManager.getInstance().resolve("bg.toolbar");
         if (editorSplit != null) {
             editorSplit.setBackground(ThemeManager.getInstance().resolve("bg.panel"));
         }
         if (tabContainer != null) {
+            tabContainer.setBackground(tabBg);
             tabContainer.setBorder(BorderFactory.createMatteBorder(0, 1, 1, 1,
                 ThemeManager.getInstance().resolve("border.light")));
         }
-        Color tabBg = ThemeManager.getInstance().resolve("bg.toolbar");
         Color panelBg = ThemeManager.getInstance().resolve("bg.panel");
         Color editorBg = ThemeManager.getInstance().resolve("bg.editor");
         Color activeFg = ThemeManager.getInstance().resolve("fg.tab.active");
@@ -2286,10 +2367,18 @@ public class MainFrame extends JFrame {
         UIManager.put("TabbedPane.foreground", inactiveFg);
         UIManager.put("TabbedPane.selectedForeground", activeFg);
         editorTabs.updateUI();
-        editorTabs.setBackground(editorBg);
+        editorTabs.setBackground(tabBg);
+        for (int i = 0; i < editorTabs.getTabCount(); i++) {
+            updateEditorTabComponent(i, editorTabs);
+        }
+        editorTabs.repaint();
         if (secondaryTabs != null) {
             secondaryTabs.updateUI();
-            secondaryTabs.setBackground(editorBg);
+            secondaryTabs.setBackground(tabBg);
+            for (int i = 0; i < secondaryTabs.getTabCount(); i++) {
+                updateEditorTabComponent(i, secondaryTabs);
+            }
+            secondaryTabs.repaint();
         }
         if (toolbar != null) {
             toolbar.setBackground(ThemeManager.getInstance().resolve("bg.toolbar"));

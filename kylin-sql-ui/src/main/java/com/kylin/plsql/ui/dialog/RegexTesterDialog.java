@@ -74,6 +74,7 @@ public class RegexTesterDialog extends BaseToolDialog {
     public RegexTesterDialog(Frame owner) {
         super(owner, "\u6B63\u5219\u6D4B\u8BD5\u5668");
         setSizeRatio(0.7);
+        centerOnOwner();
 
         regexField = new JTextField();
         testArea = new JTextArea(6, 30);
@@ -153,6 +154,7 @@ public class RegexTesterDialog extends BaseToolDialog {
         setLayout(new BorderLayout());
         add(northPanel, BorderLayout.NORTH);
         add(mainSplit, BorderLayout.CENTER);
+        applyTheme();
     }
 
     private JComponent buildFavoritesPanel() {
@@ -223,6 +225,27 @@ public class RegexTesterDialog extends BaseToolDialog {
         } catch (Exception ex) {
             replaceResultArea.setText("\u66FF\u6362\u9519\u8BEF: " + ex.getMessage());
         }
+    }
+
+    @Override
+    protected void applyTheme() {
+        super.applyTheme();
+        Color editorBg = theme.resolve("bg.editor");
+        Color editorFg = theme.resolve("fg.main");
+        testArea.setBackground(editorBg);
+        testArea.setForeground(editorFg);
+        resultArea.setBackground(editorBg);
+        resultArea.setForeground(editorFg);
+        replaceResultArea.setBackground(editorBg);
+        replaceResultArea.setForeground(editorFg);
+        regexField.setBackground(editorBg);
+        regexField.setForeground(editorFg);
+        replaceField.setBackground(editorBg);
+        replaceField.setForeground(editorFg);
+        favoriteList.setBackground(theme.resolve("list.bg"));
+        favoriteList.setForeground(theme.resolve("list.fg"));
+        groupTable.setBackground(theme.resolve("list.bg"));
+        groupTable.setForeground(theme.resolve("list.fg"));
     }
 
     private void favoriteSelected() {

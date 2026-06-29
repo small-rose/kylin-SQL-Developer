@@ -5,6 +5,7 @@ import com.kylin.plsql.ui.component.common.ToastManager;
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.TableModel;
 import java.awt.*;
 import java.io.*;
 import java.nio.charset.Charset;
@@ -31,6 +32,20 @@ public class ExportTaskListDialog extends BaseToolDialog {
         String filePath;
         String errorMessage;
         transient SwingWorker<Void, Void> worker;
+
+        // retry support
+        List<Object[]> modelSnapshot;
+        int columnCount;
+        String[] columnNames;
+        Class<?>[] columnClasses;
+        String retryFormat;
+        List<Integer> retryColumns;
+        String retryTableName;
+        boolean retryHeader;
+        String retryCharsetName;
+        String retryDateFormat;
+        String retryNullPlaceholder;
+        int retryMaxBlobSize;
     }
 
     static class TaskTableModel extends AbstractTableModel {
@@ -113,6 +128,7 @@ public class ExportTaskListDialog extends BaseToolDialog {
         setLayout(new BorderLayout());
         add(scrollPane, BorderLayout.CENTER);
         add(southPanel, BorderLayout.SOUTH);
+        applyTheme();
     }
 
     public static synchronized ExportTaskListDialog getInstance(Frame owner) {
@@ -136,6 +152,30 @@ public class ExportTaskListDialog extends BaseToolDialog {
         tasks.add(task);
         int row = tasks.size() - 1;
         taskModel.fireTableRowsInserted(row, row);
+
+        task.modelSnapshot = new ArrayList<>();
+        for (int r = 0; r < model.getRowCount(); r++) {
+            Object[] rowData = new Object[model.getColumnCount()];
+            for (int c = 0; c < model.getColumnCount(); c++) {
+                rowData[c] = model.getValueAt(r, c);
+            }
+            task.modelSnapshot.add(rowData);
+        }
+        task.columnCount = model.getColumnCount();
+        task.columnNames = new String[model.getColumnCount()];
+        task.columnClasses = new Class<?>[model.getColumnCount()];
+        for (int c = 0; c < model.getColumnCount(); c++) {
+            task.columnNames[c] = model.getColumnName(c);
+            task.columnClasses[c] = model.getColumnClass(c);
+        }
+        task.retryFormat = format;
+        task.retryColumns = new ArrayList<>(columns);
+        task.retryTableName = tableName;
+        task.retryHeader = header;
+        task.retryCharsetName = charset.name();
+        task.retryDateFormat = dateFormat;
+        task.retryNullPlaceholder = nullPlaceholder;
+        task.retryMaxBlobSize = maxBlobSize;
 
         task.worker = new SwingWorker<Void, Void>() {
             @Override
@@ -183,6 +223,7 @@ public class ExportTaskListDialog extends BaseToolDialog {
                         w.write(sb.toString());
                     }
                     task.filePath = tempFile.getAbsolutePath();
+                    task.endTime = System.currentTimeMillis();
                 } catch (Exception e) {
                     task.errorMessage = e.getMessage();
                 }
@@ -215,6 +256,13 @@ public class ExportTaskListDialog extends BaseToolDialog {
         task.worker.execute();
     }
 
+    @Override
+    protected void applyTheme() {
+        super.applyTheme();
+        taskTable.setBackground(theme.resolve("list.bg"));
+        taskTable.setForeground(theme.resolve("list.fg"));
+    }
+
     private void cancelTask(int row) {
         ExportTask t = tasks.get(row);
         if (t.worker != null && !t.worker.isDone()) {
@@ -225,7 +273,28 @@ public class ExportTaskListDialog extends BaseToolDialog {
     }
 
     private void retryTask(int row) {
-        ToastManager.show(this, "\u91CD\u8BD5\u529F\u80FD\u5C1A\u672A\u5B9E\u73B0");
+        ExportTask failed = tasks.get(row);
+        if (failed.modelSnapshot == null || failed.columnNames == null) {
+            ToastManager.showError(this, "\u65E0\u6CD5\u91CD\u8BD5\uFF1A\u7F3A\u5C11\u4EFB\u52A1\u53C2\u6570");
+            return;
+        }
+        tasks.remove(row);
+        taskModel.fireTableRowsDeleted(row, row);
+
+        TableModel retryModel = new AbstractTableModel() {
+            @Override public int getRowCount() { return failed.modelSnapshot.size(); }
+            @Override public int getColumnCount() { return failed.columnCount; }
+            @Override public String getColumnName(int col) { return failed.columnNames[col]; }
+            @Override public Class<?> getColumnClass(int col) { return failed.columnClasses[col]; }
+            @Override public Object getValueAt(int r, int c) {
+                return failed.modelSnapshot.get(r)[c];
+            }
+        };
+        submitTask(retryModel, failed.retryFormat, failed.retryColumns,
+                failed.retryTableName, failed.retryHeader,
+                Charset.forName(failed.retryCharsetName),
+                failed.retryDateFormat, failed.retryNullPlaceholder,
+                failed.retryMaxBlobSize);
     }
 
     private void openFile(int row) {

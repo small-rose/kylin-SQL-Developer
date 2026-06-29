@@ -1,6 +1,7 @@
 package com.kylin.plsql.ui.dialog;
 
 import com.kylin.plsql.core.config.ConfigManager;
+import com.kylin.plsql.core.config.ThemeManager;
 import com.kylin.plsql.core.db.ConnectionInfo;
 import com.kylin.plsql.core.db.ConnectionManager;
 
@@ -187,6 +188,17 @@ public class ConnectionDialog extends JDialog {
                     connList.setSelectedIndex(i);
                     break;
                 }
+            }
+        }
+        applyTheme();
+    }
+
+    private void applyTheme() {
+        ThemeManager tm = ThemeManager.getInstance();
+        getContentPane().setBackground(tm.resolve("bg.main"));
+        for (Component c : getContentPane().getComponents()) {
+            if (c instanceof JPanel) {
+                c.setBackground(tm.resolve("bg.main"));
             }
         }
     }

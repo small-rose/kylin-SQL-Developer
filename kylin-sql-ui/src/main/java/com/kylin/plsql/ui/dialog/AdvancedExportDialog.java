@@ -30,6 +30,7 @@ public class AdvancedExportDialog extends BaseToolDialog {
         super(owner, "\u9AD8\u7EA7\u5BFC\u51FA");
         this.sourceModel = sourceModel;
         setSizeRatio(0.7);
+        centerOnOwner();
 
         selectedColumns = new ArrayList<>();
         for (int i = 0; i < sourceModel.getColumnCount(); i++) {
@@ -176,6 +177,7 @@ public class AdvancedExportDialog extends BaseToolDialog {
         add(northWrapper, BorderLayout.NORTH);
         add(splitPane, BorderLayout.CENTER);
         add(southPanel, BorderLayout.SOUTH);
+        applyTheme();
     }
 
     private void rebuildColumnCheckboxes() {
@@ -448,6 +450,21 @@ public class AdvancedExportDialog extends BaseToolDialog {
                 ToastManager.showError(this, "\u4FDD\u5B58\u5931\u8D25: " + e.getMessage());
             }
         }
+    }
+
+    @Override
+    protected void applyTheme() {
+        super.applyTheme();
+        Color editorBg = theme.resolve("bg.editor");
+        Color editorFg = theme.resolve("fg.main");
+        outputArea.setBackground(editorBg);
+        outputArea.setForeground(editorFg);
+        tableNameField.setBackground(editorBg);
+        tableNameField.setForeground(editorFg);
+        dateFormatField.setBackground(editorBg);
+        dateFormatField.setForeground(editorFg);
+        nullPlaceholder.setBackground(editorBg);
+        nullPlaceholder.setForeground(editorFg);
     }
 
     static String escapeXml(String s) {

@@ -33,6 +33,7 @@ public class DataGeneratorDialog extends BaseToolDialog {
         super(owner, "\u6570\u636E\u751F\u6210\u5668");
         this.connProvider = connProvider;
         setSizeRatio(0.7);
+        centerOnOwner();
 
         connCombo = new JComboBox<>();
         connCombo.addActionListener(e -> loadSchemas());
@@ -114,6 +115,7 @@ public class DataGeneratorDialog extends BaseToolDialog {
         add(northPanel, BorderLayout.NORTH);
         add(splitPane, BorderLayout.CENTER);
         add(southPanel, BorderLayout.SOUTH);
+        applyTheme();
     }
 
     public void populateConnections(List<String> connNames) {
@@ -322,6 +324,16 @@ public class DataGeneratorDialog extends BaseToolDialog {
         StringBuilder sb = new StringBuilder(bytes * 2);
         for (int i = 0; i < bytes; i++) sb.append(String.format("%02X", rnd.nextInt(256)));
         return sb.toString();
+    }
+
+    @Override
+    protected void applyTheme() {
+        super.applyTheme();
+        outputArea.setBackground(theme.resolve("bg.editor"));
+        outputArea.setForeground(theme.resolve("fg.main"));
+        columnTable.setBackground(theme.resolve("list.bg"));
+        columnTable.setForeground(theme.resolve("list.fg"));
+        splitPane.setBackground(theme.resolve("bg.panel"));
     }
 
     private void toggleLayout() {

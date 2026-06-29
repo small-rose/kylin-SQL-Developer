@@ -156,6 +156,12 @@ public class SettingsDialog extends JDialog {
         btnPanel.add(saveBtn);
         btnPanel.add(cancelBtn);
         add(btnPanel, BorderLayout.SOUTH);
+        applyTheme();
+    }
+
+    private void applyTheme() {
+        ThemeManager tm = ThemeManager.getInstance();
+        getContentPane().setBackground(tm.resolve("bg.main"));
     }
 
     private JPanel buildGeneralPanel() {

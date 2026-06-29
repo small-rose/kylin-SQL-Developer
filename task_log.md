@@ -1200,3 +1200,78 @@ SwingUtilities.updateComponentTreeUI(dialog) → syncTheme() → 分割线位置
 
 ### 测试记录
 - `mvn compile -pl kylin-sql-ui -am -q` — 编译通过
+
+---
+
+## 26. 代码审计 — 问题修复 (2026-06-29)
+
+### 审查范围
+扫描 31 个 UI 源文件 + 29 个 Core 源文件，发现 7 类 12 个问题。
+
+### P0 — 事务连接被意外关闭（3 处，已修复）
+
+**根因**: `try-with-resources` 会关闭 `ConnectionManager.getConnection()` 返回的连接。手动事务模式下返回的是专用事务连接，关闭它会丢失未提交的事务。`executeSql()` 此前已修复，但其余 3 处漏修。
+
+**修复模式**: 替换 `try-with-resources` 为 `isAutoCommit()` 判断 + finally 条件 close。
+
+| 位置 | 改动 |
+|------|------|
+| `MainFrame.java` `bottomPanel.setRefreshExecutor` 回调 | `try-with-resources` → 手动 finally |
+| `MainFrame.java` `explainPlan()` | 同上 |
+| `MainFrame.java` `onObjectAction()` doInBackground 外层 + PREVIEW 内层 | 两层均改为手动模式 |
+
+### P1 — `writeFile()` 写错标签组件（已修复）
+
+**症状**: 保存文件后标签标题不更新。
+
+**根因**: `MainFrame.java:1097` 用 `tabPanel.getComponent(0)` 获取标题标签，但 `buildTabComponent()` 中索引 0 是图标标签，标题标签在索引 2。
+
+**修复**: `getComponent(0)` → `getComponent(2)`
+
+### P1 — 对话框缺少主题响应（3 个，已修复）
+
+| 文件 | 改动 |
+|------|------|
+| `ConnectionDialog.java` | 添加 `applyTheme()` + 构造器末尾调用 |
+| `SettingsDialog.java` | 同上 |
+| `CallHierarchyDialog.java` | 同上 |
+
+### P2 — `StatusBar.setStatusText()` Timer 覆盖（已修复）
+
+**症状**: 3 秒内连续调用 `setStatusText()`，前一个 Timer 仍会触发并清除文本。
+
+**根因**: 没有保存 Timer 引用，创建新 Timer 前未停止旧的。
+
+**修复**: 添加 `statusTextTimer` 字段，创建新 Timer 前 `stop()` 旧的。
+
+### P2 — `ThumbnailContent` DocumentListener 泄漏（已修复）
+
+**症状**: 切换编辑器标签时，每次都会向旧 editor 的 document 添加新监听器且不移除旧的，冗余监听器累积。
+
+**修复**: 添加 `previousEditor`/`currentDocListener` 字段，add 新 listener 前 `removeDocumentListener()` 旧的。
+
+### P2 — SQL 注入风险（DDL 生成路径，未修复）
+
+**风险**: `SqlExecutor.tryOracleDdl()`/`buildDDLFromMeta()` 中多处使用字符串拼接构建 SQL 查询。虽转义了单引号，但查询值可能来自用户输入。
+
+**暂缓原因**: 查询仅读元数据不写数据，改动面大。
+
+### P3 — 硬编码颜色 30+ 处（未修复）
+
+分布：`MainFrame`（图标/按钮/toast 色）、`StatusBar`（连接点/锁/内存条）、`ResultPanel`（关闭按钮/图标）、`RightPanel`（文件图标）、`SqlEditorPanel`（按钮色）等。
+
+需先明确语义豁免规则再批量替换。
+
+### 改动文件
+
+| 文件 | 改动 |
+|------|------|
+| `MainFrame.java` | P0 ×3 + P1 writeFile 标签索引 |
+| `StatusBar.java` | P2 Timer 字段 + setStatusText 停止旧 Timer |
+| `RightPanel.java` | P2 DocumentListener 防泄漏 |
+| `ConnectionDialog.java` | P1 applyTheme |
+| `SettingsDialog.java` | P1 applyTheme |
+| `CallHierarchyDialog.java` | P1 applyTheme |
+
+### 测试记录
+- `mvn compile -q` — 编译通过

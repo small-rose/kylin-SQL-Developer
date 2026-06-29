@@ -2,6 +2,10 @@ package com.kylin.plsql.ui.dialog;
 
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.Style;
+import javax.swing.text.StyleConstants;
+import javax.swing.text.StyledDocument;
 import java.awt.*;
 import java.io.BufferedReader;
 import java.io.File;
@@ -12,7 +16,9 @@ import java.util.List;
 public class TextDiffDialog extends BaseToolDialog {
     private final JTextArea leftArea;
     private final JTextArea rightArea;
-    private final JTextArea resultArea;
+    private final JTextPane sideLeftPane;
+    private final JTextPane sideRightPane;
+    private final JTextPane unifiedPane;
     private final JCheckBox ignoreWsCb;
     private final JLabel statsLabel;
     private final JTabbedPane viewTabs;
@@ -21,22 +27,33 @@ public class TextDiffDialog extends BaseToolDialog {
 
     static class DiffLine {
         final DiffType type;
-        final String text;
-        DiffLine(DiffType type, String text) { this.type = type; this.text = text; }
+        final String leftText;
+        final String rightText;
+        DiffLine(DiffType type, String leftText, String rightText) {
+            this.type = type; this.leftText = leftText; this.rightText = rightText;
+        }
     }
 
     public TextDiffDialog(Frame owner) {
         super(owner, "\u6587\u672C\u6BD4\u8F83");
         setSizeRatio(0.7);
+        centerOnOwner();
 
         leftArea = new JTextArea();
         leftArea.setFont(monoFont());
         rightArea = new JTextArea();
         rightArea.setFont(monoFont());
 
-        resultArea = new JTextArea();
-        resultArea.setFont(monoFont());
-        resultArea.setEditable(false);
+        sideLeftPane = new JTextPane();
+        sideLeftPane.setFont(monoFont());
+        sideLeftPane.setEditable(false);
+        sideRightPane = new JTextPane();
+        sideRightPane.setFont(monoFont());
+        sideRightPane.setEditable(false);
+
+        unifiedPane = new JTextPane();
+        unifiedPane.setFont(monoFont());
+        unifiedPane.setEditable(false);
 
         ignoreWsCb = new JCheckBox("\u5FFD\u7565\u7A7A\u767D");
 
@@ -65,9 +82,16 @@ public class TextDiffDialog extends BaseToolDialog {
         inputSplit.setContinuousLayout(true);
 
         viewTabs = new JTabbedPane();
-        JScrollPane sideBySideScroll = new JScrollPane(resultArea);
-        JScrollPane unifiedScroll = new JScrollPane(resultArea);
-        viewTabs.addTab("\u5BF9\u7167\u89C6\u56FE", sideBySideScroll);
+
+        JScrollPane sideLeftScroll = new JScrollPane(sideLeftPane);
+        JScrollPane sideRightScroll = new JScrollPane(sideRightPane);
+        JSplitPane sideBySideSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
+                sideLeftScroll, sideRightScroll);
+        sideBySideSplit.setResizeWeight(0.5);
+        sideBySideSplit.setContinuousLayout(true);
+        viewTabs.addTab("\u5BF9\u7167\u89C6\u56FE", sideBySideSplit);
+
+        JScrollPane unifiedScroll = new JScrollPane(unifiedPane);
         viewTabs.addTab("\u7EDF\u4E00\u89C6\u56FE", unifiedScroll);
 
         JPanel resultPanel = new JPanel(new BorderLayout());
@@ -82,28 +106,29 @@ public class TextDiffDialog extends BaseToolDialog {
         setLayout(new BorderLayout());
         add(northPanel, BorderLayout.NORTH);
         add(outerSplit, BorderLayout.CENTER);
+        applyTheme();
     }
 
     private void runDiff() {
         String leftText = leftArea.getText();
         String rightText = rightArea.getText();
-        String[] leftLines = leftText.split("\\r?\\n");
-        String[] rightLines = rightText.split("\\r?\\n");
+        String[] leftLines = leftText.split("\\r?\\n", -1);
+        String[] rightLines = rightText.split("\\r?\\n", -1);
 
         List<DiffLine> diffs = computeDiff(leftLines, rightLines);
 
         int adds = 0, dels = 0, mods = 0;
-        StringBuilder sb = new StringBuilder();
         for (DiffLine d : diffs) {
             switch (d.type) {
-                case EQUAL: sb.append("= ").append(d.text).append("\n"); break;
-                case DELETE: sb.append("- ").append(d.text).append("\n"); dels++; break;
-                case INSERT: sb.append("+ ").append(d.text).append("\n"); adds++; break;
-                case MODIFY: sb.append("~ ").append(d.text).append("\n"); mods++; break;
+                case INSERT: adds++; break;
+                case DELETE: dels++; break;
+                case MODIFY: mods++; break;
             }
         }
-        resultArea.setText(sb.toString());
         statsLabel.setText("\u5DEE\u5F02: +" + adds + " -" + dels + " ~" + mods);
+
+        renderSideBySide(diffs);
+        renderUnified(diffs);
     }
 
     private boolean linesEqual(String a, String b) {
@@ -126,28 +151,126 @@ public class TextDiffDialog extends BaseToolDialog {
             }
         }
 
-        List<DiffLine> result = new ArrayList<>();
-        int i = m, j = n;
         java.util.Stack<DiffLine> stack = new java.util.Stack<>();
+        int i = m, j = n;
         while (i > 0 || j > 0) {
             if (i > 0 && j > 0 && linesEqual(left[i - 1], right[j - 1])) {
-                stack.push(new DiffLine(DiffType.EQUAL, left[i - 1]));
+                stack.push(new DiffLine(DiffType.EQUAL, left[i - 1], right[j - 1]));
                 i--; j--;
             } else if (j > 0 && (i == 0 || dp[i][j - 1] >= dp[i - 1][j])) {
-                stack.push(new DiffLine(DiffType.INSERT, right[j - 1]));
+                stack.push(new DiffLine(DiffType.INSERT, "", right[j - 1]));
                 j--;
             } else if (i > 0) {
                 if (j > 0 && !linesEqual(left[i - 1], right[j - 1])) {
-                    stack.push(new DiffLine(DiffType.MODIFY, left[i - 1] + " | " + right[j - 1]));
+                    stack.push(new DiffLine(DiffType.MODIFY, left[i - 1], right[j - 1]));
                     i--; j--;
                 } else {
-                    stack.push(new DiffLine(DiffType.DELETE, left[i - 1]));
+                    stack.push(new DiffLine(DiffType.DELETE, left[i - 1], ""));
                     i--;
                 }
             }
         }
+
+        List<DiffLine> result = new ArrayList<>();
         while (!stack.isEmpty()) result.add(stack.pop());
         return result;
+    }
+
+    private void renderSideBySide(List<DiffLine> diffs) {
+        sideLeftPane.setText("");
+        sideRightPane.setText("");
+        StyledDocument leftDoc = sideLeftPane.getStyledDocument();
+        StyledDocument rightDoc = sideRightPane.getStyledDocument();
+
+        for (DiffLine d : diffs) {
+            appendSideLine(leftDoc, d.leftText, d.type, false);
+            appendSideLine(rightDoc, d.rightText, d.type, true);
+        }
+    }
+
+    private void appendSideLine(StyledDocument doc, String text, DiffType type, boolean isRight) {
+        Color bg;
+        if (type == DiffType.EQUAL) {
+            bg = null;
+        } else if (type == DiffType.DELETE && !isRight) {
+            bg = new Color(0xFFD7D7);
+        } else if (type == DiffType.INSERT && isRight) {
+            bg = new Color(0xD7FFD7);
+        } else if (type == DiffType.MODIFY) {
+            bg = new Color(0xFFF5CC);
+        } else {
+            bg = null;
+        }
+
+        Style style = doc.addStyle("s" + System.nanoTime(), null);
+        if (bg != null) {
+            StyleConstants.setBackground(style, bg);
+        }
+        try {
+            doc.insertString(doc.getLength(), text + "\n", style);
+        } catch (BadLocationException ignored) {}
+    }
+
+    private void renderUnified(List<DiffLine> diffs) {
+        unifiedPane.setText("");
+        StyledDocument doc = unifiedPane.getStyledDocument();
+
+        for (DiffLine d : diffs) {
+            String prefix;
+            Color bg;
+            switch (d.type) {
+                case EQUAL:
+                    prefix = "  ";
+                    bg = null;
+                    break;
+                case DELETE:
+                    prefix = "- ";
+                    bg = new Color(0xFFD7D7);
+                    break;
+                case INSERT:
+                    prefix = "+ ";
+                    bg = new Color(0xD7FFD7);
+                    break;
+                case MODIFY:
+                    prefix = "~ ";
+                    bg = new Color(0xFFF5CC);
+                    break;
+                default:
+                    prefix = "  ";
+                    bg = null;
+            }
+            String displayText = d.type == DiffType.MODIFY
+                    ? d.leftText + " | " + d.rightText
+                    : d.type == DiffType.EQUAL ? d.leftText
+                    : d.type == DiffType.DELETE ? d.leftText
+                    : d.rightText;
+
+            Style style = doc.addStyle("u" + System.nanoTime(), null);
+            if (bg != null) {
+                StyleConstants.setBackground(style, bg);
+            }
+            try {
+                doc.insertString(doc.getLength(), prefix + displayText + "\n", style);
+            } catch (BadLocationException ignored) {}
+        }
+    }
+
+    @Override
+    protected void applyTheme() {
+        super.applyTheme();
+        Color editorBg = theme.resolve("bg.editor");
+        Color editorFg = theme.resolve("fg.main");
+        leftArea.setBackground(editorBg);
+        leftArea.setForeground(editorFg);
+        rightArea.setBackground(editorBg);
+        rightArea.setForeground(editorFg);
+        sideLeftPane.setBackground(editorBg);
+        sideLeftPane.setForeground(editorFg);
+        sideRightPane.setBackground(editorBg);
+        sideRightPane.setForeground(editorFg);
+        unifiedPane.setBackground(editorBg);
+        unifiedPane.setForeground(editorFg);
+        statsLabel.setForeground(theme.resolve("fg.muted"));
     }
 
     private void loadFile(JTextArea target) {

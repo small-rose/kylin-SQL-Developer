@@ -26,6 +26,7 @@ public class SqlHistoryDialog extends BaseToolDialog {
         this.callback = onSelect;
         this.allEntries = new ArrayList<>(history);
         setSizeRatio(0.7);
+        centerOnOwner();
 
         listModel = new DefaultListModel<>();
         for (String s : history) listModel.addElement(s);
@@ -81,6 +82,7 @@ public class SqlHistoryDialog extends BaseToolDialog {
         add(northPanel, BorderLayout.NORTH);
         add(splitPane, BorderLayout.CENTER);
         add(southPanel, BorderLayout.SOUTH);
+        applyTheme();
     }
 
     private void filterList() {
@@ -112,9 +114,27 @@ public class SqlHistoryDialog extends BaseToolDialog {
     private void applyPreviewTheme() {
         Color bg = theme.resolve("bg.panel");
         boolean dark = bg.getRed() + bg.getGreen() + bg.getBlue() < 382;
-        if (dark) {
-            previewArea.setBackground(new Color(0x2B2B2B));
-            previewArea.setForeground(new Color(0xA9B7C6));
+        String themePath = dark
+                ? "/org/fife/ui/rsyntaxtextarea/themes/dark.xml"
+                : "/org/fife/ui/rsyntaxtextarea/themes/default.xml";
+        try (java.io.InputStream is = getClass().getResourceAsStream(themePath)) {
+            if (is != null) {
+                org.fife.ui.rsyntaxtextarea.Theme.load(is).apply(previewArea);
+            }
+        } catch (Exception ignored) {
+            previewArea.setBackground(theme.resolve("bg.editor"));
+            previewArea.setForeground(theme.resolve("fg.main"));
         }
+    }
+
+    @Override
+    protected void applyTheme() {
+        super.applyTheme();
+        historyList.setBackground(theme.resolve("list.bg"));
+        historyList.setForeground(theme.resolve("list.fg"));
+        filterField.setBackground(theme.resolve("bg.editor"));
+        filterField.setForeground(theme.resolve("fg.main"));
+        countLabel.setForeground(theme.resolve("fg.muted"));
+        applyPreviewTheme();
     }
 }

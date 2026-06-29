@@ -14,8 +14,6 @@ public abstract class BaseToolDialog extends JDialog {
         super(owner, title, false);
         this.owner = owner;
         this.theme = ThemeManager.getInstance();
-        centerOnOwner();
-        applyTheme();
     }
 
     protected JPanel wrapTitled(String title, Component comp) {

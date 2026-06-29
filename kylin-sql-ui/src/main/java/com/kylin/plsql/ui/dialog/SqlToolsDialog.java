@@ -11,81 +11,128 @@ public class SqlToolsDialog extends BaseToolDialog {
     private final JTextArea inputArea;
     private final JTextArea outputArea;
     private final JTabbedPane tabbedPane;
+    private final JSplitPane[] splitPanes;
+    private final JToggleButton layoutToggleBtn;
+    private final JLabel descLabel;
 
     public SqlToolsDialog(Frame owner) {
         super(owner, "SQL \u5DE5\u5177");
         setSizeRatio(0.7);
+        centerOnOwner();
 
-        inputArea = new JTextArea(4, 40);
+        inputArea = new JTextArea();
         inputArea.setFont(monoFont());
 
-        outputArea = new JTextArea(4, 40);
+        outputArea = new JTextArea();
         outputArea.setFont(monoFont());
         outputArea.setEditable(false);
 
         tabbedPane = new JTabbedPane();
-        tabbedPane.addTab("\u5B57\u7B26\u8F6C\u4E49", buildEscapePanel());
-        tabbedPane.addTab("IN \u5B50\u53E5\u8F6C\u6362", buildInClausePanel());
 
-        setLayout(new BorderLayout());
-        add(tabbedPane, BorderLayout.CENTER);
-    }
+        JPanel escapePanel = buildEscapePanel();
+        JPanel inClausePanel = buildInClausePanel();
+        splitPanes = new JSplitPane[]{
+                (JSplitPane) escapePanel.getComponent(0),
+                (JSplitPane) inClausePanel.getComponent(0)
+        };
 
-    private JPanel buildEscapePanel() {
-        JPanel panel = new JPanel(new BorderLayout(8, 8));
+        tabbedPane.addTab("\u5B57\u7B26\u8F6C\u4E49", escapePanel);
+        tabbedPane.addTab("IN \u5B50\u53E5\u8F6C\u6362", inClausePanel);
+        tabbedPane.addChangeListener(e -> updateDesc());
 
-        JScrollPane inputScroll = new JScrollPane(inputArea);
-        inputScroll.setBorder(BorderFactory.createTitledBorder("\u8F93\u5165"));
+        layoutToggleBtn = new JToggleButton("\u21D4 \u5782\u76F4\u5E03\u5C40");
+        layoutToggleBtn.addActionListener(e -> toggleLayout());
 
-        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 4));
+        descLabel = new JLabel();
+        updateDesc();
+
         JButton escapeBtn = new JButton("SQL \u8F6C\u4E49");
         escapeBtn.addActionListener(e -> outputArea.setText(escapeSql(inputArea.getText())));
         JButton unescapeBtn = new JButton("SQL \u53CD\u8F6C\u4E49");
         unescapeBtn.addActionListener(e -> outputArea.setText(unescapeSql(inputArea.getText())));
-        btnPanel.add(escapeBtn);
-        btnPanel.add(unescapeBtn);
+        JCheckBox quoteCb = new JCheckBox("\u5E26\u5F15\u53F7");
+        quoteCb.setSelected(true);
+        JButton toInBtn = new JButton("> IN \u5B50\u53E5");
+        toInBtn.addActionListener(e -> outputArea.setText(toInClause(inputArea.getText(), quoteCb.isSelected())));
+        JButton fromInBtn = new JButton("< \u8FD8\u539F");
+        fromInBtn.addActionListener(e -> outputArea.setText(fromInClause(inputArea.getText())));
 
+        JPanel southPanel = new JPanel(new BorderLayout(4, 0));
+        JPanel centerRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 4, 2));
+        centerRow.add(escapeBtn);
+        centerRow.add(unescapeBtn);
+        centerRow.add(quoteCb);
+        centerRow.add(toInBtn);
+        centerRow.add(fromInBtn);
+        southPanel.add(descLabel, BorderLayout.WEST);
+        southPanel.add(centerRow, BorderLayout.CENTER);
+        southPanel.add(layoutToggleBtn, BorderLayout.EAST);
+
+        setLayout(new BorderLayout());
+        add(tabbedPane, BorderLayout.CENTER);
+        add(southPanel, BorderLayout.SOUTH);
+        applyTheme();
+    }
+
+    private JPanel buildEscapePanel() {
+        JScrollPane inputScroll = new JScrollPane(inputArea);
+        inputScroll.setBorder(BorderFactory.createTitledBorder("\u8F93\u5165"));
         JScrollPane outputScroll = new JScrollPane(outputArea);
         outputScroll.setBorder(BorderFactory.createTitledBorder("\u7ED3\u679C"));
 
-        panel.add(inputScroll, BorderLayout.NORTH);
-        panel.add(btnPanel, BorderLayout.CENTER);
-        panel.add(outputScroll, BorderLayout.SOUTH);
+        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
+                inputScroll, outputScroll);
+        split.setResizeWeight(0.5);
+        split.setContinuousLayout(true);
+
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.add(split, BorderLayout.CENTER);
         return panel;
     }
 
     private JPanel buildInClausePanel() {
-        JPanel panel = new JPanel(new BorderLayout(8, 8));
-
-        JTextArea inInput = new JTextArea(4, 40);
-        inInput.setFont(monoFont());
-        JTextArea inOutput = new JTextArea(4, 40);
-        inOutput.setFont(monoFont());
-        inOutput.setEditable(false);
-
-        JScrollPane inputScroll = new JScrollPane(inInput);
+        JScrollPane inputScroll = new JScrollPane(inputArea);
         inputScroll.setBorder(BorderFactory.createTitledBorder("\u8F93\u5165"));
-
-        JCheckBox quoteCb = new JCheckBox("\u5E26\u5F15\u53F7");
-        quoteCb.setSelected(true);
-
-        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 4));
-        btnPanel.add(quoteCb);
-
-        JButton toInBtn = new JButton("> IN \u5B50\u53E5");
-        toInBtn.addActionListener(e -> inOutput.setText(toInClause(inInput.getText(), quoteCb.isSelected())));
-        JButton fromInBtn = new JButton("< \u8FD8\u539F");
-        fromInBtn.addActionListener(e -> inOutput.setText(fromInClause(inInput.getText())));
-        btnPanel.add(toInBtn);
-        btnPanel.add(fromInBtn);
-
-        JScrollPane outputScroll = new JScrollPane(inOutput);
+        JScrollPane outputScroll = new JScrollPane(outputArea);
         outputScroll.setBorder(BorderFactory.createTitledBorder("\u7ED3\u679C"));
 
-        panel.add(inputScroll, BorderLayout.NORTH);
-        panel.add(btnPanel, BorderLayout.CENTER);
-        panel.add(outputScroll, BorderLayout.SOUTH);
+        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
+                inputScroll, outputScroll);
+        split.setResizeWeight(0.5);
+        split.setContinuousLayout(true);
+
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.add(split, BorderLayout.CENTER);
         return panel;
+    }
+
+    private void updateDesc() {
+        int idx = tabbedPane.getSelectedIndex();
+        if (idx == 0) {
+            descLabel.setText("\u529F\u80FD\u8BF4\u660E\uFF1ASQL \u5B57\u7B26\u4E2D\u7684\u5355\u5F15\u53F7\u8F6C\u4E49\u4E0E\u53CD\u8F6C\u4E49");
+        } else {
+            descLabel.setText("\u529F\u80FD\u8BF4\u660E\uFF1A\u591A\u884C\u503C\u4E0E IN \u5B50\u53E5\u683C\u5F0F\u4E92\u76F8\u8F6C\u6362");
+        }
+    }
+
+    private void toggleLayout() {
+        int idx = tabbedPane.getSelectedIndex();
+        JSplitPane split = splitPanes[idx];
+        boolean horizontal = split.getOrientation() == JSplitPane.HORIZONTAL_SPLIT;
+        split.setOrientation(horizontal
+                ? JSplitPane.VERTICAL_SPLIT
+                : JSplitPane.HORIZONTAL_SPLIT);
+        layoutToggleBtn.setText(horizontal ? "\u21D5 \u6C34\u5E73\u5E03\u5C40" : "\u21D4 \u5782\u76F4\u5E03\u5C40");
+    }
+
+    @Override
+    protected void applyTheme() {
+        super.applyTheme();
+        inputArea.setBackground(theme.resolve("bg.editor"));
+        inputArea.setForeground(theme.resolve("fg.main"));
+        outputArea.setBackground(theme.resolve("bg.editor"));
+        outputArea.setForeground(theme.resolve("fg.main"));
+        descLabel.setForeground(theme.resolve("fg.muted"));
     }
 
     static String escapeSql(String input) {

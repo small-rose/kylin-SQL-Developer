@@ -68,6 +68,7 @@ public class ObjectSearchDialog extends BaseToolDialog {
         this.connProvider = connProvider;
         this.onNavigate = onNavigate;
         setSizeRatio(0.7);
+        centerOnOwner();
 
         searchField = new JTextField();
         connCombo = new JComboBox<>();
@@ -137,6 +138,7 @@ public class ObjectSearchDialog extends BaseToolDialog {
         setLayout(new BorderLayout());
         add(northPanel, BorderLayout.NORTH);
         add(splitPane, BorderLayout.CENTER);
+        applyTheme();
     }
 
     public void populateConnections(List<String> connNames) {
@@ -251,6 +253,20 @@ public class ObjectSearchDialog extends BaseToolDialog {
             details.add(new String[]{"\u9519\u8BEF", e.getMessage()});
         }
         detailModel.setData(details);
+    }
+
+    @Override
+    protected void applyTheme() {
+        super.applyTheme();
+        Color editorBg = theme.resolve("bg.editor");
+        Color editorFg = theme.resolve("fg.main");
+        searchField.setBackground(editorBg);
+        searchField.setForeground(editorFg);
+        resultList.setBackground(theme.resolve("list.bg"));
+        resultList.setForeground(theme.resolve("list.fg"));
+        detailTable.setBackground(theme.resolve("list.bg"));
+        detailTable.setForeground(theme.resolve("list.fg"));
+        detailLabel.setForeground(theme.resolve("fg.muted"));
     }
 
     private String getUserName(Connection conn) {

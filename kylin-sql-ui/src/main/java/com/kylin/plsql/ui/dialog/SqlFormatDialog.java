@@ -4,12 +4,14 @@ import com.kylin.plsql.core.format.FormatOptions;
 import com.kylin.plsql.core.format.SqlFormatter;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.fife.ui.rsyntaxtextarea.Theme;
 
 import javax.swing.*;
 import java.awt.*;
+import java.io.InputStream;
 
 public class SqlFormatDialog extends BaseToolDialog {
-    private final JTextArea inputArea;
+    private final RSyntaxTextArea inputArea;
     private final RSyntaxTextArea outputArea;
     private final FormatOptions formatOptions;
     private final JSplitPane splitPane;
@@ -19,9 +21,11 @@ public class SqlFormatDialog extends BaseToolDialog {
         super(owner, "SQL \u683C\u5F0F\u5316");
         this.formatOptions = formatOptions;
         setSizeRatio(0.7);
+        centerOnOwner();
 
-        inputArea = new JTextArea();
-        inputArea.setFont(monoFont());
+        inputArea = new RSyntaxTextArea();
+        inputArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_SQL);
+        inputArea.setCodeFoldingEnabled(true);
 
         outputArea = new RSyntaxTextArea();
         outputArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_SQL);
@@ -57,6 +61,7 @@ public class SqlFormatDialog extends BaseToolDialog {
         setLayout(new BorderLayout());
         add(splitPane, BorderLayout.CENTER);
         add(southPanel, BorderLayout.SOUTH);
+        applyTheme();
     }
 
     private void doFormat() {
@@ -69,10 +74,27 @@ public class SqlFormatDialog extends BaseToolDialog {
     private void applyOutputTheme() {
         Color bg = theme.resolve("bg.panel");
         boolean dark = bg.getRed() + bg.getGreen() + bg.getBlue() < 382;
-        if (dark) {
-            outputArea.setBackground(new Color(0x2B2B2B));
-            outputArea.setForeground(new Color(0xA9B7C6));
+        String themePath = dark
+                ? "/org/fife/ui/rsyntaxtextarea/themes/dark.xml"
+                : "/org/fife/ui/rsyntaxtextarea/themes/default.xml";
+        try (InputStream is = getClass().getResourceAsStream(themePath)) {
+            if (is != null) {
+                Theme.load(is).apply(outputArea);
+            }
+        } catch (Exception ignored) {
+            outputArea.setBackground(theme.resolve("bg.editor"));
+            outputArea.setForeground(theme.resolve("fg.main"));
         }
+    }
+
+    @Override
+    protected void applyTheme() {
+        super.applyTheme();
+        inputArea.setBackground(theme.resolve("bg.editor"));
+        inputArea.setForeground(theme.resolve("fg.main"));
+        splitPane.setBackground(theme.resolve("bg.panel"));
+        layoutToggleBtn.setBackground(theme.resolve("bg.toolbar"));
+        applyOutputTheme();
     }
 
     private void toggleLayout() {

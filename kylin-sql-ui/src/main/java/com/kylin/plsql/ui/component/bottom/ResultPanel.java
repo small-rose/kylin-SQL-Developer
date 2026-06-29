@@ -7,15 +7,22 @@ import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
+import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.JTableHeader;
+import javax.swing.table.TableColumn;
 import javax.swing.table.TableModel;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionAdapter;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import javax.swing.SwingUtilities;
+import javax.swing.event.ListSelectionListener;
 
 public class ResultPanel extends JPanel {
     private static final Logger log = LoggerFactory.getLogger(ResultPanel.class);
@@ -38,8 +45,11 @@ public class ResultPanel extends JPanel {
         int currentPage = 0;
         boolean pinned;
         JTable table;
+        JTable rowHeader;
         PaginatedTableModel model;
         JLabel pageInfoLabel;
+        Set<Point> expandedCells = new HashSet<>();
+        transient boolean syncingSelection;
 
         int getTotalPages() {
             if (allRows == null || allRows.isEmpty() || pageSize <= 0) return 1;
@@ -55,6 +65,7 @@ public class ResultPanel extends JPanel {
     private static class PaginatedTableModel extends AbstractTableModel {
         private ResultTabData data;
         private List<String> columns;
+        Runnable onDataChange;
 
         void setData(ResultTabData d, List<String> cols) {
             this.data = d;
@@ -62,21 +73,28 @@ public class ResultPanel extends JPanel {
             fireTableStructureChanged();
         }
 
+        @Override public void fireTableDataChanged() {
+            super.fireTableDataChanged();
+            if (onDataChange != null) onDataChange.run();
+        }
+
+        @Override public void fireTableStructureChanged() {
+            super.fireTableStructureChanged();
+            if (onDataChange != null) onDataChange.run();
+        }
+
         @Override public int getRowCount() { return data != null ? data.getDisplayRowCount() : 0; }
-        @Override public int getColumnCount() { return (columns != null ? columns.size() : 0) + 1; }
+        @Override public int getColumnCount() { return (columns != null ? columns.size() : 0); }
         @Override public Object getValueAt(int row, int col) {
             if (data == null || data.allRows == null) return null;
             int absRow = data.getOffset() + row;
             if (absRow >= data.allRows.size()) return null;
-            if (col == 0) return absRow + 1;
-            int dc = col - 1;
             List<Object> rowData = data.allRows.get(absRow);
-            return dc < rowData.size() ? rowData.get(dc) : null;
+            return col < rowData.size() ? rowData.get(col) : null;
         }
         @Override public String getColumnName(int col) {
-            if (col == 0) return "#";
-            if (columns == null || col - 1 >= columns.size()) return "";
-            return columns.get(col - 1);
+            if (columns == null || col >= columns.size()) return "";
+            return columns.get(col);
         }
         @Override public boolean isCellEditable(int r, int c) { return false; }
     }
@@ -121,6 +139,10 @@ public class ResultPanel extends JPanel {
         for (ResultTabData d : tabDataList) {
             if (d.table != null) applyTableTheme(d.table);
         }
+        // Rebuild result tab components to pick up new theme colors
+        for (int i = 0; i < tabDataList.size(); i++) {
+            updateResultTabComponent(i + 1);
+        }
     }
 
     private void applyComponentTreeTheme(Component c) {
@@ -155,6 +177,7 @@ public class ResultPanel extends JPanel {
     private void applyTabTheme() {
         resultTabs.setBackground(theme.resolve("bg.main"));
         resultTabs.setForeground(theme.resolve("fg.secondary"));
+        resultTabs.updateUI();
     }
 
     private void applyTableTheme(JTable table) {
@@ -164,7 +187,7 @@ public class ResultPanel extends JPanel {
         table.setForeground(theme.resolve("fg.main"));
         table.setGridColor(theme.resolve("border.default"));
         table.setShowHorizontalLines(true);
-        table.setShowVerticalLines(false);
+        table.setShowVerticalLines(true);
         table.setSelectionBackground(theme.resolve("selection.bg"));
         table.setSelectionForeground(theme.resolve("selection.fg"));
         JTableHeader h = table.getTableHeader();
@@ -173,7 +196,38 @@ public class ResultPanel extends JPanel {
         h.setFont(new Font("Segoe UI", Font.BOLD, 11));
     }
 
-    private void showToast(String msg) {
+    private String escapeHtml(String s) {
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br>");
+    }
+
+    private ResultTabData findTabData(JTable table) {
+        for (ResultTabData d : tabDataList) {
+            if (d.table == table) return d;
+        }
+        return null;
+    }
+
+    private class ExpandedCellRenderer extends DefaultTableCellRenderer {
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value,
+                boolean isSelected, boolean hasFocus, int row, int column) {
+            JLabel label = (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+            label.setFont(table.getFont());
+            ResultTabData d = findTabData(table);
+            if (d != null && d.expandedCells.contains(new Point(row, column))) {
+                String text = value != null ? escapeHtml(value.toString()) : "";
+                int w = Math.max(60, table.getColumnModel().getColumn(column).getWidth() - 8);
+                label.setText("<html><body style='width:" + w + "px; padding:2px 0;'>" + text + "</body></html>");
+                label.setVerticalAlignment(SwingConstants.TOP);
+                return label;
+            }
+            label.setText(value != null ? value.toString() : "");
+            label.setVerticalAlignment(SwingConstants.CENTER);
+            return label;
+        }
+    }
+
+    public void showToast(String msg) {
         Window ancestor = SwingUtilities.getWindowAncestor(this);
         if (ancestor == null) return;
         JWindow toast = new JWindow(ancestor);
@@ -207,7 +261,7 @@ public class ResultPanel extends JPanel {
         tb.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, theme.resolve("border.light")));
 
         JButton prevBtn = makeTbBtn("\u25C0", "\u4E0A\u4E00\u9875");
-        prevBtn.addActionListener(e -> { if (d.currentPage > 0) { d.currentPage--; d.model.fireTableDataChanged(); updatePageInfo(d); }});
+        prevBtn.addActionListener(e -> { if (d.currentPage > 0) { d.currentPage--; d.expandedCells.clear(); d.model.fireTableDataChanged(); updatePageInfo(d); }});
 
         JComboBox<String> psc = new JComboBox<>(new String[]{"25", "50", "100", "500", "\u5168\u90E8"});
         psc.setSelectedItem("100");
@@ -219,15 +273,16 @@ public class ResultPanel extends JPanel {
             String v = (String) psc.getSelectedItem();
             d.pageSize = "\u5168\u90E8".equals(v) ? Integer.MAX_VALUE : Integer.parseInt(v);
             d.currentPage = 0;
+            d.expandedCells.clear();
             d.model.fireTableDataChanged();
             updatePageInfo(d);
         });
 
         JButton nextBtn = makeTbBtn("\u25B6", "\u4E0B\u4E00\u9875");
-        nextBtn.addActionListener(e -> { if (d.currentPage < d.getTotalPages() - 1) { d.currentPage++; d.model.fireTableDataChanged(); updatePageInfo(d); }});
+        nextBtn.addActionListener(e -> { if (d.currentPage < d.getTotalPages() - 1) { d.currentPage++; d.expandedCells.clear(); d.model.fireTableDataChanged(); updatePageInfo(d); }});
 
         JButton refreshBtn = makeTbBtn("\u21BB", "\u5237\u65B0\u7ED3\u679C\u96C6");
-        refreshBtn.addActionListener(e -> { d.currentPage = 0; d.model.fireTableDataChanged(); updatePageInfo(d); });
+        refreshBtn.addActionListener(e -> { d.currentPage = 0; d.expandedCells.clear(); d.model.fireTableDataChanged(); updatePageInfo(d); });
 
         JButton stopBtn = makeTbBtn("\u25A0", "\u505C\u6B62\u67E5\u8BE2");
         stopBtn.addActionListener(e -> appendMessage("\u67E5\u8BE2\u5DF2\u53D6\u6D88"));
@@ -259,6 +314,83 @@ public class ResultPanel extends JPanel {
         JScrollPane scroll = new JScrollPane(d.table);
         scroll.setBorder(null);
         scroll.getViewport().setBackground(theme.resolve("bg.output"));
+
+        d.rowHeader = new JTable(new AbstractTableModel() {
+            @Override public int getRowCount() { return d.getDisplayRowCount(); }
+            @Override public int getColumnCount() { return 1; }
+            @Override public Object getValueAt(int r, int c) { return d.getOffset() + r + 1; }
+            @Override public String getColumnName(int c) { return "#"; }
+        });
+        d.rowHeader.setFont(d.table.getFont());
+        d.rowHeader.setRowHeight(d.table.getRowHeight());
+        d.rowHeader.setBackground(theme.resolve("bg.output"));
+        d.rowHeader.setForeground(theme.resolve("fg.muted"));
+        d.rowHeader.setGridColor(theme.resolve("border.default"));
+        d.rowHeader.setShowVerticalLines(false);
+        d.rowHeader.setShowHorizontalLines(true);
+        d.rowHeader.setPreferredScrollableViewportSize(new Dimension(48, 0));
+        d.rowHeader.setFocusable(false);
+        d.rowHeader.setRowSelectionAllowed(true);
+        d.rowHeader.setCellSelectionEnabled(false);
+        d.rowHeader.setColumnSelectionAllowed(false);
+        d.rowHeader.getTableHeader().setReorderingAllowed(false);
+        d.rowHeader.getTableHeader().setResizingAllowed(false);
+        d.rowHeader.getTableHeader().setPreferredSize(new Dimension(0, 0));
+        d.rowHeader.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
+        DefaultTableCellRenderer rhRenderer = new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable table, Object value,
+                    boolean isSelected, boolean hasFocus, int row, int column) {
+                super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                setFont(new Font("Monospaced", Font.BOLD, 12));
+                setHorizontalAlignment(SwingConstants.CENTER);
+                return this;
+            }
+        };
+        d.rowHeader.setDefaultRenderer(Object.class, rhRenderer);
+        d.rowHeader.getSelectionModel().addListSelectionListener((ListSelectionListener) e -> {
+            if (d.syncingSelection) return;
+            d.syncingSelection = true;
+            try {
+                int minM = d.rowHeader.getSelectionModel().getMinSelectionIndex();
+                int maxM = d.rowHeader.getSelectionModel().getMaxSelectionIndex();
+                if (minM >= 0) {
+                    int vMin = d.table.convertRowIndexToView(minM);
+                    int vMax = d.table.convertRowIndexToView(maxM);
+                    if (vMin >= 0) d.table.setRowSelectionInterval(Math.min(vMin, vMax), Math.max(vMin, vMax));
+                }
+            } finally { d.syncingSelection = false; }
+        });
+        d.rowHeader.addMouseMotionListener(new MouseMotionAdapter() {
+            @Override
+            public void mouseDragged(MouseEvent e) {
+                int row = d.rowHeader.rowAtPoint(e.getPoint());
+                if (row < 0) return;
+                int anchor = d.rowHeader.getSelectionModel().getAnchorSelectionIndex();
+                if (anchor < 0) anchor = row;
+                d.rowHeader.getSelectionModel().setSelectionInterval(Math.min(anchor, row), Math.max(anchor, row));
+            }
+        });
+        d.table.getSelectionModel().addListSelectionListener((ListSelectionListener) e -> {
+            if (d.syncingSelection) return;
+            d.syncingSelection = true;
+            try {
+                int vMin = d.table.getSelectionModel().getMinSelectionIndex();
+                int vMax = d.table.getSelectionModel().getMaxSelectionIndex();
+                if (vMin >= 0) {
+                    int mMin = d.table.convertRowIndexToModel(vMin);
+                    int mMax = d.table.convertRowIndexToModel(vMax);
+                    d.rowHeader.getSelectionModel().setSelectionInterval(Math.min(mMin, mMax), Math.max(mMin, mMax));
+                }
+            } finally { d.syncingSelection = false; }
+        });
+        scroll.setRowHeaderView(d.rowHeader);
+        d.model.onDataChange = () -> {
+            if (d.rowHeader != null) {
+                AbstractTableModel rhm = (AbstractTableModel) d.rowHeader.getModel();
+                rhm.fireTableDataChanged();
+            }
+        };
 
         panel.add(tb, BorderLayout.NORTH);
         panel.add(scroll, BorderLayout.CENTER);
@@ -544,8 +676,8 @@ public class ResultPanel extends JPanel {
                 public void mouseClicked(MouseEvent e) {
                     if (e.getClickCount() == 2) {
                         int col = d.table.columnAtPoint(e.getPoint());
-                        if (col > 0 && col - 1 < d.columns.size()) {
-                            String name = d.columns.get(col - 1);
+                        if (col >= 0 && col < d.columns.size()) {
+                            String name = d.columns.get(col);
                             int dot = name.lastIndexOf('.');
                             if (dot >= 0) name = name.substring(dot + 1);
                             Toolkit.getDefaultToolkit().getSystemClipboard()
@@ -565,9 +697,26 @@ public class ResultPanel extends JPanel {
                         if (row >= 0 && col >= 0) {
                             Object val = d.table.getValueAt(row, col);
                             if (val != null) {
-                                Toolkit.getDefaultToolkit().getSystemClipboard()
-                                    .setContents(new StringSelection(val.toString()), null);
-                                showToast("\u5DF2\u590D\u5236: " + val.toString());
+                                Point cell = new Point(row, col);
+                                int rh = d.table.getRowHeight(row);
+                                int normalRh = d.table.getRowHeight();
+                                if (rh > normalRh && d.expandedCells.contains(cell)) {
+                                    // collapse
+                                    d.expandedCells.clear();
+                                    d.table.setRowHeight(row, normalRh);
+                                    if (d.rowHeader != null) d.rowHeader.setRowHeight(row, normalRh);
+                                } else {
+                                    // expand
+                                    d.expandedCells.clear();
+                                    d.expandedCells.add(cell);
+                                    String text = val.toString();
+                                    int lines = 1 + (int) text.chars().filter(c -> c == '\n').count();
+                                    int estH = Math.max(60, Math.min(lines * 18 + 8, 300));
+                                    int h = Math.max(44, estH);
+                                    d.table.setRowHeight(row, h);
+                                    if (d.rowHeader != null) d.rowHeader.setRowHeight(row, h);
+                                }
+                                d.table.repaint();
                             }
                         }
                     }
@@ -577,6 +726,7 @@ public class ResultPanel extends JPanel {
             d.model.setData(d, result.columns);
             d.table.setModel(d.model);
             applyTableTheme(d.table);
+            d.table.setDefaultRenderer(Object.class, new ExpandedCellRenderer());
 
             JPanel tabContent = buildResultContent(d);
             resultTabs.addTab(label, tabContent);
@@ -617,23 +767,34 @@ public class ResultPanel extends JPanel {
         return name;
     }
 
+    private static double textWidth(Font font, String text) {
+        BufferedImage bi = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = bi.createGraphics();
+        double w = font.getStringBounds(text, g.getFontRenderContext()).getWidth();
+        g.dispose();
+        return w;
+    }
+
     private void autoResizeColWidths(ResultTabData d) {
         if (d.table == null || d.columns == null) return;
-        d.table.getColumnModel().getColumn(0).setPreferredWidth(45);
-        d.table.getColumnModel().getColumn(0).setMaxWidth(55);
-        FontMetrics fm = d.table.getFontMetrics(d.table.getFont());
-        for (int i = 1; i < d.model.getColumnCount(); i++) {
+        Font cellFont = d.table.getFont();
+        Font hdrFont = d.table.getTableHeader().getFont();
+        for (int i = 0; i < d.model.getColumnCount(); i++) {
             int max = 80;
             String header = d.model.getColumnName(i);
-            max = Math.max(max, fm.stringWidth(header) + 20);
+            max = Math.max(max, (int) textWidth(hdrFont, header) + 30);
             for (int r = 0; r < Math.min(d.allRows.size(), 100); r++) {
-                Object val = d.allRows.get(r).get(i - 1);
+                Object val = d.allRows.get(r).get(i);
                 if (val != null) {
-                    max = Math.max(max, Math.min(fm.stringWidth(val.toString()) + 20, 400));
+                    max = Math.max(max, Math.min((int) textWidth(cellFont, val.toString()) + 24, 800));
                 }
             }
-            d.table.getColumnModel().getColumn(i).setPreferredWidth(max);
+            TableColumn col = d.table.getColumnModel().getColumn(i);
+            col.setPreferredWidth(max);
+            col.setWidth(max);
         }
+        d.table.doLayout();
+        d.table.getTableHeader().resizeAndRepaint();
     }
 
     public void showError(String message) {

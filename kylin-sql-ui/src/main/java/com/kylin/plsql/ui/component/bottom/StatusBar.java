@@ -13,7 +13,9 @@ import java.text.DecimalFormat;
 import java.util.function.Consumer;
 
 public class StatusBar extends JPanel {
+    private final JLabel dotLabel;
     private final JLabel connLabel;
+    private final JLabel statusLabel;
     private final JLabel msgLabel;
     private final JLabel posLabel;
     private final JLabel encodingLabel;
@@ -29,6 +31,7 @@ public class StatusBar extends JPanel {
 
     private Consumer<String> onEncodingChange;
     private Consumer<Boolean> onLockToggle;
+    private Timer statusTextTimer;
 
     public void setOnEncodingChange(Consumer<String> fn) { this.onEncodingChange = fn; }
     public void setOnLockToggle(Consumer<Boolean> fn) { this.onLockToggle = fn; }
@@ -37,9 +40,24 @@ public class StatusBar extends JPanel {
         super(new BorderLayout());
         setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, Color.LIGHT_GRAY));
 
-        connLabel = new JLabel("\u25CF \u5C31\u7EEA");
-        connLabel.setBorder(new EmptyBorder(2, 8, 2, 8));
+        dotLabel = new JLabel("\u25CF");
+        dotLabel.setFont(dotLabel.getFont().deriveFont(14f));
+        dotLabel.setForeground(new Color(0x5CB85C));
+        dotLabel.setBorder(new EmptyBorder(2, 8, 2, 2));
+
+        connLabel = new JLabel("\u5C31\u7EEA");
+        connLabel.setBorder(new EmptyBorder(2, 0, 2, 4));
         connLabel.setFont(connLabel.getFont().deriveFont(11f));
+
+        statusLabel = new JLabel(" ");
+        statusLabel.setBorder(new EmptyBorder(2, 4, 2, 8));
+        statusLabel.setFont(statusLabel.getFont().deriveFont(11f));
+
+        JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        leftPanel.setOpaque(false);
+        leftPanel.add(dotLabel);
+        leftPanel.add(connLabel);
+        leftPanel.add(statusLabel);
 
         msgLabel = new JLabel(" ");
         msgLabel.setBorder(new EmptyBorder(2, 8, 2, 8));
@@ -80,7 +98,7 @@ public class StatusBar extends JPanel {
         rightPanel.add(sep());
         rightPanel.add(memoryBar);
 
-        add(connLabel, BorderLayout.WEST);
+        add(leftPanel, BorderLayout.WEST);
         add(msgLabel, BorderLayout.CENTER);
         add(rightPanel, BorderLayout.EAST);
 
@@ -120,7 +138,32 @@ public class StatusBar extends JPanel {
     // ── Setters ──
 
     public void setConnection(String connName) {
-        connLabel.setText(connName != null && !connName.isEmpty() ? "\u25CF " + connName : "");
+        setConnection(connName, true);
+    }
+
+    public void setConnection(String connName, boolean connected) {
+        if (connName == null || connName.isEmpty()) {
+            dotLabel.setVisible(false);
+            connLabel.setText("");
+        } else {
+            dotLabel.setVisible(true);
+            dotLabel.setForeground(connected ? new Color(0x5CB85C) : new Color(0xD9534F));
+            connLabel.setText(connName);
+        }
+    }
+
+    public void setStatusText(String text) {
+        if (text == null || text.isEmpty()) {
+            statusLabel.setText(" ");
+            return;
+        }
+        if (statusTextTimer != null && statusTextTimer.isRunning()) {
+            statusTextTimer.stop();
+        }
+        statusLabel.setText(text);
+        statusTextTimer = new Timer(3000, e -> statusLabel.setText(" "));
+        statusTextTimer.setRepeats(false);
+        statusTextTimer.start();
     }
 
     public void setMessage(String msg) {
@@ -297,7 +340,7 @@ public class StatusBar extends JPanel {
         setBackground(bg);
         setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, border));
 
-        for (Component c : new Component[]{connLabel, msgLabel, posLabel, encodingLabel, typeLabel, syncLabel}) {
+        for (Component c : new Component[]{connLabel, statusLabel, msgLabel, posLabel, encodingLabel, typeLabel, syncLabel}) {
             c.setForeground(fg);
         }
         lockLabel.setForeground(locked ? new Color(0xD9534F) : new Color(0x5CB85C));

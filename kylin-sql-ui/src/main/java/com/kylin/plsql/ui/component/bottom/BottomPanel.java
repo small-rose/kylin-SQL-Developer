@@ -380,6 +380,7 @@ public class BottomPanel extends JPanel {
 
     public void clear() { resultPanel.clear(); }
     public void clearAll() { resultPanel.clearAll(); }
+    public void showToast(String msg) { resultPanel.showToast(msg); }
 
     public ResultPanel getResultPanel() { return resultPanel; }
 

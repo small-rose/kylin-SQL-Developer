@@ -1,5 +1,6 @@
 package com.kylin.plsql.ui.dialog;
 
+import com.kylin.plsql.core.config.ThemeManager;
 import com.kylin.plsql.core.parser.PlSqlCallHierarchy;
 import javax.swing.*;
 import javax.swing.tree.DefaultMutableTreeNode;
@@ -43,6 +44,12 @@ public class CallHierarchyDialog extends JDialog {
         add(panel, BorderLayout.SOUTH);
 
         for (int i = 0; i < tree.getRowCount(); i++) tree.expandRow(i);
+        applyTheme();
+    }
+
+    private void applyTheme() {
+        ThemeManager tm = ThemeManager.getInstance();
+        getContentPane().setBackground(tm.resolve("bg.main"));
     }
 
     private DefaultMutableTreeNode buildTreeNode(PlSqlCallHierarchy.CallNode node) {

@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 public class SqlEditorPanel extends JPanel {
     private static final Logger log = LoggerFactory.getLogger(SqlEditorPanel.class);
@@ -36,15 +37,17 @@ public class SqlEditorPanel extends JPanel {
     private Runnable onAppendExecute;
     private Runnable onFormat;
     private Runnable onConnectionChange;
+    private Consumer<String> onStatusMessage;
     private String connectionName;
     private final Map<String, ConnectionInfo> connDisplayMap = new LinkedHashMap<>();
 
     private final JComboBox<String> connCombo;
     private final JComboBox<String> schemaCombo;
-    private final JCheckBox autoCommitCheck;
+    private final JToggleButton autoTxBtn;
     private final JButton commitBtn;
     private final JButton rollbackBtn;
     private Color hoverBg;
+    private Runnable onHistoryRequest;
 
     private Object segmentPainterTag;
     private final DynamicSegmentPainter segmentPainter = new DynamicSegmentPainter();
@@ -68,13 +71,16 @@ public class SqlEditorPanel extends JPanel {
 
         JButton execBtn = flatBtn("\u25B6", "\u6267\u884C (F8)", e -> { if (onExecute != null) onExecute.run(); });
         execBtn.setForeground(new Color(0x5CB85C));
+        styleBtn(execBtn);
         toolBar.add(execBtn);
 
         JButton appendExecBtn = flatBtn("\u23E9", "\u8FFD\u52A0\u6267\u884C (F9)", e -> { if (onAppendExecute != null) onAppendExecute.run(); });
         appendExecBtn.setForeground(new Color(0x3D8B3D));
+        styleBtn(appendExecBtn);
         toolBar.add(appendExecBtn);
 
-        JButton historyBtn = flatBtn("\uD83D\uDCCB", "\u6267\u884C\u5386\u53F2", null);
+        JButton historyBtn = flatBtn("\uD83D\uDCCB", "\u6267\u884C\u5386\u53F2", e -> { if (onHistoryRequest != null) onHistoryRequest.run(); });
+        styleBtn(historyBtn);
         toolBar.add(historyBtn);
 
         toolBar.add(new JLabel(" \u8FDE\u63A5:"));
@@ -92,16 +98,29 @@ public class SqlEditorPanel extends JPanel {
 
         toolBar.add(Box.createHorizontalStrut(8));
 
-        autoCommitCheck = new JCheckBox("\u81EA\u52A8\u63D0\u4EA4", true);
-        autoCommitCheck.addActionListener(e -> toggleAutoCommit());
-        toolBar.add(autoCommitCheck);
+        autoTxBtn = new JToggleButton("Tx: Auto");
+        autoTxBtn.setSelected(true);
+        autoTxBtn.setFocusable(false);
+        autoTxBtn.setFont(autoTxBtn.getFont().deriveFont(11f));
+        autoTxBtn.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
+        autoTxBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        styleBtn(autoTxBtn);
+        autoTxBtn.addActionListener(e -> {
+            boolean auto = autoTxBtn.isSelected();
+            autoTxBtn.setText(auto ? "Tx: Auto" : "Tx: Manual");
+            connectionManager.setAutoCommit(connectionName, auto);
+            updateTxButtons();
+        });
+        toolBar.add(autoTxBtn);
 
-        commitBtn = flatBtn("\u63D0\u4EA4", null, e -> doCommit());
+        commitBtn = flatBtn("\u2713", "\u63D0\u4EA4 (Commit)", e -> doCommit());
+        commitBtn.setForeground(new Color(0x5CB85C));
         styleBtn(commitBtn);
         commitBtn.setEnabled(false);
         toolBar.add(commitBtn);
 
-        rollbackBtn = flatBtn("\u56DE\u6EDA", null, e -> doRollback());
+        rollbackBtn = flatBtn("\u21A9", "\u56DE\u6EDA (Rollback)", e -> doRollback());
+        rollbackBtn.setForeground(new Color(0xD9534F));
         styleBtn(rollbackBtn);
         rollbackBtn.setEnabled(false);
         toolBar.add(rollbackBtn);
@@ -220,21 +239,26 @@ public class SqlEditorPanel extends JPanel {
         if (current != null) schemaCombo.setSelectedItem(current);
     }
 
-    private void toggleAutoCommit() {
-        if (connectionName == null) return;
-        boolean auto = autoCommitCheck.isSelected();
-        connectionManager.setAutoCommit(connectionName, auto);
-        updateTxButtons();
-    }
-
     private void doCommit() {
         if (connectionName == null) return;
-        connectionManager.commit(connectionName);
+        try {
+            connectionManager.commit(connectionName);
+            if (onStatusMessage != null) onStatusMessage.accept("\u63D0\u4EA4\u6210\u529F");
+        } catch (Exception ex) {
+            log.error("commit failed", ex);
+            if (onStatusMessage != null) onStatusMessage.accept("\u63D0\u4EA4\u5931\u8D25: " + ex.getMessage());
+        }
     }
 
     private void doRollback() {
         if (connectionName == null) return;
-        connectionManager.rollback(connectionName);
+        try {
+            connectionManager.rollback(connectionName);
+            if (onStatusMessage != null) onStatusMessage.accept("\u56DE\u6EDA\u6210\u529F");
+        } catch (Exception ex) {
+            log.error("rollback failed", ex);
+            if (onStatusMessage != null) onStatusMessage.accept("\u56DE\u6EDA\u5931\u8D25: " + ex.getMessage());
+        }
     }
 
     public void updateTxButtons() {
@@ -307,8 +331,11 @@ public class SqlEditorPanel extends JPanel {
         return sel != null ? sel.toString() : null;
     }
 
-    public void setAutoCommit(boolean auto) { autoCommitCheck.setSelected(auto); }
-    public boolean isAutoCommit() { return autoCommitCheck.isSelected(); }
+    public void setAutoCommit(boolean auto) {
+        autoTxBtn.setSelected(auto);
+        autoTxBtn.setText(auto ? "Tx: Auto" : "Tx: Manual");
+    }
+    public boolean isAutoCommit() { return autoTxBtn.isSelected(); }
 
     public void addCaretListener(CaretListener listener) {
         textArea.addCaretListener(listener);
@@ -398,6 +425,8 @@ public class SqlEditorPanel extends JPanel {
     public void setOnAppendExecute(Runnable r) { this.onAppendExecute = r; }
     public void setOnFormat(Runnable r) { this.onFormat = r; }
     public void setOnConnectionChange(Runnable r) { this.onConnectionChange = r; }
+    public void setOnStatusMessage(Consumer<String> c) { this.onStatusMessage = c; }
+    public void setOnHistoryRequest(Runnable r) { this.onHistoryRequest = r; }
 
     public String getFileName() {
         if (filePath != null) return new File(filePath).getName();
@@ -599,11 +628,11 @@ public class SqlEditorPanel extends JPanel {
         topWrapper.setBackground(tb);
         Color fg = theme.resolve("fg.main");
         hoverBg = new Color(fg.getRed(), fg.getGreen(), fg.getBlue(), 60);
-        commitBtn.setForeground(fg);
-        rollbackBtn.setForeground(fg);
+        commitBtn.setForeground(new Color(0x5CB85C));
+        rollbackBtn.setForeground(new Color(0xD9534F));
     }
 
-    private void styleBtn(JButton b) {
+    private void styleBtn(AbstractButton b) {
         b.setContentAreaFilled(true);
         b.setOpaque(false);
         b.setBorder(BorderFactory.createEmptyBorder(2, 8, 2, 8));
@@ -611,15 +640,21 @@ public class SqlEditorPanel extends JPanel {
         b.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override
             public void mouseEntered(java.awt.event.MouseEvent e) {
-                if (hoverBg != null) {
-                    b.setBackground(hoverBg);
-                    b.repaint();
-                }
+                if (hoverBg != null) { b.setBackground(hoverBg); b.setContentAreaFilled(true); b.setOpaque(true); b.repaint(); }
             }
             @Override
             public void mouseExited(java.awt.event.MouseEvent e) {
-                b.setBackground(new Color(0, 0, 0, 0));
+                b.setContentAreaFilled(false); b.setOpaque(false); b.repaint();
+            }
+            @Override
+            public void mousePressed(java.awt.event.MouseEvent e) {
+                Color c = b.getBackground();
+                b.setBackground(new Color(c.getRed(), c.getGreen(), c.getBlue(), Math.min(255, c.getAlpha() + 40)));
                 b.repaint();
+            }
+            @Override
+            public void mouseReleased(java.awt.event.MouseEvent e) {
+                b.setBackground(hoverBg); b.repaint();
             }
         });
     }
