@@ -143,7 +143,8 @@ public class SearchReplacePanel extends JPanel {
         findCenter.add(Box.createHorizontalStrut(4));
         findCenter.add(searchField);
         findCenter.add(Box.createHorizontalStrut(6));
-        matchCountLabel.setPreferredSize(new Dimension(64, 24));
+        matchCountLabel.setPreferredSize(new Dimension(50, 24));
+        matchCountLabel.setFont(matchCountLabel.getFont().deriveFont(10f));
         findCenter.add(matchCountLabel);
         findCenter.add(Box.createHorizontalStrut(4));
         findCenter.add(prevBtn);
@@ -193,11 +194,18 @@ public class SearchReplacePanel extends JPanel {
         replaceCenter.add(Box.createHorizontalStrut(6));
         replaceBtn.setToolTipText("\u66FF\u6362\u5F53\u524D\u5339\u914D");
         replaceBtn.addActionListener(e -> replace());
+        replaceBtn.setEnabled(false);
         replaceCenter.add(replaceBtn);
         replaceCenter.add(Box.createHorizontalStrut(2));
         replaceAllBtn.setToolTipText("\u5168\u90E8\u66FF\u6362");
         replaceAllBtn.addActionListener(e -> replaceAll());
+        replaceAllBtn.setEnabled(false);
         replaceCenter.add(replaceAllBtn);
+        // Same width for replace buttons
+        Dimension rd = replaceAllBtn.getPreferredSize();
+        rd = new Dimension(Math.max(rd.width, 60), rd.height);
+        replaceBtn.setPreferredSize(rd);
+        replaceAllBtn.setPreferredSize(rd);
         replaceBar.add(replaceCenter, BorderLayout.CENTER);
         replaceBar.setVisible(false);
         add(replaceBar, BorderLayout.SOUTH);
@@ -283,7 +291,7 @@ public class SearchReplacePanel extends JPanel {
         styleBtn(replaceBtn);
         styleBtn(replaceAllBtn);
         for (AbstractButton b : new AbstractButton[]{prevBtn, nextBtn, matchCaseBtn, wordsBtn, regexBtn,
-                closeBtn, replaceBtn, replaceAllBtn}) {
+                closeBtn}) {
             addHover(b);
         }
     }
@@ -455,6 +463,8 @@ public class SearchReplacePanel extends JPanel {
 
         if (query == null || query.isEmpty()) {
             matchCountLabel.setText(" ");
+            replaceBtn.setEnabled(false);
+            replaceAllBtn.setEnabled(false);
             return;
         }
 
@@ -488,11 +498,15 @@ public class SearchReplacePanel extends JPanel {
             }
         } catch (PatternSyntaxException e) {
             matchCountLabel.setText("\u6B63\u5219\u9519\u8BEF");
+            replaceBtn.setEnabled(false);
+            replaceAllBtn.setEnabled(false);
             return;
         }
 
         if (matches.isEmpty()) {
             matchCountLabel.setText("\u65E0\u5339\u914D");
+            replaceBtn.setEnabled(false);
+            replaceAllBtn.setEnabled(false);
             return;
         }
 
@@ -509,6 +523,8 @@ public class SearchReplacePanel extends JPanel {
         currentMatchIndex = bestIdx;
         updateMatchCount();
         navigateToCurrentMatch();
+        replaceBtn.setEnabled(true);
+        replaceAllBtn.setEnabled(true);
     }
 
     private void addToSearchHistory(String query) {
@@ -622,6 +638,7 @@ public class SearchReplacePanel extends JPanel {
         bgColor = ThemeManager.getInstance().resolve("bg.toolbar");
         hoverBg = new Color(fg.getRed(), fg.getGreen(), fg.getBlue(), 60);
         matchCountLabel.setForeground(fg);
+        matchCountLabel.setFont(matchCountLabel.getFont().deriveFont(10f));
         searchField.setForeground(fg);
         searchField.setCaretColor(fg);
         replaceField.setForeground(fg);
@@ -630,9 +647,16 @@ public class SearchReplacePanel extends JPanel {
         searchField.setBackground(fieldBg);
         replaceField.setBackground(fieldBg);
         for (JComponent b : new JComponent[]{prevBtn, nextBtn, matchCaseBtn, wordsBtn, regexBtn,
-                closeBtn, replaceBtn, replaceAllBtn}) {
+                closeBtn}) {
             b.setForeground(fg);
             b.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
+        }
+        Color borderColor = ThemeManager.getInstance().resolve("border.default");
+        Color grayFg = ThemeManager.getInstance().resolve("fg.muted");
+        for (JComponent b : new JComponent[]{replaceBtn, replaceAllBtn}) {
+            boolean en = b.isEnabled();
+            b.setForeground(en ? fg : grayFg);
+            b.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, en ? borderColor : grayFg));
         }
         Color accentColor = ThemeManager.getInstance().resolve("accent.green");
         for (JToggleButton b : new JToggleButton[]{matchCaseBtn, wordsBtn, regexBtn}) {
@@ -642,7 +666,6 @@ public class SearchReplacePanel extends JPanel {
                 b.setBackground(new Color(0, 0, 0, 0));
             }
         }
-        Color borderColor = ThemeManager.getInstance().resolve("border.default");
         setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, borderColor));
     }
 
