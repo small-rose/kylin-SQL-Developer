@@ -48,6 +48,8 @@ public class SqlEditorPanel extends JPanel {
     private final DynamicSegmentPainter segmentPainter = new DynamicSegmentPainter();
     private final RTextScrollPane scrollPane;
     private final SearchReplacePanel searchPanel = new SearchReplacePanel();
+    private final JPanel toolBar;
+    private final JPanel topWrapper;
     private final List<Object> execTags = new ArrayList<>();
     private int lastExecLine = -1;
     private boolean lastExecSuccess;
@@ -60,7 +62,7 @@ public class SqlEditorPanel extends JPanel {
         this.tabName = tabName != null ? tabName : "sql";
         setLayout(new BorderLayout());
 
-        JPanel toolBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        toolBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
 
         JButton execBtn = flatBtn("\u25B6", "\u6267\u884C (F8)", e -> { if (onExecute != null) onExecute.run(); });
         execBtn.setForeground(new Color(0x5CB85C));
@@ -96,7 +98,7 @@ public class SqlEditorPanel extends JPanel {
         rollbackBtn.setEnabled(false);
         toolBar.add(rollbackBtn);
 
-        JPanel topWrapper = new JPanel(new BorderLayout());
+        topWrapper = new JPanel(new BorderLayout());
         searchPanel.setVisible(false);
         topWrapper.add(toolBar, BorderLayout.NORTH);
         topWrapper.add(searchPanel, BorderLayout.SOUTH);
@@ -583,6 +585,15 @@ public class SqlEditorPanel extends JPanel {
 
     public void applyTheme() {
         applyEditorTheme();
+        Color tb = theme.resolve("bg.toolbar");
+        toolBar.setBackground(tb);
+        topWrapper.setBackground(tb);
+        Color bc = theme.resolve("border.default");
+        for (Component c : toolBar.getComponents()) {
+            if (c instanceof JButton b) {
+                b.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, bc));
+            }
+        }
     }
 
     private void applyEditorTheme() {
@@ -610,7 +621,6 @@ public class SqlEditorPanel extends JPanel {
         JButton btn = new JButton(text);
         if (tip != null) btn.setToolTipText(tip);
         btn.setFocusable(false);
-        btn.setBorder(BorderFactory.createEmptyBorder(3, 6, 3, 6));
         btn.setContentAreaFilled(false);
         if (action != null) btn.addActionListener(action);
         return btn;

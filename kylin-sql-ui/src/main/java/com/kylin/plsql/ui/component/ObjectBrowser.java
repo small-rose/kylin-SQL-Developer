@@ -387,10 +387,11 @@ public class ObjectBrowser extends JPanel {
         for (Component c : getComponents()) {
             if (c instanceof JScrollPane sp) {
                 sp.getViewport().setBackground(bg);
-                sp.setBorder(BorderFactory.createMatteBorder(0, 1, 1, 1, theme.resolve("border.default")));
+                sp.setBorder(BorderFactory.createMatteBorder(0, 0, 0, 1, theme.resolve("border.default")));
             }
             if (c instanceof JToolBar tb) {
                 tb.setBackground(bg);
+                tb.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 1, theme.resolve("border.default")));
             }
         }
         tree.repaint();
@@ -590,14 +591,76 @@ public class ObjectBrowser extends JPanel {
                 p = (DefaultMutableTreeNode) p.getParent();
             }
         }
-        if (connNode != null) {
-            String cname = ((ConnHolder) connNode.getUserObject()).info.getName();
-            MetadataCache.getInstance().clearConnection(cname);
-            loadConnection(connNode);
-            tree.expandPath(new TreePath(connNode.getPath()));
-        } else {
-            refreshAll();
-        }
+        if (connNode == null) { refreshAll(); return; }
+
+        ConnHolder h = (ConnHolder) connNode.getUserObject();
+        String cname = h.info.getName();
+        final DefaultMutableTreeNode finalConnNode = connNode;
+
+        finalConnNode.removeAllChildren();
+        finalConnNode.add(new DefaultMutableTreeNode("\u5237\u65B0\u4E2D..."));
+        treeModel.reload(finalConnNode);
+        refreshBtn.setEnabled(false);
+
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() {
+                MetadataCache.getInstance().clearConnection(cname);
+                if (!cm.isConnected(cname)) {
+                    try {
+                        cm.connect(h.info);
+                    } catch (Exception e) {
+                        log.warn("\u81EA\u52A8\u8FDE\u63A5 '{}' \u5931\u8D25: {}", cname, e.getMessage());
+                        return null;
+                    }
+                }
+                try (Connection conn = cm.getConnection(cname)) {
+                    String dbProduct = conn.getMetaData().getDatabaseProductName().toLowerCase();
+                    h.dbType = dbProduct;
+                    List<ObjectType> types = detectTypes(dbProduct);
+                    java.util.Set<String> schemas = collectSchemas(conn, dbProduct.contains("oracle") || dbProduct.contains("oceanbase"));
+
+                    MetadataCache mc = MetadataCache.getInstance();
+                    mc.putSchemas(cname, dbProduct, schemas);
+                    java.util.List<String> schemaList = new ArrayList<>(schemas);
+                    connFullSchemas.put(cname, schemaList);
+                    initHiddenSchemas(h, schemaList);
+
+                    if (!schemas.isEmpty()) {
+                        for (String schema : schemas) {
+                            for (ObjectType ot : types) {
+                                if ("SCHEMA".equals(ot.typeCode)) continue;
+                                List<String> objects = queryObjects(conn, ot, schema);
+                                mc.putObjects(cname, schema, ot.typeCode, objects);
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    log.error("\u5237\u65B0\u8FDE\u63A5 '{}' \u5931\u8D25", cname, e);
+                }
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    get();
+                    if (MetadataCache.getInstance().hasMetadata(cname)) {
+                        loadConnection(finalConnNode);
+                    } else {
+                        finalConnNode.removeAllChildren();
+                        finalConnNode.add(new DefaultMutableTreeNode("\u5237\u65B0\u5931\u8D25"));
+                        treeModel.reload(finalConnNode);
+                    }
+                } catch (Exception e) {
+                    finalConnNode.removeAllChildren();
+                    finalConnNode.add(new DefaultMutableTreeNode("\u5237\u65B0\u5931\u8D25: " + e.getMessage()));
+                    treeModel.reload(finalConnNode);
+                } finally {
+                    refreshBtn.setEnabled(true);
+                }
+            }
+        }.execute();
     }
 
     private void showSchemaPopup(DefaultMutableTreeNode connNode, int x, int y) {

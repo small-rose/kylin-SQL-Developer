@@ -72,6 +72,29 @@
                     <addModules>java.base,java.sql,java.desktop,java.naming,java.management,java.xml</addModules>
                 </configuration>
             </plugin>
+
+            <!-- 打包后自动解压 zip 到项目根目录下的 dist/，免手动解压 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>unpack-dist</id>
+                        <phase>package</phase>
+                        <goals><goal>run</goal></goals>
+                        <configuration>
+                            <target>
+                                <delete dir="${project.basedir}/../dist" />
+                                <mkdir dir="${project.basedir}/../dist" />
+                                <unzip src="${project.build.directory}/${project.build.finalName}.zip"
+                                       dest="${project.basedir}/../dist" />
+                                <echo message="解压完成: ${project.build.directory}/${project.build.finalName}.zip → ${project.basedir}/../dist" />
+                            </target>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 </project>

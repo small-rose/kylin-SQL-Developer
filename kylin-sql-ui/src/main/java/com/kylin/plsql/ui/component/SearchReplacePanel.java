@@ -133,23 +133,22 @@ public class SearchReplacePanel extends JPanel {
         JLabel searchIcon = new JLabel("\uD83D\uDD0D");
         searchIcon.setPreferredSize(new Dimension(24, 24));
         searchIcon.setHorizontalAlignment(SwingConstants.CENTER);
+        searchIcon.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        searchIcon.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) { showSearchHistoryPopup(); }
+        });
         findCenter.add(searchIcon);
-        findCenter.add(Box.createHorizontalStrut(2));
-        findCenter.add(searchHistoryBtn);
-        findCenter.add(Box.createHorizontalStrut(2));
+        findCenter.add(Box.createHorizontalStrut(4));
         findCenter.add(searchField);
         findCenter.add(Box.createHorizontalStrut(6));
         matchCountLabel.setPreferredSize(new Dimension(64, 24));
         findCenter.add(matchCountLabel);
         findCenter.add(Box.createHorizontalStrut(4));
         findCenter.add(prevBtn);
-        findCenter.add(Box.createHorizontalStrut(2));
         findCenter.add(nextBtn);
-        findCenter.add(Box.createHorizontalStrut(6));
         findCenter.add(matchCaseBtn);
-        findCenter.add(Box.createHorizontalStrut(2));
         findCenter.add(wordsBtn);
-        findCenter.add(Box.createHorizontalStrut(2));
         findCenter.add(regexBtn);
         findRow.add(findCenter, BorderLayout.CENTER);
         findRow.add(closeBtn, BorderLayout.EAST);
@@ -163,10 +162,13 @@ public class SearchReplacePanel extends JPanel {
         JLabel repIcon = new JLabel("\uD83D\uDD0D");
         repIcon.setPreferredSize(new Dimension(24, 24));
         repIcon.setHorizontalAlignment(SwingConstants.CENTER);
+        repIcon.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        repIcon.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) { showReplaceHistoryPopup(); }
+        });
         replaceCenter.add(repIcon);
-        replaceCenter.add(Box.createHorizontalStrut(2));
-        replaceCenter.add(replaceHistoryBtn);
-        replaceCenter.add(Box.createHorizontalStrut(2));
+        replaceCenter.add(Box.createHorizontalStrut(4));
         replaceField.setPreferredSize(new Dimension(180, 24));
         replaceField.addActionListener(e -> replace());
         replaceField.addKeyListener(new KeyAdapter() {
@@ -198,6 +200,21 @@ public class SearchReplacePanel extends JPanel {
         replaceBar.add(replaceCenter, BorderLayout.CENTER);
         replaceBar.setVisible(false);
         add(replaceBar, BorderLayout.SOUTH);
+
+        prevBtn.addActionListener(e -> findPrev());
+        nextBtn.addActionListener(e -> findNext());
+        matchCaseBtn.addActionListener(e -> scheduleSearch());
+        wordsBtn.addActionListener(e -> scheduleSearch());
+        regexBtn.addActionListener(e -> scheduleSearch());
+        java.awt.event.ItemListener togBorder = e -> {
+            JToggleButton b = (JToggleButton) e.getSource();
+            Color accent = ThemeManager.getInstance().resolve("accent.green");
+            Color border = ThemeManager.getInstance().resolve("border.default");
+            b.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, b.isSelected() ? accent : border));
+        };
+        matchCaseBtn.addItemListener(togBorder);
+        wordsBtn.addItemListener(togBorder);
+        regexBtn.addItemListener(togBorder);
 
         initSearchHistoryPopup();
         initReplaceHistoryPopup();
@@ -239,7 +256,7 @@ public class SearchReplacePanel extends JPanel {
     private static void styleBtn(AbstractButton b) {
         b.setFocusable(false);
         b.setContentAreaFilled(false);
-        b.setBorderPainted(false);
+        b.setBorderPainted(true);
         b.setFocusPainted(false);
         b.setCursor(new Cursor(Cursor.HAND_CURSOR));
         b.setBorder(BorderFactory.createEmptyBorder(3, 5, 3, 5));
@@ -247,9 +264,6 @@ public class SearchReplacePanel extends JPanel {
 
     private static void styleTogBtn(JToggleButton b) {
         styleBtn(b);
-        b.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createEmptyBorder(3, 5, 3, 5),
-            BorderFactory.createEmptyBorder(0, 0, 0, 0)));
     }
 
     private void initButtonStyles() {
@@ -573,14 +587,13 @@ public class SearchReplacePanel extends JPanel {
         if (dark) {
             matchColor = new Color(255, 200, 0, 60);
             currentMatchColor = new Color(255, 200, 0, 120);
-            bgColor = new Color(0x3C3F41);
             fg = new Color(0xBBBBBB);
         } else {
             matchColor = new Color(255, 200, 0, 40);
             currentMatchColor = new Color(255, 200, 0, 100);
-            bgColor = new Color(0xF0F0F0);
             fg = new Color(0x333333);
         }
+        bgColor = ThemeManager.getInstance().resolve("bg.toolbar");
         matchCountLabel.setForeground(fg);
         searchField.setForeground(fg);
         searchField.setCaretColor(fg);
@@ -590,13 +603,26 @@ public class SearchReplacePanel extends JPanel {
         searchField.setBackground(fieldBg);
         replaceField.setBackground(fieldBg);
         for (JComponent b : new JComponent[]{prevBtn, nextBtn, matchCaseBtn, wordsBtn, regexBtn,
-                closeBtn, searchHistoryBtn, replaceHistoryBtn, replaceBtn, replaceAllBtn}) {
+                closeBtn, replaceBtn, replaceAllBtn}) {
             b.setForeground(fg);
         }
         matchCaseBtn.setSelected(matchCaseBtn.isSelected());
         wordsBtn.setSelected(wordsBtn.isSelected());
         regexBtn.setSelected(regexBtn.isSelected());
-        setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, dark ? new Color(0x555555) : new Color(0xCCCCCC)));
+        Color borderColor = ThemeManager.getInstance().resolve("border.default");
+        Color accentColor = ThemeManager.getInstance().resolve("accent.green");
+        for (JComponent b : new JComponent[]{prevBtn, nextBtn, matchCaseBtn, wordsBtn, regexBtn}) {
+            b.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 1, borderColor));
+        }
+        closeBtn.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, borderColor));
+        replaceBtn.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 1, borderColor));
+        replaceAllBtn.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, borderColor));
+        for (JToggleButton b : new JToggleButton[]{matchCaseBtn, wordsBtn, regexBtn}) {
+            if (b.isSelected()) {
+                b.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 1, accentColor));
+            }
+        }
+        setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, borderColor));
     }
 
     private void registerDocListener() {

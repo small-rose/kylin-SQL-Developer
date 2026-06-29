@@ -19,6 +19,16 @@ mvn clean package -DskipTests
 
 解压后运行 `kylin-sql.sh`（Linux）或 `kylin-sql.bat`（Windows）。
 
+### Windows 快速测试（自动解压）
+
+```bash
+mvn package -pl kylin-sql-assembly -am -DskipTests
+cd dist\kylin-sql-1.0.0-SNAPSHOT
+kylin-sql.bat
+```
+
+`package` 阶段会自动将 zip 解压到项目根目录的 `dist/kylin-sql-1.0.0-SNAPSHOT/`，无需手动解压。
+
 ## 构建麒麟原生 deb 包
 
 在 **麒麟 V10 SP1** 环境中执行：

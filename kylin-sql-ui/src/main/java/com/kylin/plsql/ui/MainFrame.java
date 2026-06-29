@@ -286,7 +286,7 @@ public class MainFrame extends JFrame {
         editorPanel.setBorder(null);
         editorPanel.add(welcomePanel, "welcome");
         tabContainer = new JPanel(new BorderLayout());
-        tabContainer.setBorder(BorderFactory.createMatteBorder(0, 1, 0, 1,
+        tabContainer.setBorder(BorderFactory.createMatteBorder(0, 1, 1, 1,
             ThemeManager.getInstance().resolve("border.light")));
         tabContainer.add(editorTabs, BorderLayout.CENTER);
         editorPanel.add(tabContainer, "tabs");
@@ -524,14 +524,17 @@ public class MainFrame extends JFrame {
     private JLabel logoLabel;
 
     private void setupMenu() {
+        Color mc = ThemeManager.getInstance().resolve("bg.toolbar");
+        UIManager.put("MenuBar.background", mc);
         menuBar = new JMenuBar() {
             @Override
             protected void paintComponent(Graphics g) {
-                g.setColor(getBackground());
+                g.setColor(ThemeManager.getInstance().resolve("bg.toolbar"));
                 g.fillRect(0, 0, getWidth(), getHeight());
-                super.paintComponent(g);
             }
         };
+        menuBar.setBackground(mc);
+        menuBar.setOpaque(true);
 
         // App logo
         logoLabel = new JLabel();
@@ -1516,7 +1519,101 @@ public class MainFrame extends JFrame {
     private void showConnectionDialog(String connName) {
         ConnectionDialog dialog = new ConnectionDialog(this, configManager, connectionManager, connName);
         dialog.setVisible(true);
+        String saved = dialog.getSavedConnName();
         loadSavedConnections();
+        if (saved != null) {
+            syncConnectionMetadata(saved);
+        }
+    }
+
+    private void syncConnectionMetadata(String connName) {
+        ConnectionInfo info = configManager.loadConnections().stream()
+                .filter(c -> c.getName().equals(connName))
+                .findFirst().orElse(null);
+        if (info == null) return;
+
+        statusBar.setSyncProgress("\u540C\u6B65\u5143\u6570\u636E: " + connName, 0);
+
+        new SwingWorker<Void, Integer>() {
+            @Override
+            protected Void doInBackground() throws Exception {
+                publish(0);
+                if (!connectionManager.isConnected(connName)) {
+                    connectionManager.connect(info);
+                }
+                publish(5);
+
+                MetadataCache cache = MetadataCache.getInstance();
+                java.util.List<String> schemas = new java.util.ArrayList<>();
+
+                try (java.sql.Connection conn = connectionManager.getConnection(connName)) {
+                    java.sql.DatabaseMetaData meta = conn.getMetaData();
+                    String dbProduct = meta.getDatabaseProductName().toLowerCase();
+                    publish(10);
+
+                    try (java.sql.ResultSet rs = meta.getSchemas()) {
+                        while (rs.next()) {
+                            String s = rs.getString("TABLE_SCHEM");
+                            if (s != null && !s.isEmpty()) schemas.add(s);
+                        }
+                    }
+                    if (schemas.isEmpty() && info.getSchema() != null && !info.getSchema().isEmpty()) {
+                        schemas.add(info.getSchema());
+                    }
+
+                    cache.putSchemas(connName, dbProduct, schemas);
+                    int total = schemas.size();
+                    if (total == 0) return null;
+
+                    for (int i = 0; i < total; i++) {
+                        String schema = schemas.get(i);
+                        java.util.List<String> tables = new java.util.ArrayList<>();
+                        try (java.sql.ResultSet rs = meta.getTables(null, schema, "%", new String[]{"TABLE", "VIEW"})) {
+                            while (rs.next()) {
+                                String tn = rs.getString("TABLE_NAME");
+                                if (tn != null) tables.add(tn);
+                            }
+                        }
+                        cache.putObjects(connName, schema, "TABLE", tables);
+
+                        java.util.List<String> views = new java.util.ArrayList<>();
+                        try (java.sql.ResultSet rs = meta.getTables(null, schema, "%", new String[]{"VIEW"})) {
+                            while (rs.next()) {
+                                String tn = rs.getString("TABLE_NAME");
+                                if (tn != null) views.add(tn);
+                            }
+                        }
+                        if (!views.isEmpty()) cache.putObjects(connName, schema, "VIEW", views);
+
+                        int pct = 10 + (i + 1) * 85 / total;
+                        publish(pct);
+                    }
+                }
+                publish(100);
+                return null;
+            }
+
+            @Override
+            protected void process(java.util.List<Integer> chunks) {
+                int pct = chunks.get(chunks.size() - 1);
+                String text = "\u540C\u6B65\u5143\u6570\u636E: " + connName;
+                statusBar.setSyncProgress(text, pct);
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    get();
+                    statusBar.setMessage(connName + " \u5143\u6570\u636E\u540C\u6B65\u5B8C\u6210");
+                    loadSavedConnections();
+                } catch (Exception e) {
+                    statusBar.setMessage("\u5143\u6570\u636E\u540C\u6B65\u5931\u8D25: " + e.getMessage());
+                }
+                javax.swing.Timer t = new javax.swing.Timer(4000, ev -> statusBar.hideSyncProgress());
+                t.setRepeats(false);
+                t.start();
+            }
+        }.execute();
     }
 
     private void executeActiveEditor() {
@@ -1846,7 +1943,7 @@ public class MainFrame extends JFrame {
     }
 
     private void showWelcome() {
-        leftPanel.selectDatabaseTab();
+        leftPanel.ensureDatabaseTab();
         CardLayout cl = (CardLayout) editorPanel.getLayout();
         cl.show(editorPanel, "welcome");
     }
@@ -2115,7 +2212,7 @@ public class MainFrame extends JFrame {
             editorSplit.setBackground(ThemeManager.getInstance().resolve("bg.panel"));
         }
         if (tabContainer != null) {
-            tabContainer.setBorder(BorderFactory.createMatteBorder(0, 1, 0, 1,
+            tabContainer.setBorder(BorderFactory.createMatteBorder(0, 1, 1, 1,
                 ThemeManager.getInstance().resolve("border.light")));
         }
         if (toolbar != null) {
@@ -2125,18 +2222,22 @@ public class MainFrame extends JFrame {
         }
         if (menuBar != null) {
             Color mc = ThemeManager.getInstance().resolve("bg.toolbar");
-            menuBar.setBackground(mc);
-            menuBar.setOpaque(true);
             UIManager.put("MenuBar.background", mc);
             menuBar.updateUI();
+            menuBar.setBackground(mc);
+            menuBar.setOpaque(true);
             for (int i = 0; i < menuBar.getMenuCount(); i++) {
                 JMenu menu = menuBar.getMenu(i);
                 if (menu == null) continue;
-                menu.setBackground(mc);
                 menu.updateUI();
+                menu.setBackground(mc);
+                menu.setOpaque(true);
                 for (int j = 0; j < menu.getItemCount(); j++) {
                     JMenuItem item = menu.getItem(j);
-                    if (item != null) item.setBackground(mc);
+                    if (item != null) {
+                        item.setBackground(mc);
+                        item.setOpaque(true);
+                    }
                 }
             }
         }

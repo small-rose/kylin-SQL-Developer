@@ -19,6 +19,7 @@ public class ConnectionDialog extends JDialog {
     private JCheckBox useUrlCheck;
     private JLabel hostLabel, portLabel, serviceLabel, dbTypeLabel;
     private ConnectionInfo editing;
+    private String savedConnName;
 
     public ConnectionDialog(Frame owner, ConfigManager configManager, ConnectionManager connectionManager) {
         this(owner, configManager, connectionManager, null);
@@ -280,6 +281,7 @@ public class ConnectionDialog extends JDialog {
         }
         configManager.saveConnections(all);
         loadConnections();
+        savedConnName = ci.getName();
         JOptionPane.showMessageDialog(this, "\u8FDE\u63A5\u5DF2\u4FDD\u5B58");
         editing = null;
     }
@@ -331,4 +333,6 @@ public class ConnectionDialog extends JDialog {
             setCursor(Cursor.getDefaultCursor());
         }
     }
+
+    public String getSavedConnName() { return savedConnName; }
 }

@@ -140,6 +140,7 @@ public class LocalFileBrowser extends JPanel {
         JButton openBtn = makeToolBtn(ICON_FOLDER_OPEN, "\u6253\u5F00\u6587\u4EF6\u5939", e -> openFolder());
         tb.add(openBtn);
 
+        tb.add(Box.createHorizontalGlue());
         tb.addSeparator();
 
         JButton expandBtn = makeToolBtn(ICON_EXPAND, "\u5C55\u5F00\u5168\u90E8", e -> expandAll());
@@ -501,10 +502,11 @@ public class LocalFileBrowser extends JPanel {
         for (Component c : getComponents()) {
             if (c instanceof JScrollPane sp) {
                 sp.getViewport().setBackground(bg);
-                sp.setBorder(BorderFactory.createMatteBorder(0, 1, 1, 1, theme.resolve("border.default")));
+                sp.setBorder(null);
             }
             if (c instanceof JToolBar tb) {
                 tb.setBackground(bg);
+                tb.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, theme.resolve("border.default")));
             }
         }
         tree.repaint();

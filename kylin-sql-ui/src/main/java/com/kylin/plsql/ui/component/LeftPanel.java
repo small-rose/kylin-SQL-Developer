@@ -104,7 +104,7 @@ public class LeftPanel extends JPanel {
         tabStrip.setBackground(theme.resolve("bg.main"));
         tabStrip.setBorder(BorderFactory.createMatteBorder(0, 0, 0, 1, theme.resolve("border.default")));
         contentPanel.setBackground(theme.resolve("bg.main"));
-        contentPanel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, theme.resolve("border.default")));
+        contentPanel.setBorder(null);
         browser.applyTheme();
         fileBrowser.applyTheme();
     }

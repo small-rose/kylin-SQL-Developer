@@ -19,6 +19,9 @@ public class StatusBar extends JPanel {
     private final JLabel lockLabel;
     private final JLabel typeLabel;
     private final MemoryBar memoryBar;
+    private final JLabel syncLabel;
+    private final JProgressBar syncProgress;
+    private final JPanel syncPanel;
 
     private int currentLine = 1;
     private int currentCol = 1;
@@ -49,6 +52,22 @@ public class StatusBar extends JPanel {
         lockLabel = clickableSection("\uD83D\uDD13", e -> toggleLock());
         typeLabel = section("SQL");
         memoryBar = new MemoryBar();
+
+        syncLabel = new JLabel(" ");
+        syncLabel.setBorder(new EmptyBorder(2, 4, 2, 4));
+        syncLabel.setFont(syncLabel.getFont().deriveFont(11f));
+        syncProgress = new JProgressBar(0, 100);
+        syncProgress.setPreferredSize(new Dimension(60, 14));
+        syncProgress.setStringPainted(true);
+        syncProgress.setFont(syncProgress.getFont().deriveFont(9f));
+        syncProgress.setVisible(false);
+        syncPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        syncPanel.setOpaque(false);
+        syncPanel.add(syncLabel);
+        syncPanel.add(syncProgress);
+
+        rightPanel.add(syncPanel);
+        rightPanel.add(sep());
 
         rightPanel.add(posLabel);
         rightPanel.add(sep());
@@ -124,6 +143,18 @@ public class StatusBar extends JPanel {
     public void setLocked(boolean locked) {
         lockLabel.setText(locked ? "\uD83D\uDD12" : "\uD83D\uDD13");
         lockLabel.setForeground(locked ? new Color(0xD9534F) : new Color(0x5CB85C));
+    }
+
+    public void setSyncProgress(String text, int percent) {
+        syncLabel.setText(text);
+        syncProgress.setValue(percent);
+        syncProgress.setString(percent + "%");
+        syncProgress.setVisible(true);
+    }
+
+    public void hideSyncProgress() {
+        syncProgress.setVisible(false);
+        syncLabel.setText(" ");
     }
 
     // ── Click handlers ──
@@ -265,7 +296,7 @@ public class StatusBar extends JPanel {
         setBackground(bg);
         setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, border));
 
-        for (Component c : new Component[]{connLabel, msgLabel, posLabel, encodingLabel, typeLabel}) {
+        for (Component c : new Component[]{connLabel, msgLabel, posLabel, encodingLabel, typeLabel, syncLabel}) {
             c.setForeground(fg);
         }
         lockLabel.setForeground(locked ? new Color(0xD9534F) : new Color(0x5CB85C));
