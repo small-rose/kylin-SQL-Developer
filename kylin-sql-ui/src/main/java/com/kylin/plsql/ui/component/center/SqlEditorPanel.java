@@ -33,6 +33,7 @@ public class SqlEditorPanel extends JPanel {
     private final String tabName;
     private Runnable onModifiedChange;
     private Runnable onExecute;
+    private Runnable onAppendExecute;
     private Runnable onFormat;
     private Runnable onConnectionChange;
     private String connectionName;
@@ -68,6 +69,10 @@ public class SqlEditorPanel extends JPanel {
         JButton execBtn = flatBtn("\u25B6", "\u6267\u884C (F8)", e -> { if (onExecute != null) onExecute.run(); });
         execBtn.setForeground(new Color(0x5CB85C));
         toolBar.add(execBtn);
+
+        JButton appendExecBtn = flatBtn("\u23E9", "\u8FFD\u52A0\u6267\u884C (F9)", e -> { if (onAppendExecute != null) onAppendExecute.run(); });
+        appendExecBtn.setForeground(new Color(0x3D8B3D));
+        toolBar.add(appendExecBtn);
 
         JButton historyBtn = flatBtn("\uD83D\uDCCB", "\u6267\u884C\u5386\u53F2", null);
         toolBar.add(historyBtn);
@@ -390,6 +395,7 @@ public class SqlEditorPanel extends JPanel {
 
     public void setOnModifiedChange(Runnable r) { this.onModifiedChange = r; }
     public void setOnExecute(Runnable r) { this.onExecute = r; }
+    public void setOnAppendExecute(Runnable r) { this.onAppendExecute = r; }
     public void setOnFormat(Runnable r) { this.onFormat = r; }
     public void setOnConnectionChange(Runnable r) { this.onConnectionChange = r; }
 

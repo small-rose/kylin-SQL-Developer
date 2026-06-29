@@ -647,6 +647,11 @@ public class MainFrame extends JFrame {
         execItem.addActionListener(e -> executeActiveEditor());
         sqlMenu.add(execItem);
 
+        JMenuItem appendExecItem = new JMenuItem("\u8FFD\u52A0\u6267\u884C (F9)");
+        appendExecItem.setAccelerator(KeyStroke.getKeyStroke("F9"));
+        appendExecItem.addActionListener(e -> executeAppendEditor());
+        sqlMenu.add(appendExecItem);
+
         JMenuItem fmtItem = new JMenuItem("\u683C\u5F0F\u5316 (Ctrl+Shift+F)");
         fmtItem.setAccelerator(KeyStroke.getKeyStroke("control shift F"));
         fmtItem.addActionListener(e -> formatSql());
@@ -754,6 +759,7 @@ public class MainFrame extends JFrame {
         if (connName != null) editor.setConnectionName(connName);
         if (schema != null) editor.setSchema(schema);
         editor.setOnExecute(() -> executeActiveEditor());
+        editor.setOnAppendExecute(() -> executeAppendEditor());
         editor.setOnFormat(this::formatSql);
         showEditorTabs();
         editorTabs.addTab(editor.getTabTitle(), editor);
@@ -917,18 +923,19 @@ public class MainFrame extends JFrame {
         var connections = configManager.loadConnections();
         editor.setConnections(connections);
         editor.setOnExecute(() -> executeActiveEditor());
+        editor.setOnAppendExecute(() -> executeAppendEditor());
         editor.setOnFormat(this::formatSql);
         editor.setOnConnectionChange(() -> bottomPanel.refreshConnTree());
         showEditorTabs();
-        editorTabs.addTab(file.getName(), editor);
-            int idx = editorTabs.indexOfComponent(editor);
-            initTabComponent(idx, editor);
-            editorTabs.setSelectedComponent(editor);
-            editor.getTextArea().requestFocusInWindow();
-            statusBar.setMessage("\u5DF2\u6253\u5F00: " + file.getAbsolutePath());
-            installCaretListener(editor);
-            rightPanel.onFileOpenedOrSaved(file.getAbsolutePath());
-            saveWorkspace();
+        editorTabs.addTab(editor.getTabTitle(), editor);
+        int idx = editorTabs.indexOfComponent(editor);
+        initTabComponent(idx, editor);
+        editorTabs.setSelectedComponent(editor);
+        editor.getTextArea().requestFocusInWindow();
+        statusBar.setMessage("\u5DF2\u6253\u5F00: " + file.getAbsolutePath());
+        installCaretListener(editor);
+        rightPanel.onFileOpenedOrSaved(file.getAbsolutePath());
+        saveWorkspace();
         } catch (IOException e) {
             JOptionPane.showMessageDialog(this, "\u6253\u5F00\u6587\u4EF6\u5931\u8D25:\n" + e.getMessage(),
                 "\u9519\u8BEF", JOptionPane.ERROR_MESSAGE);
@@ -1632,9 +1639,14 @@ public class MainFrame extends JFrame {
         }.execute();
     }
 
-    private void executeActiveEditor() {
+    private void executeActiveEditor() { executeSql(false); }
+    private void executeAppendEditor() { executeSql(true); }
+
+    private void executeSql(boolean append) {
         SqlEditorPanel editor = getActiveEditor();
         if (editor == null) return;
+
+        if (!append) bottomPanel.clearAll();
 
         String connName = editor.getConnectionName();
         if (connName == null) {
@@ -1740,7 +1752,9 @@ public class MainFrame extends JFrame {
             bottomPanel.appendMessage("\u6267\u884C\u8017\u65F6: " + result.elapsedMs + "ms");
             bottomPanel.appendMessage("\u7ED3\u679C: " + result.getSummary());
             bottomPanel.appendMessage("\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501");
+            bottomPanel.setBatchExecuting(append);
             bottomPanel.showResult(sql, result, connName);
+            bottomPanel.setBatchExecuting(false);
             statusBar.setMessage(result.getSummary());
             editor.markExecResult(execLine, result.isSuccess());
         } catch (Exception e) {
@@ -2023,9 +2037,10 @@ public class MainFrame extends JFrame {
             editor.setConnections(connections);
             if (ts.connName != null) editor.setConnectionName(ts.connName);
             if (ts.schema != null) editor.setSchema(ts.schema);
-            editor.setOnExecute(() -> executeActiveEditor());
-            editor.setOnFormat(this::formatSql);
-            editor.setOnConnectionChange(() -> bottomPanel.refreshConnTree());
+        editor.setOnExecute(() -> executeActiveEditor());
+        editor.setOnAppendExecute(() -> executeAppendEditor());
+        editor.setOnFormat(this::formatSql);
+        editor.setOnConnectionChange(() -> bottomPanel.refreshConnTree());
             editor.getTextArea().setCaretPosition(0);
             editorTabs.addTab(ts.tabName != null ? ts.tabName : editor.getTabTitle(), editor);
             int idx = editorTabs.indexOfComponent(editor);
@@ -2078,6 +2093,7 @@ public class MainFrame extends JFrame {
         if (connName != null) editor.setConnectionName(connName);
         if (schema != null) editor.setSchema(schema);
         editor.setOnExecute(() -> executeActiveEditor());
+        editor.setOnAppendExecute(() -> executeAppendEditor());
         editor.setOnFormat(this::formatSql);
         editor.setOnConnectionChange(() -> bottomPanel.refreshConnTree());
         showEditorTabs();
@@ -2142,8 +2158,9 @@ public class MainFrame extends JFrame {
             var connections = configManager.loadConnections();
             editor.setConnections(connections);
             editor.setOnExecute(() -> executeActiveEditor());
-        editor.setOnFormat(this::formatSql);
-        editor.setOnConnectionChange(() -> bottomPanel.refreshConnTree());
+            editor.setOnAppendExecute(() -> executeAppendEditor());
+            editor.setOnFormat(this::formatSql);
+            editor.setOnConnectionChange(() -> bottomPanel.refreshConnTree());
         showEditorTabs();
 
 

@@ -654,6 +654,16 @@ public class ResultPanel extends JPanel {
         messageArea.setCaretPosition(messageArea.getDocument().getLength());
     }
 
+    public void clearAll() {
+        for (int i = resultTabs.getTabCount() - 1; i > 0; i--) {
+            int di = i - 1;
+            if (di < tabDataList.size()) tabDataList.remove(di);
+            resultTabs.removeTabAt(i);
+        }
+        resultCounter = 0;
+        messageArea.setText("");
+    }
+
     public void clear() {
         for (int i = resultTabs.getTabCount() - 1; i > 0; i--) {
             int di = i - 1;
