@@ -33,6 +33,8 @@ public class ObjectBrowser extends JPanel {
         void onOpenConnections();
         void onConnectionProperties(String connName);
         void onOpenSourceObject(String connName, String schema, String objectType, String objectName);
+        void onSyncProgress(String connName, int percent);
+        void onSyncComplete(String connName);
     }
 
     // ── Fields ──
@@ -601,10 +603,12 @@ public class ObjectBrowser extends JPanel {
         finalConnNode.add(new DefaultMutableTreeNode("\u5237\u65B0\u4E2D..."));
         treeModel.reload(finalConnNode);
         refreshBtn.setEnabled(false);
+        callback.onSyncProgress(cname, 0);
 
-        new SwingWorker<Void, Void>() {
+        new SwingWorker<Void, Integer>() {
             @Override
             protected Void doInBackground() {
+                publish(0);
                 MetadataCache.getInstance().clearConnection(cname);
                 if (!cm.isConnected(cname)) {
                     try {
@@ -618,27 +622,45 @@ public class ObjectBrowser extends JPanel {
                     String dbProduct = conn.getMetaData().getDatabaseProductName().toLowerCase();
                     h.dbType = dbProduct;
                     List<ObjectType> types = detectTypes(dbProduct);
-                    java.util.Set<String> schemas = collectSchemas(conn, dbProduct.contains("oracle") || dbProduct.contains("oceanbase"));
+                    publish(5);
 
+                    java.util.Set<String> schemas = collectSchemas(conn, dbProduct.contains("oracle") || dbProduct.contains("oceanbase"));
                     MetadataCache mc = MetadataCache.getInstance();
                     mc.putSchemas(cname, dbProduct, schemas);
                     java.util.List<String> schemaList = new ArrayList<>(schemas);
                     connFullSchemas.put(cname, schemaList);
                     initHiddenSchemas(h, schemaList);
+                    publish(10);
 
                     if (!schemas.isEmpty()) {
+                        int queryTypeCount = 0;
+                        for (ObjectType ot : types) {
+                            if (!"SCHEMA".equals(ot.typeCode)) queryTypeCount++;
+                        }
+                        int totalOps = schemas.size() * queryTypeCount;
+                        int doneOps = 0;
                         for (String schema : schemas) {
                             for (ObjectType ot : types) {
                                 if ("SCHEMA".equals(ot.typeCode)) continue;
                                 List<String> objects = queryObjects(conn, ot, schema);
                                 mc.putObjects(cname, schema, ot.typeCode, objects);
+                                doneOps++;
+                                int pct = Math.min(95, 10 + doneOps * 85 / totalOps);
+                                publish(pct);
                             }
                         }
                     }
                 } catch (Exception e) {
                     log.error("\u5237\u65B0\u8FDE\u63A5 '{}' \u5931\u8D25", cname, e);
                 }
+                publish(100);
                 return null;
+            }
+
+            @Override
+            protected void process(java.util.List<Integer> chunks) {
+                int pct = chunks.get(chunks.size() - 1);
+                callback.onSyncProgress(cname, pct);
             }
 
             @Override
@@ -658,6 +680,7 @@ public class ObjectBrowser extends JPanel {
                     treeModel.reload(finalConnNode);
                 } finally {
                     refreshBtn.setEnabled(true);
+                    callback.onSyncComplete(cname);
                 }
             }
         }.execute();

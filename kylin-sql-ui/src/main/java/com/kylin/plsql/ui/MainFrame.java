@@ -213,6 +213,17 @@ public class MainFrame extends JFrame {
             public void onOpenSourceObject(String connName, String schema, String objectType, String objectName) {
                 openSourceObject(connName, schema, objectType, objectName);
             }
+            @Override
+            public void onSyncProgress(String connName, int percent) {
+                statusBar.setSyncProgress("\u5237\u65B0\u5143\u6570\u636E: " + connName, percent);
+            }
+            @Override
+            public void onSyncComplete(String connName) {
+                statusBar.setMessage(connName + " \u5237\u65B0\u5B8C\u6210");
+                javax.swing.Timer t = new javax.swing.Timer(4000, ev -> statusBar.hideSyncProgress());
+                t.setRepeats(false);
+                t.start();
+            }
         });
         objectBrowser.setConfigManager(configManager);
 
