@@ -34,6 +34,7 @@ public class SearchReplacePanel extends JPanel {
     private Color matchColor;
     private Color currentMatchColor;
     private Color bgColor;
+    private Color hoverBg;
 
     private final java.util.List<String> searchHistory = new ArrayList<>();
     private int searchHistoryIndex = -1;
@@ -255,11 +256,12 @@ public class SearchReplacePanel extends JPanel {
 
     private static void styleBtn(AbstractButton b) {
         b.setFocusable(false);
-        b.setContentAreaFilled(false);
+        b.setContentAreaFilled(true);
         b.setBorderPainted(true);
         b.setFocusPainted(false);
         b.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        b.setBorder(BorderFactory.createEmptyBorder(3, 5, 3, 5));
+        b.setOpaque(false);
+        b.setBorder(BorderFactory.createEmptyBorder(3, 6, 3, 6));
     }
 
     private static void styleTogBtn(JToggleButton b) {
@@ -277,6 +279,27 @@ public class SearchReplacePanel extends JPanel {
         styleBtn(replaceHistoryBtn);
         styleBtn(replaceBtn);
         styleBtn(replaceAllBtn);
+        for (AbstractButton b : new AbstractButton[]{prevBtn, nextBtn, matchCaseBtn, wordsBtn, regexBtn,
+                closeBtn, replaceBtn, replaceAllBtn}) {
+            addHover(b);
+        }
+    }
+
+    private void addHover(AbstractButton b) {
+        b.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseEntered(java.awt.event.MouseEvent e) {
+                if (hoverBg != null) {
+                    b.setBackground(hoverBg);
+                    b.repaint();
+                }
+            }
+            @Override
+            public void mouseExited(java.awt.event.MouseEvent e) {
+                b.setBackground(new Color(0, 0, 0, 0));
+                b.repaint();
+            }
+        });
     }
 
     private void rebuildSearchHistoryMenu() {
@@ -594,6 +617,7 @@ public class SearchReplacePanel extends JPanel {
             fg = new Color(0x333333);
         }
         bgColor = ThemeManager.getInstance().resolve("bg.toolbar");
+        hoverBg = new Color(fg.getRed(), fg.getGreen(), fg.getBlue(), 25);
         matchCountLabel.setForeground(fg);
         searchField.setForeground(fg);
         searchField.setCaretColor(fg);
