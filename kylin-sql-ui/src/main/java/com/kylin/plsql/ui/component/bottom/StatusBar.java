@@ -12,6 +12,7 @@ import java.awt.event.MouseEvent;
 import java.text.DecimalFormat;
 import java.util.function.Consumer;
 
+/** Status bar showing connection state, cursor position, encoding, lock, memory bar. */
 public class StatusBar extends JPanel {
     private final JLabel dotLabel;
     private final JLabel connLabel;

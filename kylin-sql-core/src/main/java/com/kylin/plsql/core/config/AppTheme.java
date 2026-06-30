@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
+/** Theme definitions with 28-color palettes for DARK, LIGHT, and GREEN themes. */
 public enum AppTheme {
     DARK, LIGHT, GREEN;
 

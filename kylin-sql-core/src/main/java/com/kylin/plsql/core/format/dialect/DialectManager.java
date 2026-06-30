@@ -5,6 +5,7 @@ import java.sql.SQLException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+/** Registry for SQL dialects with auto-detection from JDBC connections. */
 public class DialectManager {
 
     private static final Map<String, SqlDialect> DIALECTS = new ConcurrentHashMap<>();

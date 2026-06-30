@@ -6,6 +6,7 @@ import javax.swing.*;
 import javax.swing.tree.*;
 import java.util.List;
 
+/** PL/SQL outline panel showing procedure/function/package structure. */
 public class OutlinePanel extends JPanel {
     private final JTree tree;
     private final DefaultTreeModel treeModel;

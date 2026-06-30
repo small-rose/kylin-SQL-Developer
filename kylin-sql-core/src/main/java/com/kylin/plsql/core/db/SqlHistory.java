@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+/** In-memory SQL history buffer with deduplication (max 200 entries). */
 public class SqlHistory {
     private static final int MAX_SIZE = 200;
     private final List<String> entries = new ArrayList<>();

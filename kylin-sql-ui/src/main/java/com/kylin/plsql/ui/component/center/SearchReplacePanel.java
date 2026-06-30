@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
+/** Find/replace panel with regex, whole-word, match-case toggles. */
 public class SearchReplacePanel extends JPanel {
 
     private static class MatchRange {

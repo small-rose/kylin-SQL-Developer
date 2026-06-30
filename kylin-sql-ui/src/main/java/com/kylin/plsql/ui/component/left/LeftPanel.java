@@ -6,6 +6,7 @@ import com.kylin.plsql.ui.component.common.VerticalTabButton;
 import javax.swing.*;
 import java.awt.*;
 
+/** Collapsible left panel with DATABASE tab for object browser. */
 public class LeftPanel extends JPanel {
     private final ThemeManager theme = ThemeManager.getInstance();
     private final CardLayout cardLayout = new CardLayout();

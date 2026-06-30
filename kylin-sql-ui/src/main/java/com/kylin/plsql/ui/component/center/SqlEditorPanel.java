@@ -24,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 
+/** SQL editor panel with connection toolbar, auto-commit, segment highlighting. */
 public class SqlEditorPanel extends JPanel {
     private static final Logger log = LoggerFactory.getLogger(SqlEditorPanel.class);
     private final com.kylin.plsql.core.config.ThemeManager theme = com.kylin.plsql.core.config.ThemeManager.getInstance();

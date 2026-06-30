@@ -3,6 +3,7 @@ package com.kylin.plsql.core.config;
 import java.util.ArrayList;
 import java.util.List;
 
+/** Database metadata configuration model with type definitions and custom columns. */
 public class DbMetadataConfig {
     private String dbTypeKey;
     private String displayName;

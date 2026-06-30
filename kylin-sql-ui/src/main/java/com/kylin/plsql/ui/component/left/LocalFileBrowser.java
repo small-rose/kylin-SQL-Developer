@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Stream;
 
+/** Local file system tree browser for SQL files. */
 public class LocalFileBrowser extends JPanel {
 
     public interface Callback {

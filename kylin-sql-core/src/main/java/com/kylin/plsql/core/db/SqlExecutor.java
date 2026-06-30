@@ -9,6 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+/** SQL execution engine with DDL generation, DML templates, and source retrieval. */
 public class SqlExecutor {
     private static final Logger log = LoggerFactory.getLogger(SqlExecutor.class);
 

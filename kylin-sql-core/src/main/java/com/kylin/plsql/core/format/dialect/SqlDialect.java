@@ -5,6 +5,7 @@ import com.kylin.plsql.core.format.FormatOptions;
 import java.util.List;
 import java.util.Set;
 
+/** Interface for database dialect-specific formatting rules. */
 public interface SqlDialect {
 
     String getName();

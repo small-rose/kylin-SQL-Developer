@@ -4,6 +4,7 @@ import org.antlr.v4.runtime.Parser;
 import org.antlr.v4.runtime.Token;
 import org.antlr.v4.runtime.TokenStream;
 
+/** Base class for PL/SQL ANTLR parser with helper methods. */
 public abstract class PlSqlParserBase extends Parser {
     private boolean _isVersion12 = true;
     private boolean _isVersion11 = true;

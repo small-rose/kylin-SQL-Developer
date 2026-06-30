@@ -19,6 +19,7 @@ import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rsyntaxtextarea.Theme;
 import org.fife.ui.rtextarea.RTextScrollPane;
 
+/** Database source code viewer with method navigation and spec/body tabs. */
 public class SourceViewerPanel extends JPanel {
     private final ThemeManager theme = ThemeManager.getInstance();
     private final RSyntaxTextArea textArea;

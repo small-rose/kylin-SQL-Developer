@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/** Singleton theme manager with color override support and listener notification. */
 public class ThemeManager {
     private static ThemeManager instance;
     private AppTheme currentTheme = AppTheme.DARK;

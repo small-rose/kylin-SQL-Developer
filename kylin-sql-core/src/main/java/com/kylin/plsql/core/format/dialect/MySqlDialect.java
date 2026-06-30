@@ -1,10 +1,12 @@
 package com.kylin.plsql.core.format.dialect;
 
 import com.kylin.plsql.core.format.*;
+import com.kylin.plsql.core.format.enums.*;
 
 import java.util.List;
 import java.util.Set;
 
+/** MySQL-specific SQL dialect definition. */
 public class MySqlDialect implements SqlDialect {
 
     @Override

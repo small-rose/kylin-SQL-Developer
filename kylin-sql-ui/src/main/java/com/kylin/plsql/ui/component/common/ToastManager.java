@@ -7,6 +7,7 @@ import java.awt.*;
 import java.util.HashMap;
 import java.util.Map;
 
+/** Non-modal toast notification manager for transient messages. */
 public class ToastManager {
     private static ToastManager instance;
     private final Map<Window, JWindow> activeToasts = new HashMap<>();

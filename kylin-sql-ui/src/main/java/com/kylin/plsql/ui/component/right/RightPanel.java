@@ -18,6 +18,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
+/** Right side panel with FILES, THUMBNAIL, and HISTORY tabs. */
 public class RightPanel extends JPanel {
 
     public interface Callback {

@@ -5,6 +5,7 @@ import com.kylin.plsql.core.config.ThemeManager;
 import javax.swing.*;
 import java.awt.*;
 
+/** Vertical text tab button used in left/right side panels. */
 public class VerticalTabButton extends JButton {
     private static final Font TAB_FONT = new Font("Segoe UI", Font.PLAIN, 11);
     private static final int TAB_STRIP_WIDTH = 28;

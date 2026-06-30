@@ -14,6 +14,7 @@ import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 import java.util.function.Consumer;
 
+/** DataGrip-style bottom tool window with TODO and Services tabs. */
 public class BottomPanel extends JPanel {
     private enum Tab { TODO, SERVICES }
 

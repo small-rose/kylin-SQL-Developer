@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Objects;
 
+/** Database connection information model with JDBC URL and driver auto-detection. */
 public class ConnectionInfo {
     private String name;
     private String dbType;       // "oracle" | "postgresql" | "oceanbase"

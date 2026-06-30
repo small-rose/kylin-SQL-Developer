@@ -6,6 +6,7 @@ import javax.swing.*;
 import javax.swing.border.TitledBorder;
 import java.awt.*;
 
+/** Welcome screen with keyboard shortcuts, usage tips, new/open buttons. */
 public class WelcomePanel extends JPanel {
     private static final Font TITLE_FONT = UIManager.getFont("TitledBorder.font").deriveFont(Font.PLAIN);
     private final ThemeManager theme = ThemeManager.getInstance();

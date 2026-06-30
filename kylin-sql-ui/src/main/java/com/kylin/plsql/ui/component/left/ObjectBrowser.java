@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.*;
 import java.util.stream.Collectors;
 
+/** Database object browser tree with schema/table/view/procedure navigation. */
 public class ObjectBrowser extends JPanel {
     private static final Logger log = LoggerFactory.getLogger(ObjectBrowser.class);
 

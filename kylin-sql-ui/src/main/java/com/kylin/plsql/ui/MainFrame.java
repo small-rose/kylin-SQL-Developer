@@ -30,19 +30,20 @@ import com.kylin.plsql.ui.component.left.LeftPanel;
 import com.kylin.plsql.ui.component.left.LocalFileBrowser;
 import com.kylin.plsql.ui.component.left.ObjectBrowser;
 import com.kylin.plsql.ui.component.right.RightPanel;
-import com.kylin.plsql.ui.dialog.AdvancedExportDialog;
-import com.kylin.plsql.ui.dialog.CallHierarchyDialog;
-import com.kylin.plsql.ui.dialog.ConnectionDialog;
-import com.kylin.plsql.ui.dialog.DataGeneratorDialog;
-import com.kylin.plsql.ui.dialog.ExportTaskListDialog;
-import com.kylin.plsql.ui.dialog.GlobalSearchDialog;
-import com.kylin.plsql.ui.dialog.ObjectSearchDialog;
-import com.kylin.plsql.ui.dialog.RegexTesterDialog;
-import com.kylin.plsql.ui.dialog.SettingsDialog;
-import com.kylin.plsql.ui.dialog.SqlFormatDialog;
-import com.kylin.plsql.ui.dialog.SqlHistoryDialog;
-import com.kylin.plsql.ui.dialog.SqlToolsDialog;
-import com.kylin.plsql.ui.dialog.TextDiffDialog;
+import com.kylin.plsql.ui.dialog.common.BaseToolDialog;
+import com.kylin.plsql.ui.dialog.connection.ConnectionDialog;
+import com.kylin.plsql.ui.dialog.navigation.CallHierarchyDialog;
+import com.kylin.plsql.ui.dialog.navigation.GlobalSearchDialog;
+import com.kylin.plsql.ui.dialog.settings.SettingsDialog;
+import com.kylin.plsql.ui.dialog.tools.AdvancedExportDialog;
+import com.kylin.plsql.ui.dialog.tools.DataGeneratorDialog;
+import com.kylin.plsql.ui.dialog.tools.ExportTaskListDialog;
+import com.kylin.plsql.ui.dialog.tools.ObjectSearchDialog;
+import com.kylin.plsql.ui.dialog.tools.RegexTesterDialog;
+import com.kylin.plsql.ui.dialog.tools.SqlFormatDialog;
+import com.kylin.plsql.ui.dialog.tools.SqlHistoryDialog;
+import com.kylin.plsql.ui.dialog.tools.SqlToolsDialog;
+import com.kylin.plsql.ui.dialog.tools.TextDiffDialog;
 
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.slf4j.Logger;
@@ -70,6 +71,7 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.List;
 
+/** Main application window with menu bar, toolbars, editor tabs, and status bar. */
 public class MainFrame extends JFrame {
     private static final Logger log = LoggerFactory.getLogger(MainFrame.class);
 

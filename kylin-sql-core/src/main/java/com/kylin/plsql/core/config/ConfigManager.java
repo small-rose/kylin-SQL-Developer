@@ -13,6 +13,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
 
+/** Configuration manager for preferences, connections, workspace, and file records. */
 public class ConfigManager {
     private static final Logger log = LoggerFactory.getLogger(ConfigManager.class);
     private static final String CONFIG_DIR = ".kylin-sql";

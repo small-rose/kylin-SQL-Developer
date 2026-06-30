@@ -8,6 +8,7 @@ import org.antlr.v4.runtime.tree.ParseTreeWalker;
 import java.util.*;
 
 
+/** ANTLR-based PL/SQL outline navigator extracting procedure/function/package definitions. */
 public class PlSqlNavigator {
 
     public static class OutlineEntry {

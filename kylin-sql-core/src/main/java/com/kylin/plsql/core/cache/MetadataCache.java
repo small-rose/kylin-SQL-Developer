@@ -11,6 +11,7 @@ import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
+/** Local metadata cache with Gson JSON persistence for database object listings. */
 public class MetadataCache {
     private static final Logger log = LoggerFactory.getLogger(MetadataCache.class);
     private static volatile MetadataCache instance;

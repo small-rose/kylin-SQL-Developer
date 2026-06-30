@@ -3,6 +3,7 @@ package com.kylin.plsql.core.parser;
 import java.util.*;
 import java.util.regex.Pattern;
 
+/** Builds PL/SQL call hierarchy tree from outline entries. */
 public class PlSqlCallHierarchy {
 
     public static class CallNode {

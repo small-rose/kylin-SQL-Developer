@@ -10,6 +10,7 @@ import java.util.HashSet;
 import java.util.Set;
 import org.fife.ui.rsyntaxtextarea.TokenMap;
 
+/** Custom RSyntaxTextArea TokenMaker for PL/SQL syntax highlighting. */
 public class PlSqlTokenMaker extends AbstractTokenMaker {
 
     private static final Set<String> KEYWORDS = new HashSet<>(Set.of(

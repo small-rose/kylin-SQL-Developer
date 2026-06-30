@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import javax.swing.*;
 import java.awt.*;
 
+/** Application entry point with FlatLaf theme initialization. */
 public class KylinPlSqlApp {
     private static final Logger log = LoggerFactory.getLogger(KylinPlSqlApp.class);
 

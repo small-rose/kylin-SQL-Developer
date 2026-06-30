@@ -24,6 +24,7 @@ import java.util.Set;
 import javax.swing.SwingUtilities;
 import javax.swing.event.ListSelectionListener;
 
+/** Paginated result set display with row numbers, column resize, cell expansion. */
 public class ResultPanel extends JPanel {
     private static final Logger log = LoggerFactory.getLogger(ResultPanel.class);
     private final ThemeManager theme = ThemeManager.getInstance();

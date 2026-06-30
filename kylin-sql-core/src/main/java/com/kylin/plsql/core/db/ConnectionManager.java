@@ -9,6 +9,7 @@ import java.sql.*;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+/** HikariCP-based connection pool manager with transaction support. */
 public class ConnectionManager {
     private static final Logger log = LoggerFactory.getLogger(ConnectionManager.class);
     private final Map<String, HikariDataSource> dataSources = new ConcurrentHashMap<>();

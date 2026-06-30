@@ -4,6 +4,7 @@ import java.sql.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
+/** Cross-file symbol index for PL/SQL identifiers from local and database sources. */
 public class PlSqlSymbolIndex {
 
     public static class SymbolEntry {
