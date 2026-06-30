@@ -1275,3 +1275,38 @@ SwingUtilities.updateComponentTreeUI(dialog) → syncTheme() → 分割线位置
 
 ### 测试记录
 - `mvn compile -q` — 编译通过
+
+---
+
+## 27. SettingsDialog UI 重构 — 左侧树 + SQL Format 子面板 + 实时预览 (2026-06-30)
+
+### 完成项
+
+- [x] **布局重构**: `JTabbedPane` → `JSplitPane`（左树 + 右 CardLayout）
+- [x] **左侧树导航**:
+  ```
+  ├── 通用 (General)
+  ├── SQL 格式化 (SQL Formatting)
+  ├── 主题 (Theme)
+  ├── 编辑器 → 自动保存 (Editor → Auto Save)
+  └── 数据库 → 元数据配置 (Database → Metadata)
+  ```
+- [x] **SQL 格式化子面板（5 个标签页）**:
+  - **通用**: 关键字大小写、缩进、最大行宽、换行符、逗号位置
+  - **DQL**: SELECT 列模式、FROM/JOIN 换行、ON 对齐、AND/OR 位置
+  - **DML**: INSERT 列紧凑模式、UPDATE SET 对齐
+  - **DDL**: 列定义对齐、存储子句格式
+  - **PL/SQL**: 声明对齐、参数列表、括号间距、THEN/LOOP/ELSE 换行、EXCEPTION 对齐
+- [x] **实时预览**: `RSyntaxTextArea`，4 种 SQL 模板可选，参数调整即时刷新
+- [x] **Profile 管理**: 保存/删除自定义 Profile，下拉切换
+- [x] **主题同步**: `applyTheme()` 覆盖左树、卡片面板、预览区颜色
+- [x] **保留所有原有功能**: 通用(连接列表)、主题(色板编辑器)、自动保存(间隔/路径)、元数据配置(类型/SQL/扩展列)
+
+### 改动文件
+
+| 文件 | 改动 |
+|------|------|
+| `SettingsDialog.java` | 完全重写 — 左侧树 + 5 个 SQL Format 子面板 + 实时预览 + Profile 管理 |
+
+### 测试记录
+- `mvn compile -q` — 编译通过

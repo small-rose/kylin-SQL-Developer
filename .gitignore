@@ -1,3 +1,9 @@
-.class  
-target/  
-dist/ 
+target/
+.idea/
+*.iml
+*.log
+*.class
+*.bak.*
+dist/
+.class
+target/
