@@ -478,7 +478,11 @@ public class SettingsDialog extends JDialog {
 
         JLabel dialectLbl = new JLabel("\u65B9\u8A00:");
         JComboBox<String> dialectCombo = new JComboBox<>(new String[]{"Oracle", "MySQL", "PostgreSQL", "OceanBase"});
-        dialectCombo.setSelectedItem(detectDialect());
+        dialectCombo.setSelectedItem(workingOptions.getDialect() != null ? workingOptions.getDialect() : "Oracle");
+        dialectCombo.addActionListener(e -> {
+            workingOptions.setDialect((String) dialectCombo.getSelectedItem());
+            refreshPreview();
+        });
         topBar.add(dialectLbl);
         topBar.add(dialectCombo);
 
@@ -577,13 +581,6 @@ public class SettingsDialog extends JDialog {
         return p;
     }
 
-    private String detectDialect() {
-        String active = workingOptions.getActiveProfile();
-        if (active != null && active.contains("MySQL")) return "MySQL";
-        if (active != null && active.contains("PostgreSQL")) return "PostgreSQL";
-        return "Oracle";
-    }
-
     private void refreshProfileCombo(JComboBox<String> combo) {
         combo.removeAllItems();
         for (String name : workingOptions.getProfiles().keySet()) {
@@ -600,13 +597,10 @@ public class SettingsDialog extends JDialog {
     }
 
     private void applyWorkingToControls(JComboBox<String> dialectCombo) {
-        // Refresh all parameter controls from workingOptions
-        // Called when profile is switched
         for (java.awt.event.ActionListener al : dialectCombo.getActionListeners()) {
             dialectCombo.removeActionListener(al);
         }
-        String d = detectDialect();
-        dialectCombo.setSelectedItem(d);
+        dialectCombo.setSelectedItem(workingOptions.getDialect() != null ? workingOptions.getDialect() : "Oracle");
         for (java.awt.event.ActionListener al : dialectCombo.getActionListeners()) {
             dialectCombo.removeActionListener(al);
         }
@@ -621,7 +615,8 @@ public class SettingsDialog extends JDialog {
             default -> SAMPLE_SELECT;
         };
         try {
-            SqlDialect dialect = DialectManager.forName(detectDialect());
+            SqlDialect dialect = DialectManager.forName(
+                workingOptions.getDialect() != null ? workingOptions.getDialect() : "Oracle");
             String formatted = SqlFormatter.format(sql, workingOptions, dialect);
             previewArea.setText(formatted);
             previewArea.setCaretPosition(0);
@@ -1201,9 +1196,12 @@ public class SettingsDialog extends JDialog {
     // ── Save settings ──
 
     private void saveSettings() {
-        // Copy workingOptions back to the original formatOptions
         formatOptions.copyFrom(workingOptions);
-        configManager.setPreference("format.indent", "4");
+        configManager.setPreference("format.dialect", workingOptions.getDialect());
+        configManager.setPreference("format.keywordCase", workingOptions.getKeywordCase().name());
+        configManager.setPreference("format.indent", String.valueOf(workingOptions.getIndentSize()));
+        configManager.setPreference("format.maxWidth", String.valueOf(workingOptions.getMaxLineWidth()));
+        configManager.setPreference("format.lineEnding", workingOptions.getLineEnding());
         JOptionPane.showMessageDialog(this, "\u8BBE\u7F6E\u5DF2\u4FDD\u5B58");
         dispose();
     }

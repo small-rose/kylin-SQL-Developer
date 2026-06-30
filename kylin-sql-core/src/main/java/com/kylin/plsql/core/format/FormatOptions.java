@@ -8,6 +8,7 @@ public class FormatOptions {
     public enum KeywordCase { UPPER, LOWER, PRESERVE }
 
     // ── 通用 ──
+    private String dialect = "Oracle";
     private KeywordCase keywordCase = KeywordCase.UPPER;
     private int indentSize = 4;
     private int maxLineWidth = 120;
@@ -52,6 +53,7 @@ public class FormatOptions {
         profiles.clear();
 
         FormatOptions def = new FormatOptions(false);
+        def.dialect = "Oracle";
         def.keywordCase = KeywordCase.UPPER;
         def.indentSize = 4;
         def.maxLineWidth = 120;
@@ -76,6 +78,7 @@ public class FormatOptions {
         profiles.put("默认 (Oracle)", def);
 
         FormatOptions compact = new FormatOptions(false);
+        compact.dialect = "Oracle";
         compact.keywordCase = KeywordCase.UPPER;
         compact.indentSize = 2;
         compact.maxLineWidth = 100;
@@ -92,6 +95,7 @@ public class FormatOptions {
         profiles.put("紧凑型", compact);
 
         FormatOptions wide = new FormatOptions(false);
+        wide.dialect = "Oracle";
         wide.keywordCase = KeywordCase.UPPER;
         wide.indentSize = 4;
         wide.maxLineWidth = 0;
@@ -153,6 +157,7 @@ public class FormatOptions {
     }
 
     public void copyFrom(FormatOptions src) {
+        this.dialect = src.dialect;
         this.keywordCase = src.keywordCase;
         this.indentSize = src.indentSize;
         this.maxLineWidth = src.maxLineWidth;
@@ -174,6 +179,9 @@ public class FormatOptions {
         this.parenthesisSpacing = src.parenthesisSpacing;
         this.columnDefAlign = src.columnDefAlign;
         this.storageClauseFormat = src.storageClauseFormat;
+        this.activeProfile = src.activeProfile;
+        this.profiles.clear();
+        this.profiles.putAll(src.profiles);
     }
 
     // ══════════════════════════════════════════════
@@ -182,6 +190,7 @@ public class FormatOptions {
 
     public Map<String, String> toMap() {
         Map<String, String> m = new LinkedHashMap<>();
+        m.put("dialect", dialect);
         m.put("keywordCase", keywordCase.name());
         m.put("indentSize", String.valueOf(indentSize));
         m.put("maxLineWidth", String.valueOf(maxLineWidth));
@@ -209,6 +218,7 @@ public class FormatOptions {
 
     public static FormatOptions fromMap(Map<String, String> m) {
         FormatOptions o = new FormatOptions(false);
+        if (m.containsKey("dialect")) o.dialect = m.get("dialect");
         if (m.containsKey("keywordCase")) o.keywordCase = KeywordCase.valueOf(m.get("keywordCase"));
         if (m.containsKey("indentSize")) o.indentSize = Integer.parseInt(m.get("indentSize"));
         if (m.containsKey("maxLineWidth")) o.maxLineWidth = Integer.parseInt(m.get("maxLineWidth"));
@@ -255,6 +265,9 @@ public class FormatOptions {
 
     public String getActiveProfile() { return activeProfile; }
     public void setActiveProfile(String name) { this.activeProfile = name; }
+
+    public String getDialect() { return dialect; }
+    public void setDialect(String dialect) { this.dialect = dialect; }
 
     public Map<String, FormatOptions> getProfiles() { return profiles; }
 

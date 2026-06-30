@@ -1310,3 +1310,27 @@ SwingUtilities.updateComponentTreeUI(dialog) → syncTheme() → 分割线位置
 
 ### 测试记录
 - `mvn compile -q` — 编译通过
+
+---
+
+## 28. 集成路由 + 方言持久化 + 修复 (2026-06-30)
+
+### 完成项
+
+- [x] **FormatOptions 添加 `dialect` 字段** — 显式方言选择，不在 profile 名称中隐式表达
+- [x] **SettingsDialog 方言联动** — dialect 下拉选择同步到 `workingOptions.setDialect()`，预览使用当前方言
+- [x] **修复 `saveSettings()`** — 去掉硬编码 `setPreference("format.indent", "4")`，改为保存所有实际值（dialect/keywordCase/indent/maxWidth/lineEnding）
+- [x] **修复 `copyFrom()` 不复制 profiles** — 原实现只复制标量字段，custom profile 保存后丢失；修复为 `profiles.clear() + putAll()`
+- [x] **修复 `MainFrame.getCurrentDialect()`** — 使用 `formatOptions.getDialect()` 替代 `getActiveProfile()`，避免 profile 名与 DialectManager 不匹配
+- [x] **方言选择持久化** — `saveSettings()` 写入 `preferences.json["format.dialect"]`
+
+### 改动文件
+
+| 文件 | 改动 |
+|------|------|
+| `FormatOptions.java` | 新增 `dialect` 字段 + getter/setter + copyFrom/toMap/fromMap 同步 |
+| `SettingsDialog.java` | dialectCombo 联动 workingOptions；移除 `detectDialect()`；修复 saveSettings() |
+| `MainFrame.java` | `getCurrentDialect()` fallback 改为 `formatOptions.getDialect()` |
+
+### 测试记录
+- `mvn compile -q` — 编译通过

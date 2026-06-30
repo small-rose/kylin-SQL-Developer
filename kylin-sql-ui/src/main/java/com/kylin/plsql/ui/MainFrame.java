@@ -1853,7 +1853,9 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             String dialectName = bottomPanel.getConnectionDialect(connName);
             if (dialectName != null) return DialectManager.forName(dialectName);
         }
-        return DialectManager.forName(formatOptions.getActiveProfile());
+        String dialect = formatOptions.getDialect();
+        if (dialect == null || dialect.isEmpty()) dialect = "Oracle";
+        return DialectManager.forName(dialect);
     }
 
     private void showSettingsDialog() {
