@@ -73,14 +73,19 @@ public class FormatContext {
             selectListAlign = -1; expectColumn = false;
         } else if ("FROM".equals(upper)) {
             push(SqlContext.FROM_CLAUSE);
+            expectColumn = false;
         } else if ("WHERE".equals(upper)) {
             push(SqlContext.WHERE_CLAUSE);
+            expectColumn = false;
         } else if ("GROUP".equals(upper)) {
             push(SqlContext.GROUP_BY);
+            expectColumn = false;
         } else if ("HAVING".equals(upper)) {
             push(SqlContext.HAVING_CLAUSE);
+            expectColumn = false;
         } else if ("ORDER".equals(upper)) {
             push(SqlContext.ORDER_BY);
+            expectColumn = false;
         } else if ("INSERT".equals(upper)) {
             push(SqlContext.NONE);
         } else if ("INTO".equals(upper) && isDirectly(SqlContext.NONE)) {

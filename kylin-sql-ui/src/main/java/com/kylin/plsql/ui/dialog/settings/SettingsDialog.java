@@ -28,6 +28,8 @@ import com.kylin.plsql.core.format.FormatOptions.KeywordCase;
 import com.kylin.plsql.core.format.SqlFormatter;
 import com.kylin.plsql.core.format.dialect.DialectManager;
 import com.kylin.plsql.core.format.dialect.SqlDialect;
+import com.kylin.plsql.core.format.plsql.PlSqlFormatter;
+import com.kylin.plsql.core.format.plsql.model.FormatResult;
 import com.kylin.plsql.ui.MainFrame;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
@@ -171,11 +173,13 @@ public class SettingsDialog extends JDialog {
     private JLabel helpLabel;
     private List<DbMetadataConfig> metadataConfigs;
     private RSyntaxTextArea previewArea;
+    private JLabel previewStatusLabel;
     private JComboBox<String> previewSqlCombo;
     private JTabbedPane formatTabs;
     private JComboBox<String> dialectCombo;
     private JComboBox<String> profileCombo;
     private String previewSection;
+    private boolean manualPreviewSelection;
 
     private static final String[] FORMAT_UNITS = {"\u79D2", "\u5206", "\u5C0F\u65F6"};
     private static final String[] PREVIEW_SQLS = {
@@ -188,17 +192,21 @@ public class SettingsDialog extends JDialog {
         "INDEX",
         "PACKAGE",
         "PL/SQL BLOCK",
-        "COMMENTS"
+        "COMMENTS",
+        "IN LIST",
+        "UNION"
     };
     private static final String SAMPLE_SELECT =
         "SELECT id, first_name, last_name, email, salary, hire_date, department_id\n" +
         "FROM employees e\n" +
         "LEFT JOIN departments d ON e.department_id = d.department_id\n" +
         "WHERE salary > 5000 AND (status = 'ACTIVE' OR status = 'PROBATION')\n" +
-        "GROUP BY department_id\n" +
-        "HAVING COUNT(*) > 5\n" +
-        "ORDER BY salary DESC, last_name ASC\n" +
-        "FETCH FIRST 20 ROWS ONLY";
+        "  AND dept_id IN (SELECT department_id FROM departments WHERE location = 'Tokyo')\n" +
+        "ORDER BY CASE\n" +
+        "    WHEN salary > 10000 THEN 1\n" +
+        "    WHEN salary > 5000 THEN 2\n" +
+        "    ELSE 3\n" +
+        "END, last_name ASC";
     private static final String SAMPLE_INSERT =
         "INSERT INTO employees (employee_id, first_name, last_name, email, phone_number, hire_date, job_id, salary, department_id)\n" +
         "VALUES (100, 'John', 'Doe', 'JDOE', '555-0100', SYSDATE, 'IT_PROG', 75000, 60)";
@@ -248,6 +256,19 @@ public class SettingsDialog extends JDialog {
         "        p_commit   IN BOOLEAN DEFAULT TRUE\n" +
         "    );\n" +
         "END emp_pkg;";
+    private static final String SAMPLE_INLIST =
+        "SELECT id, name, status\n" +
+        "FROM employees\n" +
+        "WHERE dept_id IN (10, 20, 30, 40, 50, 60, 70, 80, 90, 100)\n" +
+        "  AND status IN ('ACTIVE', 'INACTIVE', 'SUSPENDED')\n" +
+        "ORDER BY name";
+    private static final String SAMPLE_SETOPS =
+        "SELECT id, name FROM employees\n" +
+        "UNION ALL\n" +
+        "SELECT id, name FROM former_employees\n" +
+        "MINUS\n" +
+        "SELECT id, name FROM contractors\n" +
+        "ORDER BY name";
     private static final String SAMPLE_COMMENTS =
         "-- \u67E5\u8BE2\u5458\u5DE5\u4FE1\u606F\n" +
         "SELECT e.id,  -- \u5458\u5DE5ID\n" +
@@ -306,7 +327,9 @@ public class SettingsDialog extends JDialog {
         if (le != null) { try { workingOptions.setLineEnding(le); } catch (Exception ignored) {} }
         String di = configManager.getPreference("format.dialect", null);
         if (di != null) { try { workingOptions.setDialect(di); } catch (Exception ignored) {} }
-        setSize(960, 680);
+        // 65% screen size
+        Dimension screen = Toolkit.getDefaultToolkit().getScreenSize();
+        setSize((int)(screen.width * 0.65), (int)(screen.height * 0.65));
         setLocationRelativeTo(owner);
         setLayout(new BorderLayout());
 
@@ -391,10 +414,10 @@ public class SettingsDialog extends JDialog {
 
     private JTree buildSettingsTree() {
         DefaultMutableTreeNode root = new DefaultMutableTreeNode("\u8BBE\u7F6E");
-        root.add(new DefaultMutableTreeNode("SQL \u683C\u5F0F\u5316"));
         root.add(new DefaultMutableTreeNode("\u4E3B\u9898\u4E2A\u6027\u5316"));
         root.add(new DefaultMutableTreeNode("\u81EA\u52A8\u4FDD\u5B58"));
         root.add(new DefaultMutableTreeNode("\u5143\u6570\u636E\u914D\u7F6E"));
+        root.add(new DefaultMutableTreeNode("SQL \u683C\u5F0F\u5316"));
 
         DefaultTreeModel model = new DefaultTreeModel(root);
         JTree tree = new JTree(model);
@@ -625,18 +648,19 @@ public class SettingsDialog extends JDialog {
 
         p.add(topBar, BorderLayout.NORTH);
 
-        // Center: sub-tabs for parameter groups + preview
-        formatTabs = new JTabbedPane();
+        // Center: left tabs + right preview
+        formatTabs = new JTabbedPane(JTabbedPane.LEFT);
         buildFormatTabs();
         formatTabs.addChangeListener(e -> {
             int idx = formatTabs.getSelectedIndex();
             if (idx < 0) return;
             previewSection = null;
+            manualPreviewSelection = false;
             int previewIdx = switch (idx) {
                 case 2 -> { previewSection = "INSERT"; yield 1; }
-                case 3 -> 5; // DDL �?CREATE TABLE
-                case 4 -> 8; // PL/SQL �?PL/SQL BLOCK
-                case 5 -> 9; // 注释/空白 �?COMMENTS
+                case 3 -> 5;
+                case 4 -> 8;
+                case 5 -> 9;
                 default -> 0;
             };
             if (previewSqlCombo.getSelectedIndex() != previewIdx) {
@@ -645,15 +669,12 @@ public class SettingsDialog extends JDialog {
             refreshPreview();
         });
 
-        // Preview area
-        JPanel previewPanel = new JPanel(new BorderLayout(4, 4));
-        previewPanel.setBorder(BorderFactory.createTitledBorder("\u5B9E\u65F6\u9884\u89C8"));
-
+        // Preview area (right side)
         previewSqlCombo = new JComboBox<>(PREVIEW_SQLS);
-        previewSqlCombo.addActionListener(e -> { previewSection = null; refreshPreview(); });
+        previewSqlCombo.addActionListener(e -> { previewSection = null; manualPreviewSelection = true; refreshPreview(); });
 
         previewArea = new RSyntaxTextArea(8, 60);
-        previewArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_SQL);
+        previewArea.setSyntaxEditingStyle("text/plsql");
         previewArea.setEditable(false);
         previewArea.setCodeFoldingEnabled(false);
         previewArea.setHighlightCurrentLine(false);
@@ -675,14 +696,18 @@ public class SettingsDialog extends JDialog {
         previewToolbar.add(new JLabel("\u9884\u89C8 SQL:"));
         previewToolbar.add(previewSqlCombo);
 
-        previewPanel.add(previewToolbar, BorderLayout.NORTH);
-        previewPanel.add(previewScroll, BorderLayout.CENTER);
+        JPanel rightPanel = new JPanel(new BorderLayout());
+        rightPanel.add(previewToolbar, BorderLayout.NORTH);
+        rightPanel.add(previewScroll, BorderLayout.CENTER);
 
-        JSplitPane formatSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, formatTabs, previewPanel);
-        formatSplit.setResizeWeight(0.55);
-        formatSplit.setContinuousLayout(true);
+        previewStatusLabel = new JLabel(" ");
+        previewStatusLabel.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+        rightPanel.add(previewStatusLabel, BorderLayout.SOUTH);
 
-        p.add(formatSplit, BorderLayout.CENTER);
+        JSplitPane hSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, formatTabs, rightPanel);
+        hSplit.setResizeWeight(0.35);
+        hSplit.setContinuousLayout(true);
+        p.add(hSplit, BorderLayout.CENTER);
 
         // Initial preview
         refreshPreview();
@@ -692,12 +717,18 @@ public class SettingsDialog extends JDialog {
     }
 
     private void buildFormatTabs() {
-        formatTabs.addTab("\u901A\u7528", new JScrollPane(buildGeneralFormatPanel(dialectCombo, profileCombo)));
-        formatTabs.addTab("DQL", new JScrollPane(buildDqlPanel()));
-        formatTabs.addTab("DML", new JScrollPane(buildDmlPanel()));
-        formatTabs.addTab("DDL", new JScrollPane(buildDdlPanel()));
-        formatTabs.addTab("PL/SQL", new JScrollPane(buildPlsqlPanel()));
-        formatTabs.addTab("\u6CE8\u91CA/\u7A7A\u767D", new JScrollPane(buildCommentsPanel()));
+        formatTabs.addTab("\u901A\u7528", scrollWrap(buildGeneralFormatPanel(dialectCombo, profileCombo)));
+        formatTabs.addTab("DQL", scrollWrap(buildDqlPanel()));
+        formatTabs.addTab("DML", scrollWrap(buildDmlPanel()));
+        formatTabs.addTab("DDL", scrollWrap(buildDdlPanel()));
+        formatTabs.addTab("PL/SQL", scrollWrap(buildPlsqlPanel()));
+        formatTabs.addTab("\u6CE8\u91CA/\u7A7A\u767D", scrollWrap(buildCommentsPanel()));
+    }
+
+    private JScrollPane scrollWrap(JPanel panel) {
+        JScrollPane s = new JScrollPane(panel);
+        s.setBorder(null);
+        return s;
     }
 
     private void rebuildFormatTabs() {
@@ -740,7 +771,7 @@ public class SettingsDialog extends JDialog {
 
     private void refreshPreview() {
         if (previewArea == null) return;
-        if (previewSection != null) {
+        if (previewSection != null && !manualPreviewSelection) {
             for (int i = 0; i < PREVIEW_SQLS.length; i++) {
                 if (PREVIEW_SQLS[i].equalsIgnoreCase(previewSection)) {
                     if (previewSqlCombo.getSelectedIndex() != i) {
@@ -760,16 +791,30 @@ public class SettingsDialog extends JDialog {
             case 7 -> SAMPLE_PACKAGE;
             case 8 -> SAMPLE_PLSQL;
             case 9 -> SAMPLE_COMMENTS;
+            case 10 -> SAMPLE_INLIST;
+            case 11 -> SAMPLE_SETOPS;
             default -> SAMPLE_SELECT;
         };
         try {
-            SqlDialect dialect = DialectManager.forName(
-                workingOptions.getDialect() != null ? workingOptions.getDialect() : "Oracle");
-            String formatted = SqlFormatter.format(sql, workingOptions, dialect);
-            previewArea.setText(formatted);
+            FormatResult result = PlSqlFormatter.format(sql, workingOptions);
+            previewArea.setText(result.getEffectiveText());
             previewArea.setCaretPosition(0);
+            int qs = result.getQualityScore();
+            int diagCount = result.getDiagnostics().size();
+            if (result.isFallback()) {
+                previewStatusLabel.setText("\u26A0 \u683C\u5F0F\u5316\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u539F\u59CB\u4EE3\u7801\uFF08\u8D28\u91CF\u8BC4\u5206 " + qs + "/100\uFF09");
+                previewStatusLabel.setForeground(new Color(0xD9534F));
+            } else if (diagCount > 0) {
+                previewStatusLabel.setText("\u26A0 \u683C\u5F0F\u5316\u5B8C\u6210\uFF0C" + diagCount + " \u4E2A\u95EE\u9898\uFF08\u8D28\u91CF\u8BC4\u5206 " + qs + "/100\uFF09");
+                previewStatusLabel.setForeground(new Color(0xF0AD4E));
+            } else {
+                previewStatusLabel.setText("\u2713 \u683C\u5F0F\u5316\u5B8C\u6210\uFF08\u8D28\u91CF\u8BC4\u5206 " + qs + "/100\uFF09");
+                previewStatusLabel.setForeground(new Color(0x5CB85C));
+            }
         } catch (Exception e) {
             previewArea.setText(sql);
+            previewStatusLabel.setText("\u2717 \u683C\u5F0F\u5316\u5F02\u5E38: " + e.getMessage());
+            previewStatusLabel.setForeground(new Color(0xD9534F));
         }
     }
 
@@ -798,7 +843,7 @@ public class SettingsDialog extends JDialog {
         c.gridx = 0; c.gridy = row; c.weightx = 0;
         p.add(new JLabel("\u7F29\u8FDB\u7A7A\u683C\u6570:"), c);
         c.gridx = 1;
-        JSpinner indentSpin = new JSpinner(new SpinnerNumberModel(workingOptions.getIndentSize(), 0, 8, 1));
+        JSpinner indentSpin = new JSpinner(new SpinnerNumberModel(workingOptions.getIndentSize(), 0, 64, 1));
         indentSpin.addChangeListener(e -> {
             workingOptions.setIndentSize((Integer) indentSpin.getValue());
             refreshPreview();
@@ -840,12 +885,11 @@ public class SettingsDialog extends JDialog {
         });
         p.add(commaCombo, c);
 
-        GridBagConstraints filler = (GridBagConstraints) c.clone();
-        filler.gridx = 0; filler.gridy = row; filler.gridwidth = 2;
-        filler.weighty = 1.0; filler.fill = GridBagConstraints.VERTICAL;
-        p.add(Box.createVerticalGlue(), filler);
         applyPanelTheme(p);
-        return p;
+        JPanel wrapper = new JPanel(new BorderLayout());
+        wrapper.setOpaque(false);
+        wrapper.add(p, BorderLayout.NORTH);
+        return wrapper;
     }
 
     // ── UI helper methods for format sub-panels ──
@@ -880,7 +924,10 @@ public class SettingsDialog extends JDialog {
         GridBagConstraints vc = (GridBagConstraints) c.clone();
         vc.gridx = 1; vc.gridy = row; vc.weightx = 1;
         JSpinner spin = new JSpinner(new SpinnerNumberModel(value, min, max, 1));
-        spin.addChangeListener(e -> onChange.accept((Integer) spin.getValue()));
+        spin.addChangeListener(e -> {
+            try { spin.commitEdit(); } catch (Exception ignored) {}
+            onChange.accept((Integer) spin.getValue());
+        });
         p.add(spin, vc);
         return row + 1;
     }
@@ -910,7 +957,7 @@ public class SettingsDialog extends JDialog {
         addSection(p, c, row, "SELECT \u5217"); row++;
         row = addComboCtrl(p, c, row, "  \u5217\u6A21\u5F0F", workingOptions.getSelectColumnMode().name(),
             new String[]{"ALIGN","COMPACT","ONE_PER_LINE"}, v -> { workingOptions.setSelectColumnMode(SelectColumnMode.valueOf(v)); refreshPreview(); });
-        row = addSpinCtrl(p, c, row, "  COMPACT\u6BCF\u884C\u5217\u6570", workingOptions.getSelectColumnsPerRow(), 0, 20,
+        row = addSpinCtrl(p, c, row, "  COMPACT\u6BCF\u884C\u5217\u4E2A\u6570", workingOptions.getSelectColumnsPerRow(), 0, 20,
             v -> { workingOptions.setSelectColumnsPerRow(v); refreshPreview(); });
         row = addComboCtrl(p, c, row, "  \u9017\u53F7\u4F4D\u7F6E", workingOptions.getCommaPosition().name(),
             new String[]{"TRAILING","LEADING"}, v -> { workingOptions.setCommaPosition(CommaPosition.valueOf(v)); refreshPreview(); });
@@ -963,12 +1010,11 @@ public class SettingsDialog extends JDialog {
         row = addComboCtrl(p, c, row, "  CTE \u683C\u5F0F", workingOptions.getCteFormat().name(),
             new String[]{"COMPACT","ONE_PER_LINE","ALIGN"}, v -> { workingOptions.setCteFormat(CteFormat.valueOf(v)); refreshPreview(); });
 
-        GridBagConstraints filler = (GridBagConstraints) c.clone();
-        filler.gridx = 0; filler.gridy = row; filler.gridwidth = 2;
-        filler.weighty = 1.0; filler.fill = GridBagConstraints.VERTICAL;
-        p.add(Box.createVerticalGlue(), filler);
         applyPanelTheme(p);
-        return p;
+        JPanel wrapper = new JPanel(new BorderLayout());
+        wrapper.setOpaque(false);
+        wrapper.add(p, BorderLayout.NORTH);
+        return wrapper;
     }
 
     private JPanel buildDmlPanel() {
@@ -1007,12 +1053,11 @@ public class SettingsDialog extends JDialog {
         row = addCheckCtrl(p, c, row, "  WHEN \u524D\u6362\u884C", workingOptions.isMergeWhenNewline(),
             v -> { previewSection = "MERGE"; workingOptions.setMergeWhenNewline(v); refreshPreview(); });
 
-        GridBagConstraints filler = (GridBagConstraints) c.clone();
-        filler.gridx = 0; filler.gridy = row; filler.gridwidth = 2;
-        filler.weighty = 1.0; filler.fill = GridBagConstraints.VERTICAL;
-        p.add(Box.createVerticalGlue(), filler);
         applyPanelTheme(p);
-        return p;
+        JPanel wrapper = new JPanel(new BorderLayout());
+        wrapper.setOpaque(false);
+        wrapper.add(p, BorderLayout.NORTH);
+        return wrapper;
     }
 
     private JPanel buildDdlPanel() {
@@ -1049,12 +1094,11 @@ public class SettingsDialog extends JDialog {
         row = addSpinCtrl(p, c, row, "  \u6BCF\u884C\u5206\u533A\u6570", workingOptions.getPartitionColumnsPerRow(), 1, 20,
             v -> { workingOptions.setPartitionColumnsPerRow(v); refreshPreview(); });
 
-        GridBagConstraints filler3 = (GridBagConstraints) c.clone();
-        filler3.gridx = 0; filler3.gridy = row; filler3.gridwidth = 2;
-        filler3.weighty = 1.0; filler3.fill = GridBagConstraints.VERTICAL;
-        p.add(Box.createVerticalGlue(), filler3);
         applyPanelTheme(p);
-        return p;
+        JPanel wrapper = new JPanel(new BorderLayout());
+        wrapper.setOpaque(false);
+        wrapper.add(p, BorderLayout.NORTH);
+        return wrapper;
     }
 
     private JPanel buildPlsqlPanel() {
@@ -1090,23 +1134,22 @@ public class SettingsDialog extends JDialog {
             new String[]{"INDENT","OUTDENT"}, v -> { previewSection = "PL/SQL BLOCK"; workingOptions.setExceptionAlign(ExceptionAlign.valueOf(v)); refreshPreview(); });
         row = addCheckCtrl(p, c, row, "  END \u5BF9\u9F50", workingOptions.isEndAlign(),
             v -> { previewSection = "PL/SQL BLOCK"; workingOptions.setEndAlign(v); refreshPreview(); });
-        row = addSpinCtrl(p, c, row, "  \u7F29\u8FDB\u7A7A\u683C\u6570", workingOptions.getPlsqlIndentSize(), 0, 8,
+        row = addSpinCtrl(p, c, row, "  \u7F29\u8FDB\u7A7A\u683C\u6570", workingOptions.getPlsqlIndentSize(), 0, 64,
             v -> { workingOptions.setPlsqlIndentSize(v); previewSection = "PL/SQL BLOCK"; refreshPreview(); });
         row = addComboCtrl(p, c, row, "  FOR LOOP", workingOptions.getForLoopFormat().name(),
-            new String[]{"COMPACT","EXPAND"}, v -> { workingOptions.setForLoopFormat(ForLoopFormat.valueOf(v)); refreshPreview(); });
+            new String[]{"COMPACT","EXPAND"}, v -> { previewSection = "PL/SQL BLOCK"; workingOptions.setForLoopFormat(ForLoopFormat.valueOf(v)); refreshPreview(); });
         row = addComboCtrl(p, c, row, "  CASE", workingOptions.getCaseExpressionFormat().name(),
-            new String[]{"COMPACT","EXPAND"}, v -> { workingOptions.setCaseExpressionFormat(CaseExpressionFormat.valueOf(v)); refreshPreview(); });
+            new String[]{"COMPACT","EXPAND"}, v -> { previewSection = "PL/SQL BLOCK"; workingOptions.setCaseExpressionFormat(CaseExpressionFormat.valueOf(v)); refreshPreview(); });
 
         addSection(p, c, row, "\u62EC\u53F7\u95F4\u8DDD"); row++;
         row = addComboCtrl(p, c, row, "  \u62EC\u53F7\u5185\u7A7A\u683C", workingOptions.getParenthesisSpacing().name(),
-            new String[]{"NONE","INSIDE","BOTH"}, v -> { workingOptions.setParenthesisSpacing(ParenthesisSpacing.valueOf(v)); refreshPreview(); });
+            new String[]{"NONE","INSIDE","BOTH"}, v -> { previewSection = "PL/SQL BLOCK"; workingOptions.setParenthesisSpacing(ParenthesisSpacing.valueOf(v)); refreshPreview(); });
 
-        GridBagConstraints filler4 = (GridBagConstraints) c.clone();
-        filler4.gridx = 0; filler4.gridy = row; filler4.gridwidth = 2;
-        filler4.weighty = 1.0; filler4.fill = GridBagConstraints.VERTICAL;
-        p.add(Box.createVerticalGlue(), filler4);
         applyPanelTheme(p);
-        return p;
+        JPanel wrapper = new JPanel(new BorderLayout());
+        wrapper.setOpaque(false);
+        wrapper.add(p, BorderLayout.NORTH);
+        return wrapper;
     }
 
     private JPanel buildCommentsPanel() {
@@ -1131,42 +1174,51 @@ public class SettingsDialog extends JDialog {
         row = addCheckCtrl(p, c, row, "  \u5757\u524D\u7A7A\u884C", workingOptions.isBlankLineBeforeBlock(),
             v -> { previewSection = "COMMENTS"; workingOptions.setBlankLineBeforeBlock(v); refreshPreview(); });
 
-        GridBagConstraints filler5 = (GridBagConstraints) c.clone();
-        filler5.gridx = 0; filler5.gridy = row; filler5.gridwidth = 2;
-        filler5.weighty = 1.0; filler5.fill = GridBagConstraints.VERTICAL;
-        p.add(Box.createVerticalGlue(), filler5);
         applyPanelTheme(p);
-        return p;
+        JPanel wrapper = new JPanel(new BorderLayout());
+        wrapper.setOpaque(false);
+        wrapper.add(p, BorderLayout.NORTH);
+        return wrapper;
     }
 
     // ── Autosave panel (保留原有功能) ──
 
     private JPanel buildAutosavePanel() {
-        JPanel p = new JPanel(new GridBagLayout());
+        JPanel grid = new JPanel(new GridBagLayout());
+        grid.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
         GridBagConstraints c = new GridBagConstraints();
         c.fill = GridBagConstraints.HORIZONTAL;
         c.insets = new Insets(4, 6, 4, 6);
         c.gridx = 0; c.weightx = 0;
 
-        int row = 0;
-        c.gridy = row; p.add(new JLabel("\u81EA\u52A8\u4FDD\u5B58\u95F4\u9694:"), c);
+        JLabel header = new JLabel("\u81EA\u52A8\u4FDD\u5B58\u8BBE\u7F6E");
+        header.setFont(header.getFont().deriveFont(Font.BOLD, 14f));
+        GridBagConstraints hc = new GridBagConstraints();
+        hc.gridx = 0; hc.gridy = 0; hc.gridwidth = 3; hc.weightx = 1;
+        hc.insets = new Insets(0, 0, 12, 0); hc.anchor = GridBagConstraints.WEST;
+        grid.add(header, hc);
+
+        int row = 1;
+        c.gridy = row; c.gridwidth = 1;
+        grid.add(new JLabel("\u81EA\u52A8\u4FDD\u5B58\u95F4\u9694:"), c);
         c.gridx = 1; c.weightx = 1;
         int interval = 30;
         try { interval = Integer.parseInt(configManager.getPreference("autosave.interval", "30")); } catch (Exception ignored) {}
         var intervalSpinner = new JSpinner(new SpinnerNumberModel(interval, 5, 3600, 5));
-        p.add(intervalSpinner, c);
+        grid.add(intervalSpinner, c);
         c.gridx = 2; c.weightx = 0;
         var unitCombo = new JComboBox<>(FORMAT_UNITS);
         String unit = configManager.getPreference("autosave.unit", "seconds");
         unitCombo.setSelectedIndex(unit.equals("hours") ? 2 : unit.equals("minutes") ? 1 : 0);
-        p.add(unitCombo, c);
+        grid.add(unitCombo, c);
 
         row++;
         c.gridy = row; c.gridx = 0; c.weightx = 0;
-        p.add(new JLabel("\u81EA\u52A8\u4FDD\u5B58\u8DEF\u5F84:"), c);
+        grid.add(new JLabel("\u81EA\u52A8\u4FDD\u5B58\u8DEF\u5F84:"), c);
         c.gridx = 1; c.weightx = 1;
-        var pathField = new JTextField(configManager.getPreference("autosave.path", System.getProperty("user.home") + "/.kylin-plsql/autosave"));
-        p.add(pathField, c);
+        var pathField = new JTextField(configManager.getPreference("autosave.path",
+            configManager.getConfigPath().resolve("auto-save").toAbsolutePath().toString()));
+        grid.add(pathField, c);
         c.gridx = 2; c.weightx = 0;
         var browseBtn = new JButton("\u6D4F\u89C8...");
         browseBtn.addActionListener(e -> {
@@ -1176,10 +1228,13 @@ public class SettingsDialog extends JDialog {
                 pathField.setText(chooser.getSelectedFile().getAbsolutePath());
             }
         });
-        p.add(browseBtn, c);
+        grid.add(browseBtn, c);
 
-        applyPanelTheme(p);
-        return p;
+        applyPanelTheme(grid);
+        JPanel wrapper = new JPanel(new BorderLayout());
+        wrapper.setOpaque(false);
+        wrapper.add(grid, BorderLayout.NORTH);
+        return wrapper;
     }
 
     // ── Metadata panel (保留原有功能) ──
@@ -1311,9 +1366,7 @@ public class SettingsDialog extends JDialog {
     private DefaultMutableTreeNode buildMetadataTree() {
         DefaultMutableTreeNode root = new DefaultMutableTreeNode("\u6570\u636E\u5E93\u7C7B\u578B");
         for (var cfg : metadataConfigs) {
-            if (cfg.isEnabled()) {
-                root.add(new MetadataNode(cfg));
-            }
+            root.add(new MetadataNode(cfg));
         }
         return root;
     }

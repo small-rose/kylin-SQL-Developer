@@ -98,6 +98,7 @@ public class ConnectionManager {
     }
 
     public boolean isConnected(String name) {
+        if (name == null || name.isEmpty()) return false;
         HikariDataSource ds = dataSources.get(name);
         return ds != null && !ds.isClosed();
     }

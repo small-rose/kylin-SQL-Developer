@@ -160,7 +160,7 @@ public class SourceViewerPanel extends JPanel {
 
         // ── Editor ──
         textArea = new RSyntaxTextArea(25, 80);
-        textArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_SQL);
+        textArea.setSyntaxEditingStyle("text/plsql");
         textArea.setCodeFoldingEnabled(true);
         textArea.setTabsEmulated(true);
         textArea.setTabSize(4);

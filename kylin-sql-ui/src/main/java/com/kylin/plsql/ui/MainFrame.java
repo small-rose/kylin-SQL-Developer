@@ -14,6 +14,8 @@ import com.kylin.plsql.core.format.FormatOptions;
 import com.kylin.plsql.core.format.SqlFormatter;
 import com.kylin.plsql.core.format.dialect.DialectManager;
 import com.kylin.plsql.core.format.dialect.SqlDialect;
+import com.kylin.plsql.core.format.plsql.PlSqlFormatter;
+import com.kylin.plsql.core.format.plsql.model.FormatResult;
 import com.kylin.plsql.core.parser.PlSqlCallHierarchy;
 import com.kylin.plsql.core.parser.PlSqlNavigator;
 import com.kylin.plsql.core.parser.PlSqlSymbolIndex;
@@ -767,7 +769,7 @@ public class MainFrame extends JFrame {
 
     private void newFile(String connName, String schema) {
         SqlEditorPanel editor = new SqlEditorPanel(connectionManager, getNextConsoleName());
-        editor.getTextArea().setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_SQL);
+        editor.getTextArea().setSyntaxEditingStyle("text/plsql");
         editor.getTextArea().setTabSize(4);
         var connections = configManager.loadConnections();
         editor.setConnections(connections);
@@ -941,7 +943,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         try {
             String content = Files.readString(file.toPath());
             SqlEditorPanel editor = new SqlEditorPanel(connectionManager, file.getName());
-            editor.getTextArea().setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_SQL);
+            editor.getTextArea().setSyntaxEditingStyle("text/plsql");
         editor.setText(content);
         editor.setFilePath(file.getAbsolutePath());
         editor.resetModified();
@@ -1839,12 +1841,24 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             if (sql == null || sql.isBlank()) sql = editor.getText();
         }
         if (sql == null || sql.isBlank()) return;
-        SqlDialect dialect = getCurrentDialect(comp);
-        String formatted = SqlFormatter.format(sql, formatOptions, dialect);
+        FormatResult result = PlSqlFormatter.format(sql, formatOptions);
+        String formatted = result.getEffectiveText();
         if (isSqlEditor) {
             ((SqlEditorPanel) comp).replaceSelection(formatted);
         }
-        statusBar.setMessage("\u683C\u5F0F\u5316\u5B8C\u6210");
+        String diag = result.formatDiagnosticsForPanel();
+        if (diag != null && !diag.isBlank()) {
+            bottomPanel.appendMessage(diag);
+        }
+        statusBar.setMessage(result.getMessageText());
+        int qs = result.getQualityScore();
+        if (qs >= 80) {
+            ToastManager.show(editorTabs, "\u683C\u5F0F\u5316\u5B8C\u6210\uFF0C\u8D28\u91CF\u8BC4\u5206: " + qs, 3000);
+        } else if (qs < 60) {
+            ToastManager.show(editorTabs, "\u683C\u5F0F\u5316\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u539F\u59CB\u4EE3\u7801\uFF0C\u8BF7\u68C0\u67E5\u5E95\u90E8\u9762\u677F\u8BCA\u65AD", 4000);
+        } else {
+            ToastManager.show(editorTabs, "\u683C\u5F0F\u5316\u5B8C\u6210\uFF0C\u5B58\u5728 " + result.getDiagnostics().size() + " \u4E2A\u8B66\u544A\uFF0C\u8BF7\u68C0\u67E5\u5E95\u90E8\u9762\u677F", 4000);
+        }
     }
 
     private SqlDialect getCurrentDialect(Component comp) {
@@ -2114,7 +2128,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                 continue;
             }
             SqlEditorPanel editor = new SqlEditorPanel(connectionManager, ts.tabName);
-            editor.getTextArea().setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_SQL);
+            editor.getTextArea().setSyntaxEditingStyle("text/plsql");
             if (ts.content != null) editor.setText(ts.content);
             editor.setFilePath(ts.filePath);
             var connections = configManager.loadConnections();
@@ -2175,7 +2189,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
 
     private void openInNewEditor(String content, String connName, String schema) {
         SqlEditorPanel editor = new SqlEditorPanel(connectionManager, getNextConsoleName());
-        editor.getTextArea().setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_SQL);
+        editor.getTextArea().setSyntaxEditingStyle("text/plsql");
         editor.setText(content);
         var connections = configManager.loadConnections();
         editor.setConnections(connections);
@@ -2245,7 +2259,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             if (!new File(filePath).exists()) return;
             String content = Files.readString(Path.of(filePath));
             SqlEditorPanel editor = new SqlEditorPanel(connectionManager, new File(filePath).getName());
-            editor.getTextArea().setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_SQL);
+            editor.getTextArea().setSyntaxEditingStyle("text/plsql");
             editor.setText(content);
             editor.setFilePath(filePath);
             editor.resetModified();

@@ -56,7 +56,7 @@ public class DataGeneratorDialog extends BaseToolDialog {
         columnTable = new JTable(colModel);
 
         outputArea = new RSyntaxTextArea();
-        outputArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_SQL);
+        outputArea.setSyntaxEditingStyle("text/plsql");
         outputArea.setEditable(false);
 
         JButton loadColBtn = new JButton("\u52A0\u8F7D\u5217");

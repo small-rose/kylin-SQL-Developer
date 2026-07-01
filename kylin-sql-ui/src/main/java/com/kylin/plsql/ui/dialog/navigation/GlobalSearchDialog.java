@@ -237,7 +237,7 @@ public class GlobalSearchDialog extends JDialog {
         listScroll.getViewport().setOpaque(true);
         listScroll.setOpaque(true);
 
-        previewArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_SQL);
+        previewArea.setSyntaxEditingStyle("text/plsql");
         previewArea.setEditable(false);
         previewArea.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         previewArea.setFont(new Font("Monospaced", Font.PLAIN, 12));

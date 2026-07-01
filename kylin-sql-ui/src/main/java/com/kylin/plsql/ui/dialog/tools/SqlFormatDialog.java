@@ -27,11 +27,11 @@ public class SqlFormatDialog extends BaseToolDialog {
         centerOnOwner();
 
         inputArea = new RSyntaxTextArea();
-        inputArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_SQL);
+        inputArea.setSyntaxEditingStyle("text/plsql");
         inputArea.setCodeFoldingEnabled(true);
 
         outputArea = new RSyntaxTextArea();
-        outputArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_SQL);
+        outputArea.setSyntaxEditingStyle("text/plsql");
         outputArea.setEditable(false);
         outputArea.setCodeFoldingEnabled(true);
         applyOutputTheme();

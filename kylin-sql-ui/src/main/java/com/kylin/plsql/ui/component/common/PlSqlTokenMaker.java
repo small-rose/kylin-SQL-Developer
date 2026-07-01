@@ -6,6 +6,7 @@ import org.fife.ui.rsyntaxtextarea.Token;
 import org.fife.ui.rsyntaxtextarea.TokenTypes;
 
 import javax.swing.text.Segment;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 import org.fife.ui.rsyntaxtextarea.TokenMap;
@@ -13,54 +14,76 @@ import org.fife.ui.rsyntaxtextarea.TokenMap;
 /** Custom RSyntaxTextArea TokenMaker for PL/SQL syntax highlighting. */
 public class PlSqlTokenMaker extends AbstractTokenMaker {
 
-    private static final Set<String> KEYWORDS = new HashSet<>(Set.of(
+    private static final Set<String> KEYWORDS = new HashSet<>(Arrays.asList(
+        // DML - Core
         "SELECT", "FROM", "WHERE", "AND", "OR", "NOT", "IN", "EXISTS",
-        "INSERT", "INTO", "VALUES", "UPDATE", "SET", "DELETE",
-        "CREATE", "ALTER", "DROP", "TABLE", "INDEX", "VIEW", "SEQUENCE",
+        "INSERT", "INTO", "VALUES", "UPDATE", "SET", "DELETE", "MERGE",
+        // DDL
+        "CREATE", "ALTER", "DROP", "TRUNCATE", "RENAME", "COMMENT",
+        "TABLE", "INDEX", "VIEW", "SEQUENCE", "SYNONYM", "MATERIALIZED",
         "TRIGGER", "FUNCTION", "PROCEDURE", "PACKAGE", "BODY", "REPLACE",
+        "TYPE", "VARRAY", "RECORD", "SUBTYPE", "CURSOR",
+        // PL/SQL blocks
         "BEGIN", "END", "DECLARE", "EXCEPTION",
         "IF", "THEN", "ELSE", "ELSIF", "END IF", "END CASE", "END LOOP",
-        "LOOP", "FOR", "WHILE",
+        "LOOP", "FOR", "WHILE", "FORALL", "REVERSE",
         "CASE", "WHEN",
-        "RETURN", "EXIT", "CONTINUE", "GOTO",
-        "COMMIT", "ROLLBACK", "SAVEPOINT",
-        "INNER", "LEFT", "RIGHT", "FULL", "OUTER", "CROSS", "JOIN", "ON",
-        "ORDER", "GROUP", "BY", "HAVING",
+        "RETURN", "RETURNING", "EXIT", "CONTINUE", "GOTO", "NULL",
+        "COMMIT", "ROLLBACK", "SAVEPOINT", "LOCK",
+        "OPEN", "FETCH", "CLOSE", "PIPE", "PIPED",
+        "RAISE", "PRAGMA", "EXECUTE", "IMMEDIATE",
+        // Joins
+        "INNER", "LEFT", "RIGHT", "FULL", "OUTER", "CROSS", "NATURAL", "JOIN", "ON",
+        // Clauses
+        "ORDER", "GROUP", "BY", "HAVING", "OFFSET", "LIMIT", "FETCH",
         "UNION", "MINUS", "INTERSECT", "EXCEPT",
         "AS", "IS", "OUT", "NOCOPY", "REF",
-        "NULL", "DEFAULT", "PRIMARY", "KEY", "FOREIGN", "CONSTRAINT",
+        "DEFAULT", "PRIMARY", "KEY", "FOREIGN", "CONSTRAINT",
         "REFERENCES", "CHECK", "UNIQUE", "CASCADE",
-        "DISTINCT", "ALL", "NOWAIT",
+        "DISTINCT", "ALL", "NOWAIT", "SKIP", "LOCKED",
+        // Privileges
         "GRANT", "REVOKE",
-        "TYPE", "VARRAY", "RECORD", "SUBTYPE", "CURSOR",
-        "FETCH", "OPEN", "CLOSE", "INTO", "BULK", "COLLECT",
-        "RAISE", "PRAGMA", "EXECUTE", "IMMEDIATE",
-        "AUTHID", "DETERMINISTIC", "PIPELINED", "PARALLEL_ENABLE",
-        "RESULT_CACHE",
-        "TRUNCATE", "MERGE",
-        "WITH", "CONNECT", "PRIOR", "START",
-        "BETWEEN", "LIKE", "ANY", "SOME",
-        "TRUE", "FALSE",
-        "AT", "LOCAL", "TIME", "ZONE",
-        "SESSION", "CURRENT",
-        "MAX", "MIN", "SUM", "COUNT", "AVG",
-        "NVL", "NVL2", "DECODE",
-        "SYSDATE", "SYSTIMESTAMP", "TRUNC", "ROUND",
-        "CEIL", "FLOOR", "MOD", "POWER", "SQRT",
+        // Hierarchical
+        "WITH", "CONNECT", "PRIOR", "START", "LEVEL", "SIBLINGS",
+        // Operators
+        "BETWEEN", "LIKE", "REGEXP_LIKE",
+        "ANY", "SOME", "ALL",
+        "TRUE", "FALSE", "OTHERS", "UNKNOWN",
+        // Analytic / Window
+        "OVER", "PARTITION", "ROWS", "RANGE", "GROUPS", "UNBOUNDED",
+        "PRECEDING", "FOLLOWING", "CURRENT", "ROW",
+        "FIRST", "LAST", "KEEP", "DENSE_RANK", "RANK", "ROW_NUMBER",
+        "NTILE", "CUME_DIST", "PERCENT_RANK", "PERCENTILE_CONT", "PERCENTILE_DISC",
+        "FIRST_VALUE", "LAST_VALUE", "LAG", "LEAD", "LISTAGG",
+        "NVL", "NVL2", "DECODE", "COALESCE", "NULLIF",
+        "MAX", "MIN", "SUM", "COUNT", "AVG", "MEDIAN", "STDDEV", "VARIANCE",
+        "CAST", "MULTISET", "COLLECT",
+        // Math
+        "ABS", "CEIL", "COS", "COSH", "EXP", "FLOOR", "GREATEST", "LEAST",
+        "LN", "LOG", "MOD", "POWER", "ROUND", "SIGN",
+        "SIN", "SINH", "SQRT", "TAN", "TANH", "TRUNC",
+        // String
         "UPPER", "LOWER", "INITCAP", "SUBSTR", "INSTR", "LENGTH",
         "REPLACE", "TRANSLATE", "TRIM", "LTRIM", "RTRIM",
-        "LPAD", "RPAD", "CONCAT", "COALESCE", "NULLIF",
-        "LAG", "LEAD", "RANK", "DENSE_RANK", "ROW_NUMBER",
-        "LISTAGG", "EXTRACT", "CAST", "CONVERT",
+        "LPAD", "RPAD", "CONCAT", "CHR", "ASCII",
+        "TO_CHAR", "TO_DATE", "TO_NUMBER", "TO_CLOB", "TO_TIMESTAMP",
+        // Date
+        "SYSDATE", "SYSTIMESTAMP", "CURRENT_DATE", "CURRENT_TIMESTAMP",
         "ADD_MONTHS", "MONTHS_BETWEEN", "LAST_DAY", "NEXT_DAY",
-        "GREATEST", "LEAST", "SYS_GUID",
+        "EXTRACT", "CONVERT",
+        // Data types
         "VARCHAR2", "VARCHAR", "NVARCHAR2", "CHAR", "NCHAR", "NUMBER",
         "INTEGER", "PLS_INTEGER", "BINARY_INTEGER", "SIMPLE_INTEGER",
-        "FLOAT", "BINARY_FLOAT", "BINARY_DOUBLE",
-        "DATE", "TIMESTAMP", "INTERVAL",
+        "FLOAT", "BINARY_FLOAT", "BINARY_DOUBLE", "REAL",
+        "DATE", "TIMESTAMP", "INTERVAL", "YEAR", "MONTH", "DAY",
         "CLOB", "NCLOB", "BLOB", "BFILE", "LONG", "RAW", "LONG RAW",
         "ROWID", "UROWID", "BOOLEAN", "SYS_REFCURSOR",
-        "TO_DATE", "TO_CHAR", "TO_NUMBER"
+        // PL/SQL extras
+        "BULK", "COLLECT", "INTO",
+        "SQLERRM", "SQLCODE",
+        "AUTHID", "DETERMINISTIC", "PIPELINED", "PARALLEL_ENABLE",
+        "RESULT_CACHE",
+        "SYS_GUID"
     ));
 
     @Override

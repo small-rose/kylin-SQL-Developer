@@ -133,7 +133,7 @@ public class SqlEditorPanel extends JPanel {
         add(topWrapper, BorderLayout.NORTH);
 
         textArea = new RSyntaxTextArea(25, 80);
-        textArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_SQL);
+        textArea.setSyntaxEditingStyle("text/plsql");
         textArea.setCodeFoldingEnabled(true);
         textArea.setAntiAliasingEnabled(true);
         textArea.setAutoIndentEnabled(true);

@@ -46,7 +46,7 @@ public class SqlHistoryDialog extends BaseToolDialog {
         });
 
         previewArea = new RSyntaxTextArea();
-        previewArea.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_SQL);
+        previewArea.setSyntaxEditingStyle("text/plsql");
         previewArea.setEditable(false);
         applyPreviewTheme();
 

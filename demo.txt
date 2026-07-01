@@ -1,0 +1,79 @@
+CREATE OR REPLACE PACKAGE demo_pkg IS
+    FUNCTION get_name(p_id NUMBER) RETURN VARCHAR2;
+    PROCEDURE process_data(p_data VARCHAR2);
+END demo_pkg;
+/
+
+CREATE OR REPLACE PACKAGE BODY demo_pkg IS
+
+    g_counter NUMBER := 0;
+    g_debug   BOOLEAN := TRUE;
+
+    FUNCTION get_name(p_id NUMBER) RETURN VARCHAR2 IS
+        v_name VARCHAR2(100);
+    BEGIN
+        SELECT name INTO v_name FROM users WHERE id = p_id;
+        RETURN v_name;
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            RETURN NULL;
+        WHEN OTHERS THEN
+            RETURN 'ERROR';
+    END get_name;
+
+    PROCEDURE process_data(p_data VARCHAR2) IS
+        v_del_sql  VARCHAR2(4000);
+        v_insert_sql VARCHAR2(4000);
+        v_count_sql VARCHAR2(4000);
+        v_cond     VARCHAR2(200);
+        v_count    NUMBER;
+        v_result   VARCHAR2(4000);
+        v_str      VARCHAR2(100);
+    BEGIN
+        v_del_sql := 'delete from ' || v_back_up.originaltable
+            || ' ' || v_back_up.condition1
+            || ' and rownum <= ' || v_back_up.batchsize;
+
+        v_insert_sql := 'insert into ' || v_back_up.tablename
+            || ' select * from ' || v_back_up.originaltable
+            || ' where ' || v_back_up.condition1 || v_back_up.condition2;
+
+        v_count_sql := 'select count(1) from ' || v_back_up.originaltable
+            || ' ' || v_cond;
+
+        IF g_debug THEN
+            DBMS_OUTPUT.put_line('Processing...');
+            DBMS_OUTPUT.put_line('Count: ' || v_count);
+        END IF;
+
+        FOR i IN 1..10 LOOP
+            v_str := 'Row ' || i;
+            INSERT INTO log_table(msg) VALUES (v_str);
+        END LOOP;
+
+        WHILE v_count > 0 LOOP
+            DELETE FROM temp_data WHERE rownum <= 100;
+            v_count := v_count - 1;
+        END LOOP;
+
+        CASE v_back_up.action_type
+            WHEN 'DELETE' THEN
+                EXECUTE IMMEDIATE v_del_sql;
+            WHEN 'INSERT' THEN
+                EXECUTE IMMEDIATE v_insert_sql;
+            ELSE
+                NULL;
+        END CASE;
+
+        SELECT regexp_substr(p_str, '[^' || p_delimiter || ']+', 1, LEVEL) BULK COLLECT INTO v_result
+        FROM dual
+        CONNECT BY LEVEL <= regexp_count(p_str, p_delimiter);
+
+    EXCEPTION
+        WHEN OTHERS THEN
+            ROLLBACK;
+            RAISE;
+    END process_data;
+
+END demo_pkg;
+/

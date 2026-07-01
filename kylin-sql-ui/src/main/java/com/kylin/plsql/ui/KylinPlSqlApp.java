@@ -5,6 +5,9 @@ import com.formdev.flatlaf.FlatLightLaf;
 import com.kylin.plsql.core.config.AppTheme;
 import com.kylin.plsql.core.config.ConfigManager;
 import com.kylin.plsql.core.config.ThemeManager;
+import com.kylin.plsql.ui.component.common.PlSqlTokenMaker;
+import org.fife.ui.rsyntaxtextarea.AbstractTokenMakerFactory;
+import org.fife.ui.rsyntaxtextarea.TokenMakerFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,6 +48,12 @@ public class KylinPlSqlApp {
         } else {
             try { UIManager.setLookAndFeel(new FlatDarculaLaf()); }
             catch (Exception e) { log.warn("FlatDarculaLaf init failed", e); }
+        }
+
+        // Register custom PL/SQL token maker for syntax highlighting
+        TokenMakerFactory tmf = TokenMakerFactory.getDefaultInstance();
+        if (tmf instanceof AbstractTokenMakerFactory) {
+            ((AbstractTokenMakerFactory) tmf).putMapping("text/plsql", PlSqlTokenMaker.class.getName());
         }
 
         SwingUtilities.invokeLater(() -> {
