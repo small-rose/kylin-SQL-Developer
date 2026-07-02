@@ -208,7 +208,7 @@ public class ConstraintGenerator {
         int endKw = findEndKeyword(block.endTokenIdx);
         if (endKw < 0) return;
 
-        // Pop indent at the gap before END (from the last statement's ;)cd
+        // Pop indent at the gap before END (from the last statement's ;)
         int prevSemi = findPrevSemicolon(endKw);
         if (prevSemi >= 0) {
             requireNewline(prevSemi, endKw, -1);
