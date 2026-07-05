@@ -1,79 +1,474 @@
-CREATE OR REPLACE PACKAGE demo_pkg IS
-    FUNCTION get_name(p_id NUMBER) RETURN VARCHAR2;
-    PROCEDURE process_data(p_data VARCHAR2);
-END demo_pkg;
+create package ams_backup_pkg is
+    /**
+      * @author
+      * @date 2025.11.26
+     */
+    -- 备份表删除
+    procedure do_backup_delete(v_back_up ams_backup_td%rowtype);
+    -- 按单表备份
+    procedure do_backup_sigle(v_back_up ams_backup_td%rowtype);
+    -- 按关联表备份
+    procedure do_backup_mutil(v_back_up ams_backup_td%rowtype);
+    -- 按分公司分区备份
+    procedure do_backup_subcompany(v_subcompany varchar2, v_back_up ams_backup_td%rowtype);
+    -- 备份入口
+    procedure do_backup;
+    -- 备份入口 java 调用
+    procedure do_backup_java(v_id ams_backup_td.id%type);
+end ams_backup_pkg;
 /
+create package body ams_backup_pkg is
+    type back_up_type is table of ams_backup_td%rowtype index by pls_integer;
+    type varchar2_list is table of varchar2(1000);
 
-CREATE OR REPLACE PACKAGE BODY demo_pkg IS
+    function split_string(p_str in varchar2, p_delimiter in varchar2 default ',')
+        return varchar2_list
+        is
+        v_result varchar2_list := varchar2_list();
+    begin
+        select regexp_substr(p_str, '[^' || p_delimiter || ']+', 1, level) bulk collect
+        into v_result
+        from dual
+        connect by level <= regexp_count(p_str, '[^' || p_delimiter || ']+');
+        return v_result;
+    end split_string;
+    -- 备份表删除
+    procedure do_backup_delete(v_back_up ams_backup_td%rowtype) is
+        v_del_sql varchar2(1000);
+    begin
+        v_del_sql := 'delete from ' || v_back_up.originaltable || ' ' || v_back_up.condition1 || ' and rownum <= ' ||
+                     v_back_up.batchsize;
+        execute immediate v_del_sql;
+        commit;
+    end do_backup_delete;
+    -- 按单表备份
+    procedure do_backup_sigle(v_back_up ams_backup_td%rowtype) is
+        v_opdate        date; --可归档数据的归档最小日期
+        v_sub_sql       varchar2(1000);
+        v_count_sql     varchar2(2000); --统计分公司最小归档日的数据量
+        v_tmp_sql       varchar2(2000);
+        v_archive_count number ;
+        v_batch_size    number    := 10000;
+        v_max_min       number    := 30; --最长执行时间限制
+        v_size          number ; --单日总次数
+        v_do_count      number ; --执行次数累计
+        v_cond          varchar2(2000);
+        v_start_time    timestamp := systimestamp;--开始时间
+        v_current_time  timestamp; --当前时间
+        v_time_exceeded boolean   := false;
+    begin
 
-    g_counter NUMBER := 0;
-    g_debug   BOOLEAN := TRUE;
+        --取可归档区间的最小日期
+        v_sub_sql := 'select min(trunc( ' || v_back_up.bakcolumn || ')) from ' || v_back_up.originaltable || ' ' ||
+                     v_back_up.condition1;
+        --取可归档区间最小日期 获取最小opdate
+        --dbms_output.put_line('v_sub_sql : ' || v_sub_sql );
+        execute immediate v_sub_sql into v_opdate;
+        if v_opdate is null then
+            return;
+        end if;
+        --归档基本条件［数据状态 status 或其他条件都可以写在 condition1 里面 ］
+        v_cond := v_back_up.condition1 || 'and ' || v_back_up.bakcolumn || ' between :v_opdate and :v_opdate + 1 ';
+        v_count_sql := ' select count(1) from ' || v_back_up.originaltable || ' ' || v_cond;
+        --dbms_output.put_line('v_count_sql : ' || v_count_sql );
+        execute immediate v_count_sql into v_archive_count using v_opdate, v_opdate;
+        --获取最小opdate +分公司+数据状态 的数据量
+        if v_archive_count = 0 then
+            return;
+        end if;
+        if v_back_up.batchsize is not null then
+            v_batch_size := v_back_up.batchsize ;
+        end if;
+        --dbms_output.put_line('v_archive_count = ' ||v_archive_count || ', v_batch_size = ' || v_batch_size || ' ,v_opdate = '||v_opdate );
+        --计算本次归档次数,分页归档
+        v_size := ceil(v_archive_count / v_batch_size);
+        v_do_count := 0;
+        while (v_do_count < v_size and v_time_exceeded = false)
+            loop
+                --检查执行时间
+                v_current_time := systimestamp;
+                if extract(minute from (v_current_time - v_start_time)) +
+                   extract(hour from (v_current_time - v_start_time)) * 60 > v_max_min then
+                    --检查是否超过 30分钟
+                    v_time_exceeded := true; -- 设置超时标志
+                    exit; --退出循环
+                end if;
 
-    FUNCTION get_name(p_id NUMBER) RETURN VARCHAR2 IS
-        v_name VARCHAR2(100);
-    BEGIN
-        SELECT name INTO v_name FROM users WHERE id = p_id;
-        RETURN v_name;
-    EXCEPTION
-        WHEN NO_DATA_FOUND THEN
-            RETURN NULL;
-        WHEN OTHERS THEN
-            RETURN 'ERROR';
-    END get_name;
+                -- 把主键插入 table_idx 索引表
+                v_tmp_sql := 'insert into ' || v_back_up.idxtable || '(' || v_back_up.idxcolumns || ') '
+                    || ' select ' || v_back_up.idxcolumns || ' from  ' || v_back_up.originaltable || ' '
+                    || v_cond
+                    || ' and rownum <= ' || v_batch_size;
+                --dbms_output.put_line('v_tmp_sql : ' || v_tmp_sql );
+                execute immediate v_tmp_sql using v_opdate, v_opdate;
 
-    PROCEDURE process_data(p_data VARCHAR2) IS
-        v_del_sql  VARCHAR2(4000);
-        v_insert_sql VARCHAR2(4000);
-        v_count_sql VARCHAR2(4000);
-        v_cond     VARCHAR2(200);
-        v_count    NUMBER;
-        v_result   VARCHAR2(4000);
-        v_str      VARCHAR2(100);
-    BEGIN
-        v_del_sql := 'delete from ' || v_back_up.originaltable
-            || ' ' || v_back_up.condition1
-            || ' and rownum <= ' || v_back_up.batchsize;
+                v_tmp_sql := 'insert into ' || v_back_up.backuptable || ' select * from ' || v_back_up.originaltable
+                    || ' where (' || v_back_up.idxcolumns || ') in (select ' || v_back_up.idxcolumns || ' from ' ||
+                             v_back_up.idxtable || ')';
+                --插入bak 归档表
+                --dbms_output.put_line('v_tmp_sql : ' || v_tmp_sql);
+                execute immediate v_tmp_sql;
 
-        v_insert_sql := 'insert into ' || v_back_up.tablename
-            || ' select * from ' || v_back_up.originaltable
-            || ' where ' || v_back_up.condition1 || v_back_up.condition2;
+                v_tmp_sql := 'delete from ' || v_back_up.originaltable || ' where (' || v_back_up.idxcolumns ||
+                             ') in (select ' || v_back_up.idxcolumns || ' from ' || v_back_up.idxtable || ')';
+                --根据索引表 删除原表数据
+                --dbms_output.put_line('v_tmp_sql : ' || v_tmp_sql);
+                execute immediate v_tmp_sql;
 
-        v_count_sql := 'select count(1) from ' || v_back_up.originaltable
-            || ' ' || v_cond;
+                --清空本次执行索引表
+                v_tmp_sql := 'delete from ' || v_back_up.idxtable || ' where 1 = 1 ';
+                --dbms_output.put_line('v_tmp_sql : ' || v_tmp_sql );
+                execute immediate v_tmp_sql;
+                commit;
+                v_do_count := v_do_count + 1;
+            end loop;
+    exception
+        when others then
+            rollback;
+            mm_errorlog_pkg.log_error(procname_in => 'ams_backup_pkg',
+                                      keyword1_in => 'do_backup_sigle',
+                                      keyword3_in => 'backup id = ' || v_back_up.id || ',opdate =' ||
+                                                     to_char(v_opdate, 'yyyy-mm-dd'),
+                                      info_in => substr(sqlerrm, 1, 2000));
+            raise_application_error(-20023, '单表备份执行错误' || substr(sqlerrm, 1, 1800));
 
-        IF g_debug THEN
-            DBMS_OUTPUT.put_line('Processing...');
-            DBMS_OUTPUT.put_line('Count: ' || v_count);
-        END IF;
 
-        FOR i IN 1..10 LOOP
-            v_str := 'Row ' || i;
-            INSERT INTO log_table(msg) VALUES (v_str);
-        END LOOP;
+    end do_backup_sigle;
+    -- 按关联表备份
+    procedure do_backup_mutil(v_back_up ams_backup_td%rowtype) is
+        v_opdate        date; --可归档数据的归档最小日期
+        v_sub_sql       varchar2(1000);
+        v_batch_sql     varchar2(2000); --统计分公司最小归档日的数据量
+        v_batchno_list  varchar2_list ;
+        v_batch_size    number    := 10000;
+        v_max_min       number    := 30; --最长执行时间限制
+        v_do_count      number ; --执行次数累计
+        v_cond          varchar2(2000);
+        v_org_table     varchar2_list;
+        v_bak_table     varchar2_list;
+        v_batch_column  varchar2_list;
+        v_start_time    timestamp := systimestamp;--开始时间
+        v_current_time  timestamp; --当前时间
+        v_time_exceeded boolean   := false;
+    begin
+        v_org_table := split_string(v_back_up.originaltable, ',');
+        v_bak_table := split_string(v_back_up.backuptable, ',');
+        v_batch_column := split_string(v_back_up.batchcolumn, ',');
+        if v_org_table.count > 0 and v_org_table.count != v_bak_table.count and
+           v_org_table.count != v_batch_column.count then
+            raise_application_error(-20023, '多表备份配置错误,源表数量和备份表数据不一致!');
+        end if;
+        --取可归档区间的最小日期
+        v_sub_sql := 'select min(trunc( ' || v_back_up.bakcolumn || ')) from ' || v_org_table(1) || ' ' ||
+                     v_back_up.condition1;
+        dbms_output.put_line('v_sub_sql : ' || v_sub_sql);
+        execute immediate v_sub_sql into v_opdate;
+        if v_opdate is null then
+            return;
+        end if;
+        if v_back_up.batchsize is not null then
+            v_batch_size := v_back_up.batchsize ;
+        end if;
 
-        WHILE v_count > 0 LOOP
-            DELETE FROM temp_data WHERE rownum <= 100;
-            v_count := v_count - 1;
-        END LOOP;
+        --归档基本条件［ 多表关联时，主表必须要配置在第一个位置］
+        v_cond := v_back_up.condition1 || 'and ' || v_back_up.bakcolumn || ' between :v_opdate and :v_opdate + 1 ' ||
+                  ' and rownum <= ' || v_batch_size;
+        v_batch_sql := ' select ' || v_batch_column(1) || ' from ' || v_org_table(1) || ' ' || v_cond;
+        dbms_output.put_line('v_batch_sql : ' || v_batch_sql);
+        execute immediate v_batch_sql bulk collect into v_batchno_list using v_opdate, v_opdate;
+        --获取最小opdate 的数据量
+        if v_batchno_list.count = 0 then
+            return;
+        end if;
+        dbms_output.put_line('v_batchno_list count = ' || v_batchno_list.COUNT || ', v_batch_size = ' || v_batch_size ||
+                             ' ,v_opdate = ' || TO_CHAR(v_opdate, 'yyyy-MM-dd'));
+        --计算本次归档次数,分页归档
+        v_do_count := 1;
+        while (v_do_count <= v_batchno_list.count and v_time_exceeded = false)
+            loop
+                begin
+                    savepoint v_batch_tmp;
+                    --检查执行时间
+                    v_current_time := systimestamp;
+                    if extract(minute from (v_current_time - v_start_time)) +
+                       extract(hour from (v_current_time - v_start_time)) * 60 > v_max_min then
+                        --检查是否超过 30分钟
+                        v_time_exceeded := true; -- 设置超时标志
+                        exit; --退出循环
+                    end if;
+                    for j in 1..v_org_table.count
+                        loop
+                            v_batch_sql := 'insert into ' || v_bak_table(j) || ' select * from ' || v_org_table(j) ||
+                                           ' where ' || v_batch_column(j) || ' = :batchno ';
+                            dbms_output.put_line('ii v_batch_sql : ' || v_batch_sql);
+                            execute immediate v_batch_sql using v_batchno_list(v_do_count);
+                        end loop;
+                    for k in 1..v_org_table.count
+                        loop
+                            v_batch_sql := 'delete from ' || v_org_table(k) || ' where ' || v_batch_column(k) ||
+                                           ' = :batchno ';
+                            dbms_output.put_line('dd v_batch_sql : ' || v_batch_sql);
+                            execute immediate v_batch_sql using v_batchno_list(v_do_count);
+                        end loop;
+                    commit;
+                    v_do_count := v_do_count + 1;
+                exception
+                    when others then
+                        rollback to v_batch_tmp;
+                        mm_errorlog_pkg.log_error(procname_in => 'ams_backup_pkg',
+                                                  keyword1_in => 'do_backup_mutil',
+                                                  keyword3_in => 'opdate =' || to_char(v_opdate, 'yyyy-mm-dd') ||
+                                                                 ',batchcolumn=' || v_back_up.batchcolumn,
+                                                  info_in => substr(sqlerrm, 1, 2000));
+                        raise_application_error(-20023, '多表关联Loop备份执行错误' || substr(sqlerrm, 1, 1800));
+                end;
+            end loop;
+    end do_backup_mutil;
+    -- 按分公司备份
+    procedure do_backup_subcompany(v_subcompany varchar2, v_back_up ams_backup_td%rowtype) is
+        v_opdate        date; --可归档数据的归档最小日期
+        v_sub_sql       varchar2(1000);
+        v_count_sql     varchar2(2000); --统计分公司最小归档日的数据量
+        v_tmp_sql       varchar2(2000);
+        v_archive_count number ;
+        v_max_min       number    := 30; --最长执行时间限制
+        v_batch_size    number    := 10000;
+        v_size          number ; --单日总次数
+        v_do_count      number ; --执行次数累计
+        v_guid          varchar2(100); --并发支持
+        v_cond          varchar2(2000);
+        v_start_time    timestamp := systimestamp;--开始时间
+        v_current_time  timestamp; --当前时间
+        v_time_exceeded boolean   := false;
+    begin
+        --取可归档区间的最小日期
+        v_sub_sql := 'select min( ' || v_back_up.bakcolumn || ') from ' || v_back_up.originaltable || ' ' ||
+                     v_back_up.condition1;
+        dbms_output.put_line('v_sub_sql : ' || v_sub_sql);
+        execute immediate v_sub_sql into v_opdate using v_subcompany;
+        if v_opdate is null then
+            return;
+        end if;
+        --归档基本条件［数据状态 status 或其他条件都可以写在 condition1 里面 ］
+        v_cond := v_back_up.condition1 || 'and ' || v_back_up.bakcolumn || ' between :v_opdate and :v_opdate + 1 ';
+        v_count_sql := ' select count(1) from ' || v_back_up.originaltable || ' ' || v_cond;
+        dbms_output.put_line('v_count_sql : ' || v_count_sql);
+        execute immediate v_count_sql into v_archive_count using v_subcompany, v_opdate, v_opdate;
+        --获取最小opdate +分公司+数据状态 的数据量
+        if v_archive_count = 0 then
+            return;
+        end if;
+        if v_back_up.batchsize is not null then
+            v_batch_size := v_back_up.batchsize ;
+        end if;
+        dbms_output.put_line(
+                    'v_archive_count = ' || v_archive_count || ', v_batch_size = ' || v_batch_size || ' ,v_opdate = ' ||
+                    TO_CHAR(v_opdate, 'yyyy-MM-dd'));
+        --计算本次归档次数,分页归档
+        v_size := ceil(v_archive_count / v_batch_size);
+        v_do_count := 0;
+        while (v_do_count < v_size and v_time_exceeded = false)
+            loop
+                begin
+                    savepoint t_point_page;
+                    --检查执行时间
+                    v_current_time := systimestamp;
+                    if extract(minute from (v_current_time - v_start_time)) +
+                       extract(hour from (v_current_time - v_start_time)) * 60 > v_max_min then
+                        --检查是否超过 30分钟
+                        v_time_exceeded := true; -- 设置超时标志
+                        exit; --退出循环
+                    end if;
+                    v_guid := v_subcompany || sys_guid();
+                    -- 把主键插入 table_idx 索引表
+                    v_tmp_sql := 'insert into ' || v_back_up.idxtable || '(' || v_back_up.idxcolumns || ', guid ) '
+                        || ' select ' || v_back_up.idxcolumns || ',''' || v_guid || ''' from  ' ||
+                                 v_back_up.originaltable || ' '
+                        || v_cond
+                        || ' and rownum <= ' || v_batch_size;
+                    dbms_output.put_line('v_tmp_sql : ' || v_tmp_sql);
+                    execute immediate v_tmp_sql using v_subcompany, v_opdate, v_opdate;
 
-        CASE v_back_up.action_type
-            WHEN 'DELETE' THEN
-                EXECUTE IMMEDIATE v_del_sql;
-            WHEN 'INSERT' THEN
-                EXECUTE IMMEDIATE v_insert_sql;
-            ELSE
-                NULL;
-        END CASE;
+                    v_tmp_sql := 'insert into ' || v_back_up.backuptable || ' select * from ' || v_back_up.originaltable
+                        || ' where (' || v_back_up.idxcolumns || ') in (select ' || v_back_up.idxcolumns || ' from ' ||
+                                 v_back_up.idxtable || ' where  guid = :v_guid )';
+                    --插入bak 归档表
+                    dbms_output.put_line('v_tmp_sql : ' || v_tmp_sql);
+                    execute immediate v_tmp_sql using v_guid;
 
-        SELECT regexp_substr(p_str, '[^' || p_delimiter || ']+', 1, LEVEL) BULK COLLECT INTO v_result
-        FROM dual
-        CONNECT BY LEVEL <= regexp_count(p_str, p_delimiter);
+                    v_tmp_sql := 'delete from ' || v_back_up.originaltable || ' where (' || v_back_up.idxcolumns ||
+                                 ') in (select ' || v_back_up.idxcolumns || ' from ' || v_back_up.idxtable ||
+                                 ' where  guid = :v_guid)';
+                    --根据索引表 删除原表数据
+                    dbms_output.put_line('v_tmp_sql : ' || v_tmp_sql);
+                    execute immediate v_tmp_sql using v_guid;
 
-    EXCEPTION
-        WHEN OTHERS THEN
-            ROLLBACK;
-            RAISE;
-    END process_data;
+                    --清空本次执行索引表
+                    v_tmp_sql := 'delete from ' || v_back_up.idxtable || ' where  guid = :v_guid';
+                    dbms_output.put_line('v_tmp_sql :' || v_tmp_sql);
+                    execute immediate v_tmp_sql using v_guid;
+                    commit;
+                    v_do_count := v_do_count + 1;
+                exception
+                    when others then
+                        rollback to t_point_page;
 
-END demo_pkg;
+                        mm_errorlog_pkg.log_error(procname_in => 'ams_backup_pkg',
+                                                  keyword1_in => 'do_backup_subcompany',
+                                                  keyword3_in => 'v_subcompany=' || v_subcompany || ',opdate =' ||
+                                                                 to_char(v_opdate, 'yyyy-mm-dd'),
+                                                  info_in => substr(sqlerrm, 1, 2000));
+                        raise_application_error(-20023, '按分公司分区备份执行错误' || substr(sqlerrm, 1, 1800));
+                end;
+            end loop;
+    end do_backup_subcompany;
+    -- 执行执行完成
+    procedure do_backup_over(v_back_up ams_backup_td%rowtype) is
+        v_end_sql varchar2(1000);
+        nextdate  varchar2(100);
+        v_error   varchar2(2000);
+    begin
+        select exenexttime into nextdate from ams_backup_td where id = v_back_up.id;
+        v_end_sql :=
+                    'update  ams_backup_td t set t.hibernateversion=1, t.status = ''3'', t.errormsg=''success'', t.exestarttime =' ||
+                    nextdate || ', t.exeendtime = ' || nextdate || '+30 '
+                    || ' where t.status = ''2'' and t.id= :id ';
+        execute immediate v_end_sql using v_back_up.id;
+        commit;
+    exception
+        when others then
+            rollback;
+            v_error := substr(sqlerrm, 1, 2000);
+            update ams_backup_td t
+            set t.status           = '4',
+                t.hibernateversion = t.hibernateversion + 1,
+                t.errormsg         = v_error
+            where t.status = '2'
+              and t.id = v_back_up.id;
+            commit;
+    end do_backup_over;
+    -- 程序入口
+    procedure do_backup is
+        v_back_up_list    back_up_type ;
+        v_subcompany_list varchar2_list := varchar2_list();
+        v_error           varchar2(2000);
+    begin
+        select * bulk collect
+        into v_back_up_list
+        from (select *
+              from ams_backup_td t
+              where t.ifvalid = '1'
+                and t.status = '1'
+                --and (t.status in ('1','3') or (t.status ='4' and t.hibernateversion < 10))
+                and sysdate between t.exestarttime and t.exeendtime
+              order by t.lasopdate)
+        where rownum <= 10;
+        dbms_output.put_line('v_back_up_list.count : ' || v_back_up_list.count);
+        for i in 1..v_back_up_list.count
+            loop
+                begin
+                    -- 支持并发
+                    update ams_backup_td t
+                    set t.status   = '2',
+                        t.errormsg ='running'
+                    where t.status = '1'
+                      and t.id = v_back_up_list(i).id;
+                    if sql%rowcount = 0 then
+                        continue ;
+                    end if;
+                    commit;
+
+                    if v_back_up_list(i).backtype = 0 then
+                        -- 删除
+                        do_backup_delete(v_back_up_list(i));
+                    elsif v_back_up_list(i).backtype = 1 then
+                        -- 单表备份
+                        do_backup_sigle(v_back_up_list(i));
+                    elsif v_back_up_list(i).backtype = 2 then
+                        -- 多表关联批次号备份
+                        do_backup_mutil(v_back_up_list(i));
+                    elsif v_back_up_list(i).backtype = 3 then
+                        -- 按分公司的单表备份
+                        v_subcompany_list := split_string(v_back_up_list(i).subcompany, ',');
+                        if v_subcompany_list.count = 0 then
+                            continue ;
+                        end if;
+                        for s in 1..v_subcompany_list.count
+                            loop
+                                -- 按处理分公司
+                                dbms_output.put_line('s_subcompany : ' || v_subcompany_list(s));
+                                do_backup_subcompany(v_subcompany_list(s), v_back_up_list(i));
+                            end loop;
+                    end if;
+                    -- 处理结束
+                    do_backup_over(v_back_up_list(i));
+                exception
+                    when others then
+                        v_error := substr(sqlerrm, 1, 2000);
+                        update ams_backup_td t
+                        set t.status           = '4',
+                            t.hibernateversion = t.hibernateversion + 1,
+                            t.errormsg         = v_error
+                        where t.status = '2'
+                          and t.id = v_back_up_list(i).id;
+                        commit;
+                end;
+            end loop;
+    exception
+        when others then
+            mm_errorlog_pkg.log_error(procname_in => 'ams_backup_pkg',
+                                      keyword1_in => 'do_backup',
+                                      keyword3_in => 'do_backup occurred error',
+                                      info_in => substr(sqlerrm, 1, 2000));
+    end do_backup;
+
+    -- 备份入口 java 调用
+    procedure do_backup_java(v_id ams_backup_td.id%type) is
+        v_back_up         ams_backup_td%rowtype ;
+        v_subcompany_list varchar2_list := varchar2_list();
+    begin
+        -- 防止并发
+        update ams_backup_td t
+        set t.status   = '2',
+            t.errormsg ='running'
+        where t.status = '1'
+          and t.id = v_id;
+        if sql%rowcount = 0 then
+            return ;
+        end if;
+        commit;
+
+        select * into v_back_up from ams_backup_td t where t.id = v_id;
+        if v_back_up.backtype = 0 then
+            -- 删除
+            do_backup_delete(v_back_up);
+        elsif v_back_up.backtype = 1 then
+            -- 单表备份
+            do_backup_sigle(v_back_up);
+        elsif v_back_up.backtype = 2 then
+            -- 多表关联批次号备份
+            do_backup_mutil(v_back_up);
+        elsif v_back_up.backtype = 3 then
+            -- 按分公司的单表备份
+            v_subcompany_list := split_string(v_back_up.subcompany, ',');
+            if v_subcompany_list.count = 0 then
+                raise_application_error(-20023, '按分公司分区备份执行缺少分公司配置ams_backup_td.subcompany');
+            end if;
+            for s in 1..v_subcompany_list.count
+                loop
+                    -- 按处理分公司
+                    dbms_output.put_line('s_subcompany : ' || v_subcompany_list(s));
+                    do_backup_subcompany(v_subcompany_list(s), v_back_up);
+                end loop;
+        end if;
+        -- 处理结束
+        do_backup_over(v_back_up);
+    exception
+        when others then
+            mm_errorlog_pkg.log_error(procname_in => 'ams_backup_pkg',
+                                      keyword1_in => 'do_backup_java',
+                                      keyword3_in => 'do_backup_java occurred error',
+                                      info_in => substr(sqlerrm, 1, 2000));
+    end do_backup_java;
+end ams_backup_pkg;
 /

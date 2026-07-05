@@ -13,6 +13,8 @@
     <description>麒麟系统 PL/SQL 开发工具 - OceanBase Oracle 模式</description>
 
     <modules>
+        <module>kylin-sql-parser</module>
+        <module>kylin-sql-formatter</module>
         <module>kylin-sql-core</module>
         <module>kylin-sql-ui</module>
         <module>kylin-sql-assembly</module>

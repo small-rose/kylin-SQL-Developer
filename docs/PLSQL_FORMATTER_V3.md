@@ -114,6 +114,11 @@ public final class PlSqlFormatter {
 `PlSqlFormatter` 是仅有的公开类，所有其他类均为包内可见（package-private）或内部实现。
 外部调用者只需依赖 `PlSqlFormatter`、`FormatOptions`、`FormatResult` 三个类。
 
+**dialect 参数传递规则**：`PlSqlFormatter.format(source, options, dialect)` 中的 `dialect` 方法参数
+**优先级高于** `FormatOptions.dialect` 字段。当方法参数为 null 时，回退到 `options.dialect`；
+当两者均为 null 时，默认为 `"ORACLE"`。当使用简化的 `format(source, options)` 重载时，
+仅从 `options.dialect` 读取方言。
+
 ### 1.2.6 发布物
 
 | 产物 | 说明 |
@@ -254,6 +259,20 @@ ctx.create_procedure() → PlSqlBlockType.PROCEDURE
 
 `ConstraintGenerator` 遍历 `PlSqlBlock` 树，为每个 token 间隙生成 `GapConstraint`。
 
+#### 2.5.1 映射策略
+
+V2 使用 `ConstraintGeneratorFactory` 工厂模式（`Map<BlockType, Generator>`），每个块类型注册一个独立的 Generator 类。
+V3 改用直接 switch 路由。原因：
+
+| 策略 | 优点 | 缺点 |
+|------|------|------|
+| **Factory 模式**（V2） | 新增块类型只需新增类并注册，不修改现有代码（OCP） | 间接层多，阅读时需要在文件间跳转 |
+| **switch 路由**（V3） | 所有路由集中在一处，可读性好；IDE 自动提示未覆盖的分支 | 新增块类型需修改 switch 语句 |
+
+**设计决策**：V3 块类型集合已固定（§22.1 共 30+ 类型），短期内不会频繁新增。switch 路由的代
+码集中优点（可读、可调试）大于 Factory 的扩展性优点。若未来需要插件系统支持自定义块类型，
+可从 switch 提取为 Factory：`generators.put(block.type, this::walkBlock)`。
+
 ```java
 class GapConstraint {
     int fromTokenIdx;        // 间隙起始 token
@@ -302,6 +321,43 @@ class IfConstraintGenerator implements ConstraintGenerator {
 }
 ```
 
+#### 2.5.2 运算符绑定约束（addForbiddenOperatorConstraints）
+
+通用约束生成完成后，调用 `addForbiddenOperatorConstraints` 为运算符施加绑定规则，
+防止 `.`、`||`、`%` 被拆行：
+
+```java
+void addForbiddenOperatorConstraints(List<GapConstraint> out, List<TokenInfo> tokens) {
+    for (int i = 0; i < tokens.size() - 1; i++) {
+        String text = tokens.get(i).text;
+
+        // 1. 点号 . ：成员访问（.COUNT、.FIRST、.NEXTVAL）不拆行
+        if (".".equals(text)) {
+            out.add(gap(i, i + 1).forceNewline(false).spaces(0, 0, 0));
+        }
+
+        // 2. || 拼接运算符：|| 与后一个 token 不分离（前部可折行见 §2.6.2 breakPenalty）
+        if ("||".equals(text)) {
+            out.add(gap(i, i + 1).forceNewline(false).preferredSpaces(1));
+        }
+
+        // 3. % 属性标记（%TYPE、%ROWTYPE）：不拆行
+        if ("%".equals(text)) {
+            out.add(gap(i, i + 1).forceNewline(false).spaces(0, 0, 0));
+        }
+    }
+}
+```
+
+此方法在每位生成器的 `generate()` 末尾调用。
+
+#### 2.5.3 括号间距委托
+
+括号间距（`(` 前空格、`)` 后空格）不在 `ConstraintGenerator` 中直接处理，
+而是委托给独立的 `ParenSpacing` 系统（§28）。`ConstraintGenerator` 仅为括号
+上下文提供类型标记（`ParenContextType`），间距具体值由参数 `parenthesisSpacing` 控制，
+在 `StringAssembler` 阶段应用。
+
 ### 2.6 约束求解器
 
 #### Step 1: 硬约束传播（确定性）
@@ -334,6 +390,33 @@ for (GapConstraint g : constraints) {
     ├── 满足 → 继续加入 token
     └── 超出 → 在前一个 OPTIONAL 间隙处断行，或允许超长（无合适断点）
 ```
+
+##### 自定义断行惩罚（computeBreakPenalty）
+
+`ConstraintGenerator` 可在生成约束前重写 `breakPenalty` 值来影响 DP 的断行决策：
+
+```java
+void computeBreakPenalty(List<GapConstraint> constraints, List<TokenInfo> tokens) {
+    for (int i = 0; i < tokens.size() - 1; i++) {
+        // || 拼接链：在 || 后换行的代价低（0.1），鼓励拼接链在此处换行
+        if ("||".equals(tokens.get(i).text)) {
+            GapConstraint g = findGap(constraints, i, i + 1);
+            if (g != null) g.breakPenalty = 0.1;
+        }
+    }
+}
+```
+
+此方法在 `generate()` 末尾、`addForbiddenOperatorConstraints` 之后调用。
+
+##### 续行缩进（continuousIndentSize）
+
+DP 折行时，同一逻辑行被断成多行后，续行的缩进步长由 `continuousIndentSize` 参数控制。
+区别于块缩进（`indentDelta`），续行缩进仅用于折行续行场景：
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `continuousIndentSize` | int | 4 | DP 折行续行时缩进增量（非块缩进）
 
 ### 2.7 StringAssembler
 
@@ -461,6 +544,84 @@ public interface PlSqlDialect {
 | `MERGE` | `MERGE INTO ... USING ... ON ...` |
 | 递归 CTE | `WITH ... (col_aliases) AS (...)` (Oracle 11gR2+) |
 
+```sql
+-- 函数示例
+CREATE OR REPLACE FUNCTION get_employee_salary(
+    p_emp_id  NUMBER
+) RETURN NUMBER
+IS
+    v_salary  NUMBER(10,2);
+BEGIN
+    SELECT salary
+      INTO v_salary
+      FROM employees
+     WHERE employee_id = p_emp_id;
+
+    RETURN NVL(v_salary, 0);
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        RETURN 0;
+END get_employee_salary;
+```
+
+```sql
+-- 存储过程示例
+CREATE OR REPLACE PROCEDURE update_employee_salary(
+    p_emp_id   NUMBER,
+    p_new_sal  NUMBER
+)
+IS
+    v_old_salary  NUMBER(10,2);
+BEGIN
+    SELECT salary
+      INTO v_old_salary
+      FROM employees
+     WHERE employee_id = p_emp_id
+       FOR UPDATE;
+
+    IF v_old_salary IS NULL THEN
+        RAISE_APPLICATION_ERROR(-20001, 'Employee not found');
+    END IF;
+
+    UPDATE employees
+       SET salary = p_new_sal
+     WHERE employee_id = p_emp_id;
+
+    COMMIT;
+END update_employee_salary;
+```
+
+```sql
+-- 包示例
+CREATE OR REPLACE PACKAGE emp_pkg IS
+    FUNCTION get_salary(p_emp_id NUMBER) RETURN NUMBER;
+    PROCEDURE raise_salary(p_emp_id NUMBER, p_amount NUMBER);
+    c_default_raise CONSTANT NUMBER := 0.05;
+END emp_pkg;
+/
+
+CREATE OR REPLACE PACKAGE BODY emp_pkg IS
+
+    FUNCTION get_salary(p_emp_id NUMBER) RETURN NUMBER
+    IS
+        v_sal NUMBER;
+    BEGIN
+        SELECT salary INTO v_sal FROM employees
+         WHERE employee_id = p_emp_id;
+        RETURN v_sal;
+    END get_salary;
+
+    PROCEDURE raise_salary(p_emp_id NUMBER, p_amount NUMBER)
+    IS
+    BEGIN
+        UPDATE employees
+           SET salary = NVL(salary, 0) + p_amount
+         WHERE employee_id = p_emp_id;
+    END raise_salary;
+
+END emp_pkg;
+```
+
 ### 4.4 MySQL 方言
 
 ```sql
@@ -488,7 +649,7 @@ END;
 | `MERGE` | 不支持 |
 
 **格式化影响**：
-- `REPEAT...UNTIL` → 新增 `REPEAT_LOOP` 块类型（§23.4），`UNTIL` 前缩进弹出
+- `REPEAT...UNTIL` → 新增 `REPEAT_LOOP` 块类型（§23.6），`UNTIL` 前缩进弹出
 - 无 PACKAGE/TYPE → 约束生成器跳过不可用的块类型
 - `LIMIT n OFFSET m` → 单行紧凑格式
 - `ON DUPLICATE KEY UPDATE` → UPDATE 前 `OPTIONAL + breakPenalty=0.3`
@@ -553,6 +714,22 @@ if (!supported.contains(PlSqlBlockType.PACKAGE_SPEC)) {
 }
 ```
 
+```sql
+-- Oracle 有效: PACKAGE, TYPE, REPEAT(仅MySQL)
+CREATE PACKAGE pkg AS ...      -- Oracle/OB: 创建 PACKAGE_SPEC
+CREATE TYPE t AS OBJECT(...);  -- Oracle/OB: 创建 TYPE_SPEC
+REPEAT ... UNTIL cond;         -- MySQL: 创建 REPEAT_LOOP（Oracle/PG 无此类型）
+```
+
+**方言适配约束表**：
+
+| 检测点 | 条件 | 行为 |
+|--------|------|------|
+| `getSupportedBlockTypes()` 检查 | 块类型不在方言支持列表中 | 跳过该类型的约束生成 |
+| PACKAGE 关键字 | dialect != Oracle/OB | 当作普通标识符，不触发块结构解析 |
+| TYPE AS OBJECT | dialect != Oracle/OB | 当作普通语句 |
+| REPEAT | dialect == MySQL | 创建 REPEAT_LOOP 约束 |
+
 | 块类型 | Oracle | OceanBase | MySQL | PostgreSQL |
 |--------|--------|-----------|-------|-----------|
 | PACKAGE_SPEC | ✅ | ✅ | ❌ | ❌ |
@@ -606,6 +783,15 @@ BEGIN
 END;
 $$;
 ```
+
+**约束规则（lexer 级别，非 GapConstraint）**：
+
+| 检测点 | 行为 | 对应实现 |
+|--------|------|----------|
+| `AS` 后遇 `$$` 或 `$tag$` | 标记 CONTENT_BLOCK 起始 | `Lexer.setChannel(lexer, CONTENT_BLOCK)` |
+| CONTENT_BLOCK 内所有 token | channel = HIDDEN，不格式化 | 格式化阶段跳过 HIDDEN token |
+| 匹配结束 `$$`/`$tag$` | CONTENT_BLOCK 结束 | 恢复普通 lexer 状态 |
+| 格式化输出 | CONTENT_BLOCK 原样透传 | `SqlFormatter.appendRaw()` |
 
 #### 4.7.4 方言关键字集
 
@@ -765,6 +951,15 @@ END;
 -- / 独占一行，不缩进，不被格式化
 -- / 后自动跟随一个换行
 ```
+
+#### 5.3.3 约束规则
+
+| 检测条件 | 行为 | 等价 GapConstraint |
+|----------|------|-------------------|
+| `token.text == "/"` 且行首 | 原样输出，不格式化 | 无（pre-tokenizer 级） |
+| `/` 前为 `END;` | `/` 前换行，缩进级 0 | `forceNewline(true).indentDelta(-blockDepth)` |
+| `/` 后为下一个 DDL/DML | `/` 后必换行 | `forceNewline(true)` |
+| `/` 在表达式中（非行首） | 当作除号运算符 | 由 §28 控制 |
 
 ---
 
@@ -1507,19 +1702,20 @@ WHERE e.department_id IN (
 
 #### 9.6.2 位置感知约束总表
 
-子查询在 9 个位置有不同的格式化行为：
+子查询在 10 个位置有不同的格式化行为：
 
 ```java
 enum SubqueryPosition {
     SELECT_LIST,    // SELECT 列清单内
-    WHERE,          // WHERE 条件内
-    FROM,           // FROM/JOIN 子句中
-    HAVING,         // HAVING 条件内
-    ON,             // JOIN ON 条件内
-    INSERT,         // INSERT INTO ... SELECT
+    WHERE_CLAUSE,   // WHERE 条件内
+    FROM_CLAUSE,    // FROM/JOIN 子句中
+    HAVING_CLAUSE,  // HAVING 条件内
+    ON_CLAUSE,      // JOIN ON 条件内
+    INSERT_SELECT,  // INSERT INTO ... SELECT
     EXISTS,         // EXISTS/NOT EXISTS
     LATERAL,        // LATERAL (...)
-    DEFAULT         // 其他位置（兜底）
+    SCALAR,         // 标量子查询（单行单列）
+    OTHER           // 其他位置（兜底）
 }
 ```
 
@@ -1527,39 +1723,85 @@ enum SubqueryPosition {
 
 #### 9.6.3 位置判定逻辑
 
-位置通过分析子查询左侧最近的 SQL 关键字来确定：
+位置通过检查 ParseTree 父节点类型来确定，而非向前扫描 token：
 
 ```java
-SubqueryPosition detectPosition(int lparenIdx) {
-    // 向前扫描最近的 SELECT 子句关键字
-    int cursor = lparenIdx;
-    while (cursor >= 0) {
-        TokenInfo t = tokens.get(cursor);
-        switch (t.upper) {
-            case "FROM":  return SubqueryPosition.FROM;
-            case "WHERE": return SubqueryPosition.WHERE;
-            case "HAVING":return SubqueryPosition.HAVING;
-            case "ON":    return SubqueryPosition.ON;
-            case "EXISTS":return SubqueryPosition.EXISTS;
-            case "IN":    return SubqueryPosition.WHERE; // 归入 WHERE
-            case "LATERAL": return SubqueryPosition.LATERAL;
-            case "INSERT": return SubqueryPosition.INSERT;
-            case ",":     return SubqueryPosition.SELECT_LIST;
-        }
-        cursor--;
-    }
-    return SubqueryPosition.DEFAULT;
+enum SubqueryPosition {
+    SELECT_LIST,    // SELECT col, (SELECT ...)
+    WHERE_CLAUSE,   // WHERE col IN (SELECT ...) / WHERE EXISTS (SELECT ...)
+    FROM_CLAUSE,    // FROM (SELECT ...) alias
+    HAVING_CLAUSE,  // HAVING ... (SELECT ...)
+    ON_CLAUSE,      // JOIN ... ON ... (SELECT ...)
+    INSERT_SELECT,  // INSERT INTO ... SELECT ...
+    EXISTS,         // WHERE EXISTS (SELECT ...) [与 WHERE_CLAUSE 共享]
+    LATERAL,        // LATERAL (SELECT ...)
+    SCALAR,         // 标量子查询（单行单列，如 WHERE col = (SELECT ...)）
+    OTHER           // 未识别
 }
 ```
+
+判定策略（依赖 ParseTree 层级结构）：
+
+```java
+SubqueryPosition detectPosition(ParserRuleContext subqueryCtx) {
+    ParserRuleContext parent = subqueryCtx.getParent();
+    // 向上遍历找到容器规则，检查其语法角色
+    if (parent instanceof Select_listContext)
+        return SubqueryPosition.SELECT_LIST;
+    if (parent instanceof Where_clauseContext)
+        return SubqueryPosition.WHERE_CLAUSE;
+    if (parent instanceof Table_refContext || parent instanceof From_clauseContext)
+        return SubqueryPosition.FROM_CLAUSE;
+    if (parent instanceof Having_clauseContext)
+        return SubqueryPosition.HAVING_CLAUSE;
+    if (parent instanceof On_clauseContext)
+        return SubqueryPosition.ON_CLAUSE;
+    if (parent instanceof Exists_clauseContext)
+        return SubqueryPosition.EXISTS;
+    if (parent instanceof Lateral_clauseContext)
+        return SubqueryPosition.LATERAL;
+    if (parent instanceof Insert_selectContext)
+        return SubqueryPosition.INSERT_SELECT;
+    // 标量子查询：父节点为表达式上下文（如 comparison_expression）
+    if (parent instanceof ExpressionContext || parent instanceof Comparison_expressionContext)
+        return SubqueryPosition.SCALAR;
+    return SubqueryPosition.OTHER;
+}
+```
+
+**与 token 扫描方案的区别**：ParseTree 方案直接利用语法结构判定，不受子查询内部关键字干扰。
+token 扫描方案（向前找 FROM/WHERE/ON 等关键字）在多层嵌套子查询中极易误判——例如
+`SELECT * FROM (SELECT ... WHERE ...)` 中子查询内部的 `WHERE` 会被误判为外层位置，
+而 ParseTree 方案通过父节点类型精确区分内外层作用域。
 
 #### 9.6.4 AUTO 模式展开阈值
 
+AUTO 模式下，满足以下任一条件时触发 EXPAND：
+
 ```java
-boolean shouldExpand(int tokensInSubquery) {
-    int threshold = opts.getSubqueryThreshold(); // 默认 80
-    return tokensInSubquery > threshold;
+boolean shouldExpand(List<TokenInfo> subTokens, FormatOptions opts) {
+    // 1. 子查询字符总数超过阈值
+    int totalChars = subTokens.stream()
+        .filter(t -> t.channel == 0)
+        .mapToInt(t -> t.text.length() + 1)
+        .sum();
+    if (totalChars > opts.getSubqueryThreshold()) return true; // 默认 80
+
+    // 2. 子查询包含集合操作（UNION / INTERSECT / MINUS / EXCEPT）
+    if (containsSetOperator(subTokens)) return true;
+
+    // 3. 子查询包含多层嵌套（子查询深度 ≥ 2）
+    if (subqueryDepth(subTokens) >= 2) return true;
+
+    return false;
 }
 ```
+
+| 触发条件 | 说明 | 默认阈值 |
+|---------|------|---------|
+| 字符数 | 子查询 channel-0 token 文本总长度 | `subqueryThreshold=80` |
+| 集合操作 | 子查询内包含 UNION/INTERSECT/MINUS/EXCEPT | 存在即展开 |
+| 嵌套深度 | 子查询内再包含子查询（深度 ≥ 2） | 2 层即展开 |
 
 #### 9.6.5 各位置格式化示例
 
@@ -1627,17 +1869,31 @@ private void walkSelect(PlSqlBlock block) {
 
 递归深度限制：`maxSubqueryDepth`（默认 5）。
 
-#### 9.6.7 子查询内格式化规则
+#### 9.6.7 子查询内格式化规则（subqueryOverrideOptions）
 
-子查询内部的格式化规则继承自外层，但可被位置特定参数覆盖：
+子查询内部的格式化规则继承自外层，但可通过 `subqueryOverrideOptions` 独立覆盖：
 
 ```sql
 -- 外层 SELECT 列清单：ONE_PER_LINE
--- 子查询内 SELECT 列清单：COMPACT（由 subquerySelectMode 控制）
+-- 子查询内 SELECT 列清单：COMPACT（由 selectListSubqueryStyle=INLINE 控制）
 SELECT e.employee_id,
        e.first_name,
        (SELECT MAX(s.salary) FROM salaries s WHERE s.emp_id = e.id) AS max_sal
 FROM employees e;
+```
+
+可覆盖的内层选项包括：
+
+| 外层参数 | 子查询覆盖参数 | 说明 |
+|---------|--------------|------|
+| `selectColumnMode` | `subquerySelectMode` | 子查询内列清单风格 |
+| `dmlJoinIndent` | `subqueryJoinIndent` | 子查询内 JOIN 缩进 |
+| `dmlWhereAndPosition` | `subqueryWhereAndPos` | 子查询内 AND/OR 对齐 |
+| `commaPosition` | `subqueryCommaPos` | 子查询内逗号位置 |
+
+```java
+// 子查询入栈时应用覆盖参数
+FormatOptions subOpts = opts.overrideWith(block.subqueryOverrideOptions);
 ```
 
 #### 9.6.8 参数汇总
@@ -1645,15 +1901,21 @@ FROM employees e;
 | 参数 | 类型 | 默认值 | 适用位置 |
 |------|------|--------|---------|
 | `selectListSubqueryStyle` | enum | INLINE | SELECT_LIST |
-| `whereSubqueryStyle` | enum | EXPAND | WHERE |
-| `fromSubqueryStyle` | enum | EXPAND | FROM |
-| `havingSubqueryStyle` | enum | EXPAND | HAVING |
-| `onClauseSubqueryStyle` | enum | INLINE | ON |
-| `insertSubqueryStyle` | enum | EXPAND | INSERT |
+| `whereSubqueryStyle` | enum | EXPAND | WHERE_CLAUSE |
+| `fromSubqueryStyle` | enum | EXPAND | FROM_CLAUSE |
+| `havingSubqueryStyle` | enum | EXPAND | HAVING_CLAUSE |
+| `onClauseSubqueryStyle` | enum | INLINE | ON_CLAUSE |
+| `insertSubqueryStyle` | enum | EXPAND | INSERT_SELECT |
 | `existsSubqueryStyle` | enum | INLINE | EXISTS |
 | `lateralSubqueryStyle` | enum | EXPAND | LATERAL |
-| `defaultSubqueryStyle` | enum | EXPAND | DEFAULT |
+| `scalarSubqueryStyle` | enum | INLINE | SCALAR |
+| `defaultSubqueryStyle` | enum | EXPAND | OTHER |
 | `subqueryThreshold` | int | 80 | AUTO 模式 |
+| `subqueryMaxDepth` | int | 10 | 最大递归格式化深度 |
+| `subquerySelectMode` | enum | PRESERVE | 子查询内列清单风格 |
+| `subqueryJoinIndent` | boolean | PRESERVE | 子查询内 JOIN 缩进 |
+| `subqueryWhereAndPos` | enum | PRESERVE | 子查询内 AND/OR 对齐 |
+| `subqueryCommaPos` | enum | PRESERVE | 子查询内逗号位置 |
 
 ### 9.7 参数汇总
 
@@ -1824,7 +2086,7 @@ SELECT employee_id FROM former_employees;
 SELECT employee_id, first_name, last_name
 FROM employees
 UNION
-SELECT employee_id, first_name, last_name
+SELECT emp_id, firstname, surname
 FROM former_employees;
 ```
 
@@ -1921,11 +2183,88 @@ DML（INSERT/UPDATE/DELETE/MERGE）格式化遵循以下原则：
 
 块内 DML 语句:
   BEGIN ... INSERT INTO ... END;  → 同规则
-  FORALL idx IN ... INSERT INTO ...  → §25.3 FORALL
+  FORALL idx IN ... INSERT INTO ...  → §24.3 FORALL
 
 不处理:
   字符串内的 DML（EXECUTE IMMEDIATE 'INSERT INTO ...'）
 ```
+
+### 12.4 DML 约束生成（addDmlConstraints）
+
+`ConstraintGenerator` 在巡视 `PlSqlBlock` 树时，对每个块内 statement 调用
+`addDmlConstraints()`，为其顶级 DML 关键字施加断行约束：
+
+```java
+void addDmlConstraints(PlSqlBlock block) {
+    for (Statement stmt : block.statements) {
+        String keyword = tokens.get(stmt.startIdx).upper;
+
+        switch (keyword) {
+            case "SELECT":
+                // FROM 前 OPTIONAL 断行（fromClauseNewline 控制）
+                int fromIdx = findKeyword(stmt, "FROM");
+                if (fromIdx >= 0) {
+                    addConstraint(gap(fromIdx - 1, fromIdx)
+                        .newlineMode(opts.isFromClauseNewline()
+                            ? REQUIRED : OPTIONAL));
+                }
+                break;
+
+            case "INSERT":
+                // VALUES 前 OPTIONAL 断行（dmlValuesNewline 控制）
+                int valuesIdx = findKeyword(stmt, "VALUES");
+                if (valuesIdx >= 0) {
+                    addConstraint(gap(valuesIdx - 1, valuesIdx)
+                        .newlineMode(opts.isDmlValuesNewline()
+                            ? REQUIRED : OPTIONAL));
+                }
+                break;
+
+            case "UPDATE":
+                // SET 前换行
+                int setIdx = findKeyword(stmt, "SET");
+                if (setIdx >= 0) {
+                    addConstraint(gap(setIdx - 1, setIdx)
+                        .forceNewline(true).indentDelta(1));
+                }
+                // WHERE 前 OPTIONAL 断行
+                int whereIdx = findKeyword(stmt, "WHERE");
+                if (whereIdx >= 0) {
+                    addConstraint(gap(whereIdx - 1, whereIdx)
+                        .newlineMode(OPTIONAL).breakPenalty(0.3));
+                }
+                break;
+
+            case "DELETE":
+                // WHERE 前 OPTIONAL 断行
+                whereIdx = findKeyword(stmt, "WHERE");
+                if (whereIdx >= 0) {
+                    addConstraint(gap(whereIdx - 1, whereIdx)
+                        .newlineMode(OPTIONAL).breakPenalty(0.3));
+                }
+                break;
+
+            case "MERGE":
+                // USING / ON / WHEN 前断行（由 merge*Newline 参数控制）
+                // 见 §13 MERGE 格式化
+                break;
+        }
+    }
+}
+```
+
+此方法在 `walkBlock()` 通用流程中调用（§22.2），确保所有 DML 子句关键字前
+都有适当的断行约束。具体参数控制见 §§13-14。DML 关键字断行的参数列表：
+
+| 参数 | 影响的关键字 | 默认值 |
+|------|-------------|--------|
+| `fromClauseNewline` | SELECT → FROM | true |
+| `dmlValuesNewline` | INSERT → VALUES | false |
+| `dmlValuesExpand` | VALUES 内值列表 | false |
+| `mergeIntoNewline` | MERGE → INTO | true |
+| `mergeUsingNewline` | USING → 子句 | true |
+| `mergeOnNewline` | ON → 条件 | true |
+| `mergeWhenNewline` | WHEN → 操作 | true |
 
 ---
 
@@ -2292,6 +2631,15 @@ WHERE department_id = 50;
 
 ---
 
+**参数重叠优先级规则**：
+
+| 控制域 | 高位参数 | 低位参数 | 交互逻辑 |
+|--------|---------|---------|---------|
+| VALUES 换行 | `dmlValuesExpand=true` | `insertValuesPerRow` 忽略 | `dmlValuesExpand` 为 true 时等价于 `insertValuesPerRow=1`，不受 `insertValuesPerRow` 影响 |
+| SET 换行 | `dmlUpdateSetPerLine=true` | `dmlUpdateColumnsPerRow` 忽略 | `dmlUpdateSetPerLine` 为 true 时等价于 `dmlUpdateColumnsPerRow=1`，不受 `dmlUpdateColumnsPerRow` 影响 |
+
+---
+
 ## 15. BULK COLLECT / USING 对齐
 
 ### 15.1 BULK COLLECT INTO 多变量对齐
@@ -2310,7 +2658,22 @@ BULK COLLECT INTO v_emp_id,
 FROM employees;
 ```
 
-约束：`dmlBulkCollectAlign=true` 时，BULK COLLECT INTO 后变量列表接入 `alignGroupId="BULK_INTO"`，跨行对齐首变量。
+**约束 GapConstraint 规则**：
+
+| 约束点 | newlineMode | indentDelta | alignGroupId | 说明 |
+|--------|-------------|-------------|-------------|------|
+| `BULK COLLECT INTO` → 第一变量 | REQUIRED | +1 | — | INTO 后换行缩进 |
+| 变量 `,` → 下一变量 | OPTIONAL | 0 | BULK_INTO | 逗号后可选换行，变量名对齐首变量 |
+| 最后一变量 → `FROM` | REQUIRED | -1 | — | 弹出缩进 |
+
+```java
+if (opts.isDmlBulkCollectAlign()) {
+    for (int i = 0; i < bulkVars.size() - 1; i++) {
+        addConstraint(gap(bulkVars.get(i).commaIdx, bulkVars.get(i + 1).tokenIdx)
+            .newlineMode(OPTIONAL).alignGroupId("BULK_INTO"));
+    }
+}
+```
 
 ### 15.2 EXECUTE IMMEDIATE USING 对齐
 
@@ -2326,7 +2689,23 @@ USING IN p_id,
       OUT p_salary;
 ```
 
-约束：`dmlUsingAlign=true` 时，USING 后表达式列表 `alignGroupId="DML_USING"` 对齐首元素。
+**约束 GapConstraint 规则**：
+
+| 约束点 | newlineMode | indentDelta | alignGroupId | 说明 |
+|--------|-------------|-------------|-------------|------|
+| `USING` → 第一表达式 | REQUIRED | +1 | — | USING 后换行缩进 |
+| 表达式 `,` → 下一表达式 | OPTIONAL | 0 | DML_USING | 逗号后可选换行，表达式对齐首元素 |
+| `IN`/`OUT`/`IN OUT` → 变量 | FORBIDDEN | — | — | 方向关键字与变量同行不分离 |
+| 最后一变量 → `;` | REQUIRED | -1 | — | 弹出缩进 |
+
+```java
+if (opts.isDmlUsingAlign()) {
+    for (int i = 0; i < usingExprs.size() - 1; i++) {
+        addConstraint(gap(usingExprs.get(i).commaIdx, usingExprs.get(i + 1).tokenIdx)
+            .newlineMode(OPTIONAL).alignGroupId("DML_USING"));
+    }
+}
+```
 
 ### 15.3 参数汇总
 
@@ -2438,6 +2817,18 @@ CREATE TABLE employees (
 | NOT NULL | `col NOT NULL` | 同列定义行 |
 | EXCLUDE (PG) | `EXCLUDE USING gist (col WITH =)` | 同列定义行 |
 
+**约束 GapConstraint 规则**：
+
+| 约束点 | newlineMode | indentDelta | alignGroupId | 说明 |
+|--------|-------------|-------------|-------------|------|
+| `PRIMARY KEY` → `(` | OPTIONAL | 0 | — | 可留在列同行或换行 |
+| `(` → 列名 | OPTIONAL | +1 | — | 多列时缩进 |
+| `)` → `,` | FORBIDDEN | 0 | — | `),` 不分离 |
+| `REFERENCES table` → `(` | OPTIONAL | 0 | — | 外键引用括号保持同行 |
+| `USING INDEX` → `TABLESPACE` | OPTIONAL | 0 | — | 索引存储选项同行或换行 |
+| `FOREIGN KEY (col)` → `REFERENCES` | OPTIONAL | 0 | — | 可同行或换行 |
+| 表级约束间逗号 | REQUIRED | 0 | alignConstraintName | 每约束一行，约束名对齐 |
+
 ### 17.3 约束状态子句
 
 ```sql
@@ -2453,7 +2844,16 @@ CONSTRAINT pk_emp PRIMARY KEY (emp_id)
     MONITORING
 ```
 
-每个状态子句独立一行或紧凑同行（由 `ddlConstraintStatePerLine` 控制）。
+`ddlConstraintStatePerLine=true` 时每个状态子句独立一行：
+
+**约束 GapConstraint 规则**：
+
+| 约束点 | newlineMode | indentDelta | alignGroupId | 说明 |
+|--------|-------------|-------------|-------------|------|
+| 约束体 → `ENABLE`/`DISABLE` | REQUIRED | 0 | alignConstraintState | 状态关键字独立行，状态列对齐 |
+| `ENABLE` → `VALIDATE`/`NOVALIDATE` | OPTIONAL | 0 | — | 保持同行 |
+| `USING INDEX` → `TABLESPACE` | OPTIONAL | 0 | — | 索引存储选项同行或换行 |
+| 最后状态 → 逗号 | FORBIDDEN | 0 | — | `,` 不分离 |
 
 ### 17.4 虚拟列 / 标识列
 
@@ -2481,30 +2881,151 @@ CREATE TABLE departments (
 );
 ```
 
-| 约束位置 | 规则 |
-|----------|------|
-| `GENERATED ALWAYS AS` → `(` | 保持同行或 OPTIONAL 换行 |
-| `GENERATED BY DEFAULT AS IDENTITY` → `(` | 保持同行 |
-| 标识列选项 | 每选项一行或紧凑 |
+**约束 GapConstraint 规则**：
+
+| 约束点 | newlineMode | indentDelta | alignGroupId | 说明 |
+|--------|-------------|-------------|-------------|------|
+| `GENERATED ALWAYS AS` → `(` | OPTIONAL | 0 | — | 保持同行或换行 |
+| `(` → 表达式 | OPTIONAL | 0 | — | `(expr)` 括号内原始保留，不拆行 |
+| 表达式 → `)` | FORBIDDEN | — | — | 表达式与 `)` 同行不分离 |
+| `)` → `VIRTUAL`/`STORED` | OPTIONAL | 0 | — | 表达式后 1 空格，保持同行 |
+| `GENERATED BY DEFAULT AS IDENTITY`/`GENERATED ALWAYS AS IDENTITY` → `(` | OPTIONAL | 0 | — | 保持同行或换行 |
+| `(` → `START WITH` | REQUIRED | +1 | — | 标识列选项缩进 |
+| `START WITH` → 值 | OPTIONAL | 0 | alignIdentityOption | 序列选项同行，参数名对齐 |
+| `INCREMENT BY` → 值 | OPTIONAL | 0 | alignIdentityOption | 同 START WITH |
+| `MAXVALUE`/`MINVALUE` → 值 | OPTIONAL | 0 | alignIdentityOption | 同 START WITH |
+| `CYCLE`/`NOCYCLE`/`CACHE`/`NOCACHE`/`ORDER`/`NOORDER` | OPTIONAL | 0 | alignIdentityOption | 无值选项，关键字对齐 |
+| 选项间 | REQUIRED | 0 | alignIdentityOption | 每选项一行 |
+| 最后选项 → `)` | REQUIRED | -1 | — | 弹出缩进 |
 
 ### 17.5 LOB / 集合列
 
 ```sql
+-- LOB 存储
 CREATE TABLE documents (
-    doc_id      NUMBER(6),
-    doc_content CLOB,
-    doc_xml     XMLTYPE,
-    doc_image   BLOB,
-    doc_meta    my_metadata_type
-) LOB (doc_content, doc_xml)
-  STORE AS SECUREFILE (
-      TABLESPACE lob_data
-      STORAGE (INITIAL 1M NEXT 1M)
-      ENABLE STORAGE IN ROW
-  );
+    doc_id       NUMBER(6),
+    doc_content  CLOB,
+    doc_metadata CLOB
+)
+LOB (doc_content, doc_metadata) STORE AS SECUREFILE (
+    TABLESPACE           lob_data
+    STORAGE (INITIAL 64K NEXT 32K)
+    CHUNK                8192
+    COMPRESS             HIGH
+    ENABLE STORAGE IN ROW
+    CACHE
+);
 ```
 
-LOB 存储子句每选项一行，由 `ddlLobOptionPerLine` 控制。
+#### 17.5.1 嵌套表列（Nested Table）
+
+```sql
+-- 基本嵌套表
+CREATE TABLE project_team (
+    project_id    NUMBER(6),
+    team_members  employee_tab_t
+)
+NESTED TABLE team_members STORE AS team_members_nt;
+
+-- 嵌套表 + STORAGE 子句
+CREATE TABLE departments (
+    dept_id     NUMBER(6),
+    dept_name   VARCHAR2(30),
+    employees   employee_tab_t
+)
+NESTED TABLE employees STORE AS emp_nt
+    TABLESPACE users
+    STORAGE (INITIAL 64K NEXT 32K);
+
+-- 多嵌套表
+CREATE TABLE projects (
+    project_id   NUMBER(6),
+    team_members employee_tab_t,
+    tasks        task_tab_t
+)
+NESTED TABLE team_members STORE AS team_nt
+NESTED TABLE tasks       STORE AS task_nt;
+```
+
+**约束 GapConstraint 规则（嵌套表）**：
+
+| 约束点 | newlineMode | indentDelta | 说明 |
+|--------|-------------|-------------|------|
+| `NESTED TABLE col` → `STORE AS` | REQUIRED | 0 | `NESTED TABLE ... STORE AS` 独立行 |
+| `STORE AS` → 存储表名 | OPTIONAL | 0 | 存储表名同行 |
+| `TABLESPACE` → 表空间名 | OPTIONAL | +1 | 存储表属性缩进一级 |
+| `STORAGE` → `(` | OPTIONAL | 0 | 保持同行 |
+| `STORAGE ( ... )` | 内部复用 §17.7 STORAGE 规则 | — | STORAGE 参数每项一行 |
+| 属性间 | REQUIRED | 0 | 每属性一行 |
+| 多嵌套表行间 | REQUIRED | 0 | 每 `NESTED TABLE` 一行，对齐 |
+
+#### 17.5.2 VARRAY 列
+
+```sql
+-- VARRAY 类型定义
+CREATE TYPE phone_list_t AS VARRAY(5) OF VARCHAR2(20);
+
+-- VARRAY 列 + 存储子句
+CREATE TABLE contacts (
+    contact_id   NUMBER(6),
+    phones       phone_list_t
+)
+VARRAY phones STORE AS SECUREFILE LOB (phones_lob)
+    TABLESPACE users;
+```
+
+**约束 GapConstraint 规则（VARRAY）**：
+
+| 约束点 | newlineMode | indentDelta | 说明 |
+|--------|-------------|-------------|------|
+| `CREATE TYPE name` → `AS VARRAY(n)` | OPTIONAL | 0 | 类型定义保持一行 |
+| `VARRAY(n)` → `OF type` | OPTIONAL | 0 | 元素类型同行 |
+| `VARRAY col` → `STORE AS` | REQUIRED | 0 | `VARRAY ... STORE AS` 独立行 |
+| `STORE AS` → `LOB`/`SECUREFILE` | OPTIONAL | 0 | 存储类型同行 |
+| `LOB` → `(col_lob)` | OPTIONAL | 0 | LOB 列名同行 |
+| `TABLESPACE` → 表空间名 | OPTIONAL | +1 | 存储属性缩进 |
+
+#### 17.5.3 LOB 存储
+
+| 约束点 | newlineMode | indentDelta | alignGroupId | 说明 |
+|--------|-------------|-------------|-------------|------|
+| `LOB` → `(` | REQUIRED | 0 | — | LOB 关键字独立行 |
+| `(` → 第一列名 | OPTIONAL | 0 | — | 列名列表紧凑，逗号后 1 空格 |
+| 列名 `,` → 下一列名 | FORBIDDEN | — | — | 列名间不换行 |
+| `)` → `STORE AS` | OPTIONAL | +1 | — | `)` 后可选换行，缩进一级 |
+| `STORE AS` → `SECUREFILE`/`BASICFILE` | OPTIONAL | 0 | — | 存储类型关键字同行 |
+| 存储类型 → `(` | OPTIONAL | 0 | — | 保持同行 |
+| `(` → 第一选项 | REQUIRED | +1 | alignLobOption | LOB 选项缩进，关键字对齐 |
+| `TABLESPACE` → 表空间名 | OPTIONAL | 0 | alignLobOption | 保持同行 |
+| `STORAGE` → `(` | OPTIONAL | 0 | — | 保持同行 |
+| `STORAGE ( ... )` | 内部复用 §17.7 STORAGE 规则 | — | — | STORAGE 参数每项一行 |
+| `CHUNK` → 值 | OPTIONAL | 0 | alignLobOption | 值同行，关键字对齐 |
+| `COMPRESS` → `HIGH`/`MEDIUM`/`LOW`/`OLTP` | OPTIONAL | 0 | alignLobOption | 压缩级别同行 |
+| `ENABLE`/`DISABLE STORAGE IN ROW` | OPTIONAL | 0 | alignLobOption | 保持同行 |
+| `CACHE`/`NOCACHE`/`LOGGING`/`NOLOGGING` | OPTIONAL | 0 | alignLobOption | 无值选项 |
+| 选项间 | REQUIRED | 0 | alignLobOption | 每选项一行 |
+| 最后选项 → `)` | REQUIRED | -1 | — | 弹出缩进 |
+
+#### 17.5.4 列注释内联
+
+`columnCommentInline=true` 时，列级注释以 `/* ... */` 形式内联尾随在列定义之后，并右对齐到列对齐组的最大宽度。`columnCommentInline=false`（默认）时，注释作为独立 `COMMENT ON COLUMN` 语句（§21.6）。
+
+```sql
+CREATE TABLE employees (
+    employee_id    NUMBER(6)     /* 员工ID */,
+    first_name     VARCHAR2(20)  /* 名 */,
+    last_name      VARCHAR2(25)  /* 姓 */
+);
+```
+
+**约束 GapConstraint 规则**：
+
+| 约束点 | newlineMode | indentDelta | alignGroupId | 说明 |
+|--------|-------------|-------------|-------------|------|
+| 列定义 → `/*` | OPTIONAL | 0 | alignColumnComment | 注释右对齐到同组最大宽度，至少 2 空格分隔 |
+| `/*` → 注释文本 | FORBIDDEN | — | — | 注释文本与 `/*` 同行不分离 |
+| 注释文本 → `*/` | FORBIDDEN | — | — | 注释结尾与文本同行不分离 |
+| `*/` → `,` | FORBIDDEN | — | — | 逗号在 `*/` 后同行（尾列可省略） |
 
 ### 17.6 分区表
 
@@ -2561,17 +3082,41 @@ PARTITION BY REFERENCE (fk_order);
 | REFERENCE | 引用外键约束 |
 | AUTOMATIC | 关键字跟在 PARTITION BY 后 |
 
+**GapConstraint 约束规则**：
+
+| 约束点 | newlineMode | indentDelta | alignGroupId | 说明 |
+|--------|-------------|-------------|-------------|------|
+| `PARTITION BY` → `(` | REQUIRED | 0 | — | 分区关键字后换行 |
+| `(` → 第一个 `PARTITION` | REQUIRED | +1 | — | 分区列表缩进 |
+| 每个 `PARTITION` → 下一个 `PARTITION` | REQUIRED | 0 | alignPartitionName | 每分区一行，名称列对齐 |
+| `VALUES LESS THAN` → `(` | OPTIONAL | 0 | — | 保持同一行或随行宽断行 |
+| `(` → 值列表 | OPTIONAL | +1 | — | 值列表超长时折行缩进 |
+| 值列表 `)` → 逗号 | FORBIDDEN | 0 | — | `),` 不分离 |
+| `INTERVAL (expr)` → `(` 前 | REQUIRED | 0 | — | INTERVAL 独立一行 |
+| `AUTOMATIC` → `(` | OPTIONAL | 0 | — | 自动列表分区关键字紧随 |
+| `REFERENCE` → `(` | REQUIRED | 0 | — | 引用分区关键字后换行 |
+
 ### 17.7 表组织 / 存储选项
 
 ```sql
--- 堆组织表
+-- 堆组织表 + 完整存储选项
 CREATE TABLE employees (
-    ...
-) TABLESPACE users
-  STORAGE (INITIAL 64K NEXT 64K)
-  PCTFREE 10
-  PCTUSED 40
-  LOGGING;
+    employee_id NUMBER(6)
+)
+TABLESPACE users
+STORAGE (
+    INITIAL             64K
+    NEXT                32K
+    MINEXTENTS          1
+    MAXEXTENTS          UNLIMITED
+    PCTINCREASE         0
+)
+PCTFREE         10
+PCTUSED         40
+PCTINCREASE     0
+NOLOGGING
+COMPRESS BASIC
+CACHE;
 
 -- 索引组织表
 CREATE TABLE emp_iot (
@@ -2581,6 +3126,35 @@ CREATE TABLE emp_iot (
   TABLESPACE users
   PCTTHRESHOLD 20;
 ```
+
+**约束 GapConstraint 规则**：
+
+| 子句类型 | 约束点 | newlineMode | indentDelta | alignGroupId | 说明 |
+|---------|--------|-------------|-------------|-------------|------|
+| 表组织 | `)` → `ORGANIZATION` | REQUIRED | 0 | — | 表组织选项独立行 |
+| 表组织 | `ORGANIZATION INDEX/HEAP` → 后续 | REQUIRED | 0 | alignStorageOption | 每选项一行 |
+| TABLESPACE | `)` → `TABLESPACE` | REQUIRED | 0 | — | 独立行 |
+| TABLESPACE | `TABLESPACE` → 表空间名 | OPTIONAL | 0 | — | 保持同行 |
+| STORAGE | `STORAGE` → `(` | OPTIONAL | 0 | — | 保持同行 |
+| STORAGE | `(` → 第一参数 | REQUIRED | +1 | alignStorageParam | 参数缩进 |
+| STORAGE | `INITIAL` → 值 | OPTIONAL | 0 | alignStorageParam | 值同行，参数名对齐 |
+| STORAGE | `NEXT` → 值 | OPTIONAL | 0 | alignStorageParam | 同 INITIAL |
+| STORAGE | `MINEXTENTS` → 值 | OPTIONAL | 0 | alignStorageParam | 同 INITIAL |
+| STORAGE | `MAXEXTENTS` → 值 | OPTIONAL | 0 | alignStorageParam | 同 INITIAL |
+| STORAGE | `PCTINCREASE` → 值 | OPTIONAL | 0 | alignStorageParam | 同 INITIAL |
+| STORAGE | 参数间 | REQUIRED | 0 | alignStorageParam | 每参数一行 |
+| STORAGE | 最后参数 → `)` | REQUIRED | -1 | — | 弹出缩进 |
+| PCTFREE | 前一子句 → `PCTFREE` | REQUIRED | 0 | alignStorageOption | 独立行，关键字对齐 |
+| PCTFREE | `PCTFREE` → 值 | OPTIONAL | 0 | — | 保持同行 |
+| PCTUSED | 前一子句 → `PCTUSED` | REQUIRED | 0 | alignStorageOption | 独立行 |
+| PCTUSED | `PCTUSED` → 值 | OPTIONAL | 0 | — | 保持同行 |
+| PCTINCREASE | 前一子句 → `PCTINCREASE` | REQUIRED | 0 | alignStorageOption | 独立行 |
+| PCTINCREASE | `PCTINCREASE` → 值 | OPTIONAL | 0 | — | 保持同行 |
+| LOGGING/NOLOGGING | 前一子句 → `LOGGING`/`NOLOGGING` | REQUIRED | 0 | alignStorageOption | 独立行 |
+| COMPRESS | 前一子句 → `COMPRESS` | REQUIRED | 0 | alignStorageOption | 独立行 |
+| COMPRESS | `COMPRESS` → `BASIC`/`OLTP`/`n` | OPTIONAL | 0 | — | 保持同行 |
+| CACHE/NOCACHE | 前一子句 → `CACHE`/`NOCACHE` | REQUIRED | 0 | alignStorageOption | 独立行 |
+| PCTTHRESHOLD | `PCTTHRESHOLD` → 值 | OPTIONAL | 0 | alignStorageOption | 保持同行 |
 
 ### 17.8 AS SELECT
 
@@ -2593,13 +3167,19 @@ AS
     WHERE department_id = 100;
 ```
 
-`AS` 后换行，SELECT 独立一行并缩进一级。SELECT 内部复用 §9 DQL 规则。
+**约束 GapConstraint 规则**：
+
+| 约束点 | newlineMode | indentDelta | alignGroupId | 说明 |
+|--------|-------------|-------------|-------------|------|
+| `)` / 表名 → `AS` | REQUIRED | 0 | — | AS 独立一行 |
+| `AS` → `SELECT` | REQUIRED | +1 | — | SELECT 缩进一级 |
 
 ### 17.9 CREATE TABLE 参数汇总
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `ddlColumnAlign` | boolean | true | 列名/类型/NOT NULL 三列对齐 |
+| `columnCommentInline` | boolean | false | 列注释 `/* ... */` 行内尾随（vs 独立 COMMENT ON） |
 | `columnDefColumnsPerRow` | int | 0 | 列定义每行 N 列（0=无限） |
 | `columnDefTypeCase` | enum | PRESERVE | 类型关键字大小写 |
 | `constraintFormat` | enum | PER_LINE | 约束格式（PER_LINE/COMPACT） |
@@ -2641,13 +3221,19 @@ CREATE INDEX sales_date_gidx
     GLOBAL;
 ```
 
-| 约束位置 | 规则 |
-|----------|------|
-| `CREATE [UNIQUE/BITMAP] INDEX` → 索引名 | 同行 |
-| 索引名 → `ON` | 同行 |
-| `ON` → `table(cols)` | 同行 |
-| `(cols)` → 存储/表空间选项 | `OPTIONAL` 换行，每选项一行 |
-| `LOCAL` / `GLOBAL` | 索引选项后可选换行 |
+**约束 GapConstraint 规则**：
+
+| 约束点 | newlineMode | indentDelta | alignGroupId | 说明 |
+|--------|-------------|-------------|-------------|------|
+| `CREATE [UNIQUE/BITMAP] INDEX` → 索引名 | OPTIONAL | 0 | — | 保持同行 |
+| 索引名 → `ON` | OPTIONAL | 0 | — | 保持同行 |
+| `ON` → `table(` | OPTIONAL | 0 | — | 保持同行 |
+| `)` → 存储/表空间选项 | REQUIRED | 0 | alignIndexOption | 每选项一行，选项名对齐 |
+| `TABLESPACE` → 名称 | OPTIONAL | 0 | — | 保持同行 |
+| `STORAGE` → `(` | OPTIONAL | 0 | — | 保持同行 |
+| `LOCAL` / `GLOBAL` | OPTIONAL | 0 | — | 索引选项后可选换行 |
+| `ONLINE` / `COMPUTE STATISTICS` | OPTIONAL | 0 | alignIndexOption | 每选项一行 |
+| `PCTFREE` / `PCTUSED` | OPTIONAL | 0 | alignIndexOption | 每选项一行 |
 
 ### 18.1 索引选项
 
@@ -2771,6 +3357,65 @@ ALTER TABLE employees
     DROP (phone_number);
 ```
 
+**约束 GapConstraint 规则**：
+
+| 约束点 | newlineMode | indentDelta | alignGroupId | 说明 |
+|--------|-------------|-------------|-------------|------|
+| `ALTER TABLE name` → 操作关键字 | REQUIRED | 0 | — | 操作关键字独立行 |
+| `ADD`/`MODIFY`/`DROP` → `(` | OPTIONAL | 0 | — | 保持同行 |
+| `(` → 第一列 | REQUIRED | +1 | — | 多列操作缩进 |
+| 列 `,` → 下一列 | REQUIRED | 0 | alignAlterColumn | 每列一行，列名对齐 |
+| 最后列 → `)` | REQUIRED | -1 | — | 弹出缩进 |
+| `ADD`/`MODIFY` → `CONSTRAINT` | OPTIONAL | 0 | — | 保持同行 |
+| `CONSTRAINT` → 约束体 | OPTIONAL | +1 | — | 约束定义缩进 |
+| 多操作 `,` → `ADD`/`DROP` | REQUIRED | 0 | alignAlterOp | 每操作一行，操作名对齐 |
+| `ENABLE`/`DISABLE` → `CONSTRAINT` | OPTIONAL | 0 | — | 保持同行 |
+| `RENAME COLUMN` → `TO` | OPTIONAL | 0 | — | 保持同行 |
+| `SET UNUSED COLUMN` | OPTIONAL | 0 | — | 保持一行 |
+
+**其他 ALTER TABLE 变体**：
+
+| 操作 | 语法 | 格式化规则 |
+|------|------|-----------|
+| RENAME TO | `ALTER TABLE t RENAME TO new_name;` | 一行 |
+| RENAME COLUMN | `ALTER TABLE t RENAME COLUMN old TO new;` | 一行 |
+| RENAME CONSTRAINT | `ALTER TABLE t RENAME CONSTRAINT old TO new;` | 一行 |
+| SET UNUSED | `ALTER TABLE t SET UNUSED COLUMN col [CASCADE CONSTRAINTS];` | 一行 |
+| DROP UNUSED | `ALTER TABLE t DROP UNUSED COLUMNS [CHECKPOINT n];` | 一行 |
+| MOVE TABLE | `ALTER TABLE t MOVE [TABLESPACE ts] [STORAGE (...)] [COMPRESS];` | 物理属性规则同 §17.7，每选项一行 |
+| MOVE PARTITION | `ALTER TABLE t MOVE PARTITION p [TABLESPACE ts] [STORAGE (...)];` | 同 MOVE TABLE |
+| SPLIT PARTITION | `ALTER TABLE t SPLIT PARTITION p AT (val) INTO (PARTITION p1, PARTITION p2);` | `AT (val)` 一行，`INTO (...)` 分区定义同 §17.6 |
+| MERGE PARTITIONS | `ALTER TABLE t MERGE PARTITIONS p1, p2 INTO PARTITION p3;` | 一行 |
+| DROP PARTITION | `ALTER TABLE t DROP PARTITION p;` | 一行 |
+| TRUNCATE PARTITION | `ALTER TABLE t TRUNCATE PARTITION p [DROP STORAGE];` | 一行 |
+| RENAME PARTITION | `ALTER TABLE t RENAME PARTITION old TO new;` | 一行 |
+| ADD SUBPARTITION | `ALTER TABLE t MODIFY PARTITION p ADD SUBPARTITION sp VALUES (val);` | 同 ADD PARTITION |
+| SHRINK SPACE | `ALTER TABLE t SHRINK SPACE [CASCADE];` | 一行 |
+| ENABLE ROW MOVEMENT | `ALTER TABLE t ENABLE ROW MOVEMENT;` | 一行 |
+| MODIFY DEFAULT ATTRIBUTES | `ALTER TABLE t MODIFY DEFAULT ATTRIBUTES FOR PARTITION p [STORAGE (...)];` | 物理属性规则同 §17.7 |
+
+```sql
+-- MOVE + 存储选项
+ALTER TABLE employees MOVE
+    TABLESPACE users
+    STORAGE (
+        INITIAL 128K
+        NEXT    64K
+    )
+    COMPRESS FOR OLTP;
+
+-- SPLIT PARTITION
+ALTER TABLE sales SPLIT PARTITION p_2023_at ('2023-07-01')
+    INTO (
+        PARTITION p_2023_h1,
+        PARTITION p_2023_h2
+    )
+    UPDATE INDEXES;
+
+-- SHRINK SPACE
+ALTER TABLE employees SHRINK SPACE CASCADE;
+```
+
 ### 20.2 ALTER INDEX
 
 ```sql
@@ -2789,6 +3434,20 @@ ALTER INDEX emp_name_idx
 ALTER INDEX emp_name_idx
     UNUSABLE;
 ```
+
+**约束 GapConstraint 规则**：
+
+| 约束点 | newlineMode | indentDelta | alignGroupId | 说明 |
+|--------|-------------|-------------|-------------|------|
+| `ALTER INDEX name` → 操作关键字 | REQUIRED | 0 | — | 操作关键字独立行 |
+| `REBUILD` → 存储选项 | REQUIRED | 0 | alignIndexOpt | 每选项一行 |
+| `RENAME TO` | OPTIONAL | 0 | — | 保持同行 |
+| `MONITORING USAGE` | OPTIONAL | 0 | — | 一行 |
+| `UNUSABLE` | OPTIONAL | 0 | — | 一行 |
+| `TABLESPACE` | OPTIONAL | 0 | — | 保持同行或独立行 |
+| `STORAGE` → `(` | OPTIONAL | 0 | — | 保持同行 |
+| `STORAGE (` → `)` | REQUIRED | +1→-1 | alignStorageParam | 存储参数每行一个 |
+| `ONLINE` | OPTIONAL | 0 | alignIndexOpt | 与选项同行 |
 
 ### 20.3 ALTER TABLESPACE
 
@@ -2810,6 +3469,18 @@ ALTER TABLESPACE users
     OFFLINE NORMAL;
 ```
 
+**约束 GapConstraint 规则**：
+
+| 约束点 | newlineMode | indentDelta | alignGroupId | 说明 |
+|--------|-------------|-------------|-------------|------|
+| `ALTER TABLESPACE name` → 操作关键字 | REQUIRED | 0 | — | 操作关键字独立行 |
+| `ADD DATAFILE` → 文件规范 | OPTIONAL | 0 | — | 保持同行 |
+| `AUTOEXTEND ON NEXT` → `MAXSIZE` | OPTIONAL | 0 | — | 保持同行 |
+| `RENAME TO` | OPTIONAL | 0 | — | 保持同行 |
+| `READ ONLY`/`READ WRITE` | OPTIONAL | 0 | — | 一行 |
+| `DEFAULT STORAGE` → `(` | OPTIONAL | 0 | — | 保持同行 |
+| `OFFLINE` → `NORMAL`/`IMMEDIATE` | OPTIONAL | 0 | — | 保持同行 |
+
 ### 20.4 ALTER SEQUENCE
 
 ```sql
@@ -2819,6 +3490,14 @@ ALTER SEQUENCE emp_seq
     NOCACHE
     CYCLE;
 ```
+
+**约束 GapConstraint 规则**：
+
+| 约束点 | newlineMode | indentDelta | alignGroupId | 说明 |
+|--------|-------------|-------------|-------------|------|
+| `ALTER SEQUENCE name` → 第一选项 | REQUIRED | 0 | — | 选项独立行 |
+| 选项间 | REQUIRED | 0 | alignSeqOption | 每选项一行，关键字对齐 |
+| `INCREMENT BY` / `START WITH` | OPTIONAL | 0 | alignSeqOption | 保持同行或独立行 |
 
 ### 20.5 ALTER USER
 
@@ -2831,6 +3510,19 @@ ALTER USER scott
     PROFILE app_user
     ACCOUNT UNLOCK;
 ```
+
+**约束 GapConstraint 规则**：
+
+| 约束点 | newlineMode | indentDelta | alignGroupId | 说明 |
+|--------|-------------|-------------|-------------|------|
+| `ALTER USER name` → 第一选项 | REQUIRED | 0 | — | 选项独立行 |
+| 选项间 | REQUIRED | 0 | alignUserOption | 每选项一行，关键字对齐 |
+| `IDENTIFIED BY` | OPTIONAL | 0 | alignUserOption | 保持同行 |
+| `DEFAULT TABLESPACE` | OPTIONAL | 0 | alignUserOption | 保持同行 |
+| `TEMPORARY TABLESPACE` | OPTIONAL | 0 | alignUserOption | 保持同行 |
+| `QUOTA` → `ON` | OPTIONAL | 0 | — | 保持同行 |
+| `PROFILE` | OPTIONAL | 0 | alignUserOption | 保持同行 |
+| `ACCOUNT LOCK`/`UNLOCK` | OPTIONAL | 0 | alignUserOption | 保持同行 |
 
 ### 20.6 参数汇总
 
@@ -2865,6 +3557,18 @@ CREATE TABLESPACE users
     SEGMENT SPACE MANAGEMENT AUTO;
 ```
 
+**约束 GapConstraint 规则**：
+
+| 约束点 | newlineMode | indentDelta | alignGroupId | 说明 |
+|--------|-------------|-------------|-------------|------|
+| `CREATE TABLESPACE name` → `DATAFILE` | REQUIRED | 0 | — | 文件规范独立行 |
+| `DATAFILE` → `SIZE` | OPTIONAL | 0 | — | 保持同行 |
+| `SIZE` → `AUTOEXTEND ON` | OPTIONAL | 0 | — | 保持同行 |
+| `AUTOEXTEND ON` → `NEXT` | OPTIONAL | 0 | — | 保持同行 |
+| `NEXT` → `MAXSIZE` | OPTIONAL | 0 | — | 保持同行 |
+| `EXTENT MANAGEMENT LOCAL` | OPTIONAL | 0 | alignTbspOption | 每选项一行，关键字对齐 |
+| `SEGMENT SPACE MANAGEMENT AUTO/MANUAL` | OPTIONAL | 0 | alignTbspOption | 同行或独立行 |
+
 ### 21.2 CREATE USER / PROFILE
 
 ```sql
@@ -2883,6 +3587,27 @@ CREATE PROFILE app_profile LIMIT
     FAILED_LOGIN_ATTEMPTS     5;
 ```
 
+**约束 GapConstraint 规则**（CREATE USER）：
+
+| 约束点 | newlineMode | indentDelta | alignGroupId | 说明 |
+|--------|-------------|-------------|-------------|------|
+| `CREATE USER name` → 第一选项 | REQUIRED | 0 | — | 选项独立行 |
+| `IDENTIFIED BY` | OPTIONAL | 0 | alignUserOption | 保持同行 |
+| `DEFAULT TABLESPACE` | OPTIONAL | 0 | alignUserOption | 保持同行 |
+| `TEMPORARY TABLESPACE` | OPTIONAL | 0 | alignUserOption | 保持同行 |
+| `QUOTA` → `ON` | OPTIONAL | 0 | — | 保持同行 |
+| `PROFILE` | OPTIONAL | 0 | alignUserOption | 保持同行 |
+| `PASSWORD EXPIRE` | OPTIONAL | 0 | alignUserOption | 保持同行 |
+
+**约束 GapConstraint 规则**（CREATE PROFILE）：
+
+| 约束点 | newlineMode | indentDelta | alignGroupId | 说明 |
+|--------|-------------|-------------|-------------|------|
+| `CREATE PROFILE name LIMIT` → 第一参数 | REQUIRED | 0 | — | 参数独立行 |
+| 参数间 | REQUIRED | 0 | alignProfileParam | 每参数一行，参数名对齐 |
+| `SESSIONS_PER_USER` 等资源名 | OPTIONAL | 0 | alignProfileParam | 保持同行 |
+| 资源名 → 值 | OPTIONAL | 0 | — | 同行，值右对齐 |
+
 ### 21.3 CREATE SEQUENCE
 
 ```sql
@@ -2893,6 +3618,18 @@ CREATE SEQUENCE emp_seq
     NOCACHE
     NOCYCLE;
 ```
+
+**约束 GapConstraint 规则**：
+
+| 约束点 | newlineMode | indentDelta | alignGroupId | 说明 |
+|--------|-------------|-------------|-------------|------|
+| `CREATE SEQUENCE name` → 第一子句 | REQUIRED | 0 | — | 子句独立行 |
+| `START WITH` / `INCREMENT BY` | OPTIONAL | 0 | alignSeqClause | 保持同行或独立行 |
+| `MAXVALUE` / `MINVALUE` | OPTIONAL | 0 | alignSeqClause | 保持同行或独立行 |
+| `CYCLE` / `NOCYCLE` | OPTIONAL | 0 | alignSeqClause | 保持同行或独立行 |
+| `CACHE` / `NOCACHE` | OPTIONAL | 0 | alignSeqClause | 保持同行或独立行 |
+| `ORDER` / `NOORDER` | OPTIONAL | 0 | alignSeqClause | 保持同行或独立行 |
+| 子句间 | REQUIRED | 0 | alignSeqClause | 每子句一行，关键字对齐 |
 
 ### 21.4 GRANT / REVOKE
 
@@ -3356,15 +4093,162 @@ private void walkAnalyze(PlSqlBlock block) {
 
 ### 21.9 DDL 方言差异
 
-| 构造 | Oracle | MySQL | PostgreSQL |
-|------|--------|-------|-----------|
-| 标识列 | `GENERATED BY DEFAULT AS IDENTITY` | `AUTO_INCREMENT` | `GENERATED ... AS IDENTITY` |
-| 虚拟列 | `GENERATED ALWAYS AS (...) VIRTUAL` | `GENERATED ALWAYS AS (...) VIRTUAL` | `GENERATED ... AS ... STORED` |
-| 分区语法 | `PARTITION BY RANGE/LIST/HASH/REFERENCE` | `PARTITION BY RANGE/LIST/HASH` | `PARTITION BY RANGE/LIST` |
-| TABLESPACE | `TABLESPACE name` | 不支持 | `TABLESPACE name` (PG 9+) |
-| 物化视图 | `MATERIALIZED VIEW` | 不支持 | `MATERIALIZED VIEW` |
-| 索引类型 | B-tree / BITMAP / FUNCTION | BTREE / HASH / FULLTEXT | BTREE / HASH / GIN / GiST |
-| ON CONFLICT | 不支持 | `ON DUPLICATE KEY UPDATE` | `ON CONFLICT ... DO UPDATE` |
+DDL 语法在不同方言间差异显著，格式化时需要方言感知。以下表格列出各方言特有构造及其格式化影响。
+
+| 方言 | 特有关键字/构造 | 格式化影响 |
+|------|---------------|-----------|
+| Oracle | `TABLESPACE`、`STORAGE (...)`、`PCTFREE`/`PCTUSED`、`COMPRESS BASIC/OLTP`、`LOGGING`/`NOLOGGING`、`MONITORING` | 物理属性子句缩进一级，每项一行 |
+| Oracle | `GENERATED ALWAYS AS IDENTITY` / `GENERATED BY DEFAULT AS IDENTITY` | Identity 列对齐（§17.4） |
+| Oracle | `PARTITION BY REFERENCE`、`INTERVAL`、`AUTOMATIC` | 分区类型识别（§17.6） |
+| Oracle | `FLASHBACK TABLE ... TO ... DROP` / `PURGE TABLE` | 一行保持 |
+| Oracle | `MATERIALIZED VIEW LOG`、`WITH PRIMARY KEY/ROWID` | MV LOG 选项列对齐 |
+| Oracle | `DEFAULT COLLATION`、`READ ONLY`/`READ WRITE` | 表级属性缩进 |
+| OceanBase | `TENANT`、`REFRESH`、`OCEANBASE` | 关键字识别，物理属性同 Oracle |
+| OceanBase | `PARTITION BY KEY`、`PARTITION BY LIST COLUMNS` | 分区关键字识别 |
+| OceanBase | `COMPRESS` (zstd/zlib/lz4) | 物理属性子句缩进一级 |
+| OceanBase | `TABLEGROUP`、`TTL`、`PRE SPLIT INTO` | OceanBase 特有析构识别 |
+| MySQL | `ENGINE=InnoDB`、`AUTO_INCREMENT=n`、`CHARSET utf8`/`CHARACTER SET` | 列定义 `)` 后单行紧凑 |
+| MySQL | `PARTITION BY KEY`、`PARTITION BY LIST COLUMNS` | 分区关键字识别 |
+| MySQL | `ON DUPLICATE KEY UPDATE` | INSERT 后换行（§14.1） |
+| MySQL | `ALTER TABLE ... ALTER COLUMN ... SET DEFAULT` / `ORDER BY col` | ALTER 变体识别 |
+| PostgreSQL | `WITH (OIDS=FALSE)`、`WITH (FILLFACTOR=n)` | 表选项 `WITH (...)` 保持一行 |
+| PostgreSQL | `PARTITION BY RANGE (col)`（声明式分区） | PG 12+ 分区格式与 Oracle 兼容 |
+| PostgreSQL | `ON CONFLICT DO UPDATE/NOTHING` | INSERT 后换行（§14.1） |
+| PostgreSQL | `EXCLUDE USING ...` | 约束类型识别（§17.2） |
+| PostgreSQL | `ALTER TABLE ... SET STATISTICS n` / `CLUSTER ON idx` | ALTER 变体识别 |
+
+```sql
+-- Oracle DDL 示例：物理属性 + 物化视图日志
+CREATE TABLE employees (
+    employee_id NUMBER(6),
+    first_name  VARCHAR2(20)
+)
+TABLESPACE users
+STORAGE (INITIAL 64K NEXT 32K PCTINCREASE 0)
+PCTFREE 10
+PCTUSED 70
+NOLOGGING
+MONITORING;
+
+CREATE MATERIALIZED VIEW LOG ON orders
+TABLESPACE mv_data
+STORAGE (INITIAL 256K NEXT 128K)
+WITH PRIMARY KEY, ROWID;
+
+-- MySQL DDL 示例
+CREATE TABLE employees (
+    employee_id INT AUTO_INCREMENT PRIMARY KEY,
+    first_name  VARCHAR(20) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+ALTER TABLE employees ALTER COLUMN salary SET DEFAULT 0;
+ALTER TABLE employees ORDER BY last_name, first_name;
+
+-- PostgreSQL DDL 示例
+CREATE TABLE employees (
+    employee_id INT GENERATED ALWAYS AS IDENTITY,
+    first_name  VARCHAR(20) NOT NULL
+) WITH (OIDS=FALSE) TABLESPACE users;
+
+ALTER TABLE employees SET STATISTICS 100;
+ALTER TABLE employees CLUSTER ON employees_pk;
+
+-- OceanBase DDL 示例
+CREATE TABLE employees (
+    employee_id NUMBER(6),
+    first_name  VARCHAR2(20)
+)
+TABLESPACE users
+COMPRESS 'zstd_1.0'
+TABLEGROUP tg_employees;
+```
+
+---
+
+### 21.10 其他简单 DDL
+
+以下 DDL 语句格式规则简单，保持一行紧凑或按语义换行：
+
+#### 21.10.1 CREATE ROLE
+
+```sql
+CREATE ROLE hr_admin;
+CREATE ROLE app_user NOT IDENTIFIED;
+CREATE ROLE db_admin IDENTIFIED USING hr.pkg_hr;
+```
+
+| 约束点 | newlineMode | 说明 |
+|--------|-------------|------|
+| `CREATE ROLE` → 角色名 | FORBIDDEN | 保持一行 |
+| `NOT IDENTIFIED` / `IDENTIFIED USING` | OPTIONAL | 可换行或同行 |
+
+#### 21.10.2 CREATE DIRECTORY
+
+```sql
+CREATE OR REPLACE DIRECTORY data_dir AS 'C:\data\files';
+```
+
+| 约束点 | newlineMode | 说明 |
+|--------|-------------|------|
+| 整句 | FORBIDDEN | 保持一行，路径字符串不拆行 |
+
+#### 21.10.3 CREATE / DROP SYNONYM
+
+```sql
+CREATE OR REPLACE SYNONYM emp FOR hr.employees;
+CREATE PUBLIC SYNONYM dept FOR hr.departments;
+DROP SYNONYM emp;
+```
+
+| 约束点 | newlineMode | 说明 |
+|--------|-------------|------|
+| 整句 | FORBIDDEN | 保持一行 |
+| `PUBLIC` | FORBIDDEN | 与 SYNONYM 同行 |
+
+#### 21.10.4 CREATE / DROP DATABASE LINK
+
+```sql
+CREATE DATABASE LINK dblink_01
+    CONNECT TO remote_user IDENTIFIED BY password
+    USING 'remote_db';
+
+CREATE PUBLIC DATABASE LINK dblink_02
+    CONNECT TO remote_user IDENTIFIED BY password
+    USING 'remote_db';
+
+DROP DATABASE LINK dblink_01;
+```
+
+| 约束点 | newlineMode | indentDelta | 说明 |
+|--------|-------------|-------------|------|
+| `CREATE` → `DATABASE LINK` | FORBIDDEN | — | 关键字同行 |
+| `DATABASE LINK` → 链接名 | FORBIDDEN | — | 链接名同行 |
+| 链接名 → `CONNECT TO` | REQUIRED | +1 | CONNECT 子句缩进 |
+| `CONNECT TO` → user | OPTIONAL | 0 | 用户同行 |
+| user → `IDENTIFIED BY` | OPTIONAL | 0 | 密码同行 |
+| `IDENTIFIED BY` → password | FORBIDDEN | — | 密码不分离 |
+| `USING` → 字符串 | OPTIONAL | 0 | 数据库串同行 |
+
+#### 21.10.5 CREATE MATERIALIZED VIEW LOG
+
+```sql
+CREATE MATERIALIZED VIEW LOG ON orders
+    TABLESPACE mv_data
+    STORAGE (INITIAL 256K NEXT 128K)
+    WITH PRIMARY KEY, ROWID
+    INCLUDING NEW VALUES;
+
+CREATE MATERIALIZED VIEW LOG ON products
+    WITH ROWID
+    EXCLUDING NEW VALUES;
+```
+
+格式化复用 §17.7 存储选项规则：
+
+| 约束点 | newlineMode | indentDelta | 说明 |
+|--------|-------------|-------------|------|
+| `ON` → 表名 | OPTIONAL | 0 | 保持同行 |
+| `TABLESPACE` / `STORAGE` / `WITH` / `INCLUDING` / `EXCLUDING` | OPTIONAL | +1 | 选项缩进一级，每项一行 |
 
 ---
 
@@ -3477,7 +4361,19 @@ private void walkLoopBlock(PlSqlBlock block) {
 - `LOOP` — 无限循环：`LOOP ... END LOOP;`
 - `FOR_LOOP` — FOR 循环：`FOR i IN 1..10 LOOP ... END LOOP;`
 - `WHILE_LOOP` — WHILE 循环：`WHILE condition LOOP ... END LOOP;`
-- `REPEAT_LOOP` — REPEAT-UNTIL 循环：`REPEAT ... UNTIL ... END REPEAT;`（REPEAT→+1, UNTIL→0）
+- `REPEAT_LOOP` — REPEAT-UNTIL 循环：`REPEAT ... UNTIL ... END REPEAT;`
+
+**约束 GapConstraint 规则**：
+
+| 约束点 | newlineMode | indentDelta | 说明 |
+|--------|-------------|-------------|------|
+| `LOOP` → 第一语句 | REQUIRED | +1 | LOOP 后推一级缩进 |
+| `END LOOP` | REQUIRED | -1 | `addEndConstraint` 弹出缩进 |
+| `REPEAT` → 第一语句 | REQUIRED | +1 | 同 LOOP 后缩进 |
+| `UNTIL` → 条件 | REQUIRED | 0 | 与 REPEAT 同级别 |
+| `END REPEAT` | REQUIRED | -1 | 弹出缩进 |
+| `FOR i IN` → `LOOP` | OPTIONAL | 0 | 保持同行 |
+| `WHILE condition` → `LOOP` | OPTIONAL | 0 | 保持同行 |
 
 参数控制：
 
@@ -3487,16 +4383,170 @@ private void walkLoopBlock(PlSqlBlock block) {
 | `forLoopFormat` | enum | EXPAND | FOR 循环体格式 |
 | `blankLineBeforeBlock` | boolean | false | 块前加空行 |
 
-### 23.2 IF 块参数
+`blankLineBeforeBlock` 在所有块类型的 `walkXxxBlock()` 开始时检查：
+
+```java
+// 当且仅当当前块不是文件起始块且前一条语句不是空行时插入空行
+if (opts.isBlankLineBeforeBlock() && block.hasPreviousStatement()) {
+    int prevEnd = block.getPreviousStatementEnd();
+    if (!isBlankLine(prevEnd, block.getStartIdx())) {
+        ensureBlankLine(prevEnd, block.getStartIdx());
+    }
+}
+```
+
+```sql
+-- blankLineBeforeBlock=false
+DECLARE
+    v_id INT;
+BEGIN
+    SELECT 1 INTO v_id FROM dual;
+    IF v_id > 0 THEN
+        NULL;
+    END IF;
+END;
+
+-- blankLineBeforeBlock=true（IF 前自动加空行）
+DECLARE
+    v_id INT;
+BEGIN
+    SELECT 1 INTO v_id FROM dual;
+
+    IF v_id > 0 THEN
+        NULL;
+    END IF;
+END;
+```
+
+### 23.2 IF 块
+
+#### 23.2.1 约束规则
+
+| 约束点 | newlineMode | indentDelta | 参数控制 | 说明 |
+|--------|-------------|-------------|----------|------|
+| `IF condition` → `THEN` | FORBIDDEN | 0 | `thenOnNewLine=false` | 保持同行 |
+| `IF condition` → `THEN` | REQUIRED | 0 | `thenOnNewLine=true` | THEN 独立行 |
+| `THEN` → 第一语句 | REQUIRED | +1 | — | THEN 后推一级 |
+| `ELSIF` → 条件 | OPTIONAL | 0 | — | 保持同行 |
+| 上一分支 → `ELSIF` | REQUIRED | 0 | `elseOnNewLine=true` | ELSIF 独立行 |
+| 上一分支 → `ELSE` | REQUIRED | 0 | `elseOnNewLine=true` | ELSE 独立行 |
+| `ELSE` → 第一语句 | REQUIRED | +1 | — | ELSE 后推一级 |
+| `END IF` | REQUIRED | -1 | — | `addEndConstraint` 弹出 |
+
+#### 23.2.2 参数
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `thenOnNewLine` | boolean | false | THEN 前换行 |
 | `elseOnNewLine` | boolean | true | ELSE/ELSIF 前换行 |
 
-### 23.3 TYPE_SPEC / TYPE_BODY（walkTypeBlock）
+#### 23.2.3 walkIfBlock 实现
 
-#### 23.2.1 声明格式
+```java
+private void walkIfBlock(PlSqlBlock block) {
+    int tok = block.startTokenIdx;
+
+    // 扫描 IF ... THEN / ELSIF ... THEN / ELSE / END IF
+    while (tok < block.endTokenIdx) {
+        TokenInfo t = tokens.get(tok);
+
+        switch (t.upper) {
+            case "THEN": {
+                int next = nextVisible(tok + 1);
+                if (next < block.bodyEndIdx) {
+                    requireNewline(tok, next, 1);
+                }
+                break;
+            }
+            case "ELSIF":
+            case "ELSE": {
+                // ELSE/ELSIF 前弹出缩进（闭合上一分支），然后对 ELSE/ELSIF 自身无缩进
+                int prev = prevVisible(tok - 1);
+                if (prev >= block.startTokenIdx) {
+                    GapConstraint g = gap(prev, tok);
+                    g.forceNewline(true).indentDelta(0);
+                    out.add(g);
+                }
+                break;
+            }
+            case "END": {
+                addEndConstraint(block);
+                return;
+            }
+        }
+        tok++;
+    }
+}
+```
+
+### 23.3 CASE_BLOCK（walkCaseBlock）
+
+PL/SQL CASE 语句（`CASE ... WHEN ... THEN ... END CASE;`）不同于 §24.4 的 SQL CASE 表达式。使用专用的 `walkCaseBlock` 处理分支结构。
+
+```sql
+CASE v_grade
+    WHEN 'A' THEN
+        DBMS_OUTPUT.PUT_LINE('Excellent');
+    WHEN 'B' THEN
+        DBMS_OUTPUT.PUT_LINE('Good');
+    WHEN 'C' THEN
+        DBMS_OUTPUT.PUT_LINE('Fair');
+    ELSE
+        DBMS_OUTPUT.PUT_LINE('Poor');
+END CASE;
+```
+
+```java
+private void walkCaseBlock(PlSqlBlock block) {
+    int tok = block.startTokenIdx;
+
+    while (tok < block.endTokenIdx) {
+        TokenInfo t = tokens.get(tok);
+
+        switch (t.upper) {
+            case "THEN": {
+                int next = nextVisible(tok + 1);
+                if (next < block.bodyEndIdx) {
+                    requireNewline(tok, next, 1);
+                }
+                break;
+            }
+            case "WHEN":
+            case "ELSE": {
+                // WHEN/ELSE 前弹出缩进，自身与 CASE 同级别
+                int prev = prevVisible(tok - 1);
+                if (prev >= block.startTokenIdx) {
+                    GapConstraint g = gap(prev, tok);
+                    g.forceNewline(true).indentDelta(0);
+                    out.add(g);
+                }
+                break;
+            }
+            case "END": {
+                addEndConstraint(block);
+                return;
+            }
+        }
+        tok++;
+    }
+}
+```
+
+**约束 GapConstraint 规则**：
+
+| 约束点 | newlineMode | indentDelta | 说明 |
+|--------|-------------|-------------|------|
+| `CASE expr` → `WHEN` | OPTIONAL | 0 | 首个 WHEN 与 CASE 同行或换行 |
+| `WHEN cond` → `THEN` | FORBIDDEN | — | WHEN 与 THEN 同行不分离 |
+| `THEN` → 第一语句 | REQUIRED | +1 | THEN 后推一级 |
+| 上一分支 → `WHEN` | REQUIRED | 0 | WHEN 独立行，与 CASE 同级别 |
+| 上一分支 → `ELSE` | REQUIRED | 0 | ELSE 独立行，与 CASE 同级别 |
+| `ELSE` → 第一语句 | REQUIRED | +1 | ELSE 后推一级 |
+| `END CASE` | REQUIRED | -1 | `addEndConstraint` 弹出缩进 |
+
+### 23.4 TYPE_SPEC / TYPE_BODY（walkTypeBlock）
+
+#### 23.4.1 声明格式
 
 ```sql
 CREATE OR REPLACE TYPE t_emp_obj AS OBJECT (
@@ -3531,7 +4581,7 @@ CREATE OR REPLACE TYPE BODY t_emp_obj AS
 END;
 ```
 
-#### 23.2.2 walkTypeBlock 实现
+#### 23.4.2 walkTypeBlock 实现
 
 ```java
 private void walkTypeBlock(PlSqlBlock block) {
@@ -3571,7 +4621,7 @@ private void walkTypeBlock(PlSqlBlock block) {
 }
 ```
 
-#### 23.2.3 成员对齐
+#### 23.4.3 成员对齐
 
 ```sql
 -- 字段对齐
@@ -3593,7 +4643,7 @@ STATIC FUNCTION create_blank    RETURN t_emp_obj,
 | `TYPE_MEMBER_FUNC` | MEMBER/STATIC 函数名 |
 | `TYPE_MEMBER_RETURN` | RETURN 类型 |
 
-#### 23.2.4 MAP/ORDER 成员函数
+#### 23.4.4 MAP/ORDER 成员函数
 
 ```sql
 MAP MEMBER FUNCTION get_id RETURN NUMBER;
@@ -3602,13 +4652,13 @@ ORDER MEMBER FUNCTION compare(other t_emp_obj) RETURN NUMBER;
 
 MAP 和 ORDER 成员函数格式与普通 MEMBER 函数一致，函数名前标注 `MAP`/`ORDER`。
 
-#### 23.2.5 参数
+#### 23.4.5 参数
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `typeMemberAlign` | boolean | true | TYPE 成员对齐 |
 
-### 23.3 TRIGGER（walkTriggerBlock）
+### 23.5 TRIGGER（walkTriggerBlock）
 
 ```sql
 CREATE OR REPLACE TRIGGER trg_audit
@@ -3704,7 +4754,7 @@ private int findTriggerHeaderEnd(PlSqlBlock block) {
 | `triggerFormat` | enum | EXPAND | 头部子句格式 |
 | `triggerHeaderClauseOrder` | boolean | true | 强制标准顺序 |
 
-### 23.4 REPEAT_LOOP
+### 23.6 REPEAT_LOOP
 
 REPEAT-UNTIL 循环（MySQL 特有）复用 `walkLoopBlock` 通用流程，但 END 关键字为 `END REPEAT`：
 
@@ -3722,9 +4772,9 @@ END REPEAT;
 | `UNTIL` 前 | `forceNewline(true).indentDelta(0)`（与 REPEAT 同级别） |
 | `END REPEAT` | 弹出缩进（`addEndConstraint`） |
 
-### 23.5 LABEL 标签
+### 23.7 LABEL 标签
 
-#### 23.5.1 标签语法
+#### 23.7.1 标签语法
 
 ```sql
 <<process_loop>>
@@ -3736,7 +4786,7 @@ FOR i IN 1..10 LOOP
 END LOOP process_loop;
 ```
 
-#### 23.5.2 格式化规则
+#### 23.7.2 格式化规则
 
 | 约束位置 | 规则 |
 |----------|------|
@@ -3764,7 +4814,7 @@ private void walkLabel(PlSqlBlock block) {
 }
 ```
 
-#### 23.5.3 GOTO 与标签
+#### 23.7.3 GOTO 与标签
 
 ```sql
 GOTO process_end;
@@ -3793,7 +4843,14 @@ v_count := my_array.COUNT;
 v_prior := my_array.PRIOR(5);
 ```
 
-集合方法名与集合变量间 `.` 前后 0 空格。方法参数括号格式由括号间距参数控制。
+**约束 GapConstraint 规则**：
+
+| 约束点 | newlineMode | minSpaces | maxSpaces | 说明 |
+|--------|-------------|-----------|-----------|------|
+| 集合变量 → `.` | FORBIDDEN | 0 | 0 | 变量与 `.` 黏附 |
+| `.` → 方法名 | FORBIDDEN | 0 | 0 | `.` 与方法名黏附 |
+| 方法名 → `(` | OPTIONAL | 0 | 0 | 参数括号黏附（无参方法无 `(`） |
+| 整句 | FORBIDDEN | 1 | 1 | 保持一行 |
 
 ### 24.2 CURSOR 声明
 
@@ -3879,8 +4936,8 @@ FROM employees;
 | | CASE 语句 | CASE 表达式 |
 |--|----------|-----------|
 | 语法 | `CASE ... WHEN ... THEN ... END CASE;` | `CASE WHEN ... THEN ... END` |
-| 块类型 | `CASE_BLOCK` | 嵌套在 SELECT 中的表达式 |
-| 格式化 | walkCaseBlock | §9.6 子查询规则 |
+| 块类型 | `CASE_BLOCK` | 出现在 SELECT/WHERE/ORDER BY/HAVING 等位置的标量表达式 |
+| 格式化 | walkCaseBlock | §24.4.3 约束策略 |
 
 #### 24.4.3 约束策略
 
@@ -3906,11 +4963,16 @@ SUBTYPE salary_t IS NUMBER(8,2);
 SUBTYPE name_t IS VARCHAR2(100) NOT NULL;
 ```
 
-| 位置 | 约束 |
-|------|------|
-| `SUBTYPE name` → `IS` | `minSpaces=1` |
-| `IS` → 基类型 | `minSpaces=1` |
-| `NOT NULL` | 基类型后 1 空格 |
+**约束 GapConstraint 规则**：
+
+| 约束点 | newlineMode | minSpaces | maxSpaces | 说明 |
+|--------|-------------|-----------|-----------|------|
+| `SUBTYPE name` → `IS` | FORBIDDEN | 1 | 1 | 保持一行，IS 前 1 空格 |
+| `IS` → 基类型 | FORBIDDEN | 1 | 1 | IS 后 1 空格 |
+| 基类型 → `NOT NULL` | FORBIDDEN | 1 | 1 | 同行为基类型后 1 空格 |
+| 整句 → `;` | FORBIDDEN | 0 | 0 | 分号黏附 |
+
+实现：
 
 ```java
 private void walkSubtypeBlock(PlSqlBlock block) {
@@ -3919,7 +4981,13 @@ private void walkSubtypeBlock(PlSqlBlock block) {
         int baseType = nextVisible(isIdx + 1);
         gap(isIdx, baseType).minSpaces(1).maxSpaces(1);
     }
-    // SUBTYPE 保持一行
+    // 整句 FORBIDDEN 折行
+    int start = block.startTokenIdx;
+    int end = block.endTokenIdx;
+    for (int i = start; i < end; i++) {
+        gap(i, i + 1).newlineMode(FORBIDDEN).minSpaces(1);
+    }
+    gap(end - 1, end).newlineMode(FORBIDDEN).minSpaces(0);
 }
 ```
 
@@ -4022,7 +5090,13 @@ SELECT column1 MULTISET UNION column2 FROM t;
 column1 MULTISET EXCEPT DISTINCT column2
 ```
 
-集合运算符 `MULTISET EXCEPT`、`MULTISET INTERSECT`、`MULTISET UNION` 保持一行，前后空格 1。
+**约束 GapConstraint 规则**：
+
+| 约束点 | newlineMode | minSpaces | 说明 |
+|--------|-------------|-----------|------|
+| `MULTISET` → `EXCEPT`/`INTERSECT`/`UNION` | FORBIDDEN | 1 | MULTISET 与运算符黏附同行 |
+| 运算符左右 | FORBIDDEN | 1 | 运算符前后各 1 空格 |
+| 整句 | FORBIDDEN | — | 保持一行不折行 |
 
 ---
 
@@ -4106,6 +5180,70 @@ CREATE OR REPLACE PROCEDURE update_employee(
 | `parameterDirectionCase` | enum | UPPER | IN/OUT/IN OUT 大小写 |
 | `parameterTypeCase` | enum | PRESERVE | 参数类型关键字大小写 |
 
+### 25.5 walkParameterList 实现
+
+参数声明格式化实现在 `ConstraintGenerator` 的 `walkParameterList` 方法中，
+在块发现参数声明时调用：
+
+```java
+void walkParameterList(PlSqlBlock parent) {
+    List<ParameterDecl> params = parent.getParameterDeclarations();
+    if (params.isEmpty()) return;
+
+    int lparen = parent.getParamLparenIdx();
+    int rparen = parent.getParamRparenIdx();
+
+    // 1. ( → 第一参数：换行缩进
+    addConstraint(gap(lparen, params.get(0).tokenIdx)
+        .forceNewline(true).indentDelta(1));
+
+    // 2. 参数间的逗号
+    for (int i = 0; i < params.size() - 1; i++) {
+        int commaIdx = params.get(i).commaIdx;
+        int nextParamIdx = params.get(i + 1).tokenIdx;
+
+        if (opts.isParameterPerLine()) {
+            addConstraint(gap(commaIdx, nextParamIdx)
+                .forceNewline(true).indentDelta(1));
+        } else {
+            addConstraint(gap(commaIdx, nextParamIdx)
+                .newlineMode(OPTIONAL).breakPenalty(1.5));
+        }
+    }
+
+    // 3. 最后一参数 → )：弹出缩进
+    addConstraint(gap(params.get(params.size() - 1).endIdx, rparen)
+        .forceNewline(true).indentDelta(-1));
+
+    // 4. 对齐组（由 parameterAlignMode 控制）
+    if (opts.getParameterAlignMode() == ALIGNED) {
+        for (ParameterDecl p : params) {
+            // 参数名列：alignGroupId="PARAM_NAME"
+            addConstraint(gap(p.nameStart, p.nameEnd)
+                .alignGroupId("PARAM_NAME"));
+            // 方向列：alignGroupId="PARAM_DIR"
+            if (p.hasDirection()) {
+                addConstraint(gap(p.nameEnd, p.dirStart)
+                    .alignGroupId("PARAM_DIR"));
+            }
+            // 类型列：alignGroupId="PARAM_TYPE"
+            addConstraint(gap(p.dirEnd, p.typeStart)
+                .alignGroupId("PARAM_TYPE"));
+        }
+    }
+
+    // 5. DEFAULT 表达式对齐
+    if (opts.isParameterDefaultAlign()) {
+        for (ParameterDecl p : params) {
+            if (p.hasDefault()) {
+                addConstraint(gap(p.typeEnd, p.defaultIdx)
+                    .alignGroupId("PARAM_DEFAULT"));
+            }
+        }
+    }
+}
+```
+
 ---
 
 ## 26. 其余语句补充
@@ -4122,11 +5260,13 @@ ROLLBACK TO sp_before_update;
 ROLLBACK WORK;
 ```
 
-| 语句 | 格式化规则 |
-|------|-----------|
-| `SAVEPOINT name;` | 一行 |
-| `COMMIT [WORK] [COMMENT 'text'];` | 一行 |
-| `ROLLBACK [WORK] [TO savepoint];` | 一行 |
+**约束 GapConstraint 规则**：
+
+| 语句 | 约束 | 说明 |
+|------|------|------|
+| `SAVEPOINT name;` | 整行 `FORBIDDEN` 折行 | 保持一行 |
+| `COMMIT [WORK] [COMMENT 'text'];` | `COMMENT` 前 `OPTIONAL` (`breakPenalty=0.9`) | COMMENT 随行宽折行 |
+| `ROLLBACK [WORK] [TO savepoint];` | 整行 `FORBIDDEN` 折行 | 保持一行 |
 
 ### 26.2 LOG ERRORS
 
@@ -4136,7 +5276,14 @@ VALUES (100, 'John')
 LOG ERRORS INTO err_employees ('INSERT') REJECT LIMIT UNLIMITED;
 ```
 
-`LOG ERRORS INTO` 子句保持与 DML 同行或 `OPTIONAL` 换行，缩进一级。
+**约束 GapConstraint 规则**：
+
+| 约束点 | newlineMode | indentDelta | breakPenalty | 说明 |
+|--------|-------------|-------------|-------------|------|
+| DML 尾 → `LOG ERRORS INTO` | OPTIONAL | +1 | 0.3 | 随行宽决定是否换行，换行缩进一级 |
+| `LOG ERRORS INTO` → 表名 | OPTIONAL | 0 | — | 保持同行 |
+| 表名 → `(tag)` | OPTIONAL | 0 | — | 保持同行 |
+| `REJECT LIMIT` → 值 | OPTIONAL | 0 | — | 保持同行 |
 
 ### 26.3 ACCESSIBLE BY / DEFAULT COLLATION
 
@@ -4157,7 +5304,12 @@ CREATE OR REPLACE PACKAGE pkg DEFAULT COLLATION USING_NLS_COMP IS
 END;
 ```
 
-`ACCESSIBLE BY` 和 `DEFAULT COLLATION` 在 PACKAGE/FUNCTION 头部的关键字后，保持一行或换行（`OPTIONAL`）。
+**约束 GapConstraint 规则**：
+
+| 约束点 | newlineMode | indentDelta | 说明 |
+|--------|-------------|-------------|------|
+| `ACCESSIBLE BY (unit_name)` 前方 | OPTIONAL | 0 | 在头部关键字后保持同行或 `OPTIONAL` 换行 |
+| `DEFAULT COLLATION name` 前方 | OPTIONAL | 0 | 同上 |
 
 ### 26.4 XML / JSON 函数
 
@@ -4177,7 +5329,14 @@ SELECT JSON_ARRAYAGG(e.first_name ORDER BY e.employee_id)
 FROM employees e;
 ```
 
-XML/JSON 函数参数列表内部紧凑，`breakPenalty=0.8`。
+**约束 GapConstraint 规则**：
+
+| 约束点 | newlineMode | breakPenalty | minSpaces | 说明 |
+|--------|-------------|-------------|-----------|------|
+| `XMLELEMENT`/`XMLATTRIBUTES`/`XMLAGG` → `(` | FORBIDDEN | — | 0 | 函数名黏附 `(` |
+| 参数 `,` → 下一参数 | OPTIONAL | 0.8 | — | 内部紧凑，超长时可选折行 |
+| `JSON_OBJECT`/`JSON_ARRAYAGG` → `(` | FORBIDDEN | — | 0 | 函数名黏附 `(` |
+| `VALUE`/`KEY` 前 | OPTIONAL | 0.8 | — | 可选折行 |
 
 ### 26.5 DBMS_SQL
 
@@ -4310,7 +5469,7 @@ private void walkDbmsSqlStatement(PlSqlBlock block) {
         gap(dotIdx, funcIdx).newlineMode(FORBIDDEN).minSpaces(0).maxSpaces(0);
 
         // 函数名 → 左括号
-        int lparen = findNext(lparen, "(", funcIdx);
+        int lparen = findNext(funcIdx, "(");
         if (lparen > 0) {
             gap(funcIdx, lparen).newlineMode(FORBIDDEN);
             // 参数列表紧凑
@@ -4344,7 +5503,12 @@ CREATE TABLE t (
 );
 ```
 
-`COLLATE` 关键字与表达式同行，不换行。
+**约束 GapConstraint 规则**：
+
+| 约束点 | newlineMode | minSpaces | 说明 |
+|--------|-------------|-----------|------|
+| 表达式 → `COLLATE` | FORBIDDEN | 1 | COLLATE 与表达式同行 |
+| `COLLATE` → 排序规则名 | FORBIDDEN | 1 | 规则名紧跟 COLLATE |
 
 ### 26.7 EXECUTE IMMEDIATE 中的 DDL
 
@@ -4392,6 +5556,14 @@ DBMS_UTILITY.EXEC_DDL_STATEMENT('DROP TABLE ' || v_table_name);
 | `EXECUTE IMMEDIATE` + 字符串拼接 | 拼接链走 §5.1 保护策略，每段分别透传 | 分段内容可能来自不同来源 |
 | `DBMS_UTILITY.EXEC_DDL_STATEMENT('...')` | 同 EXECUTE IMMEDIATE 策略 | 同上 |
 | `v_sql := 'CREATE TABLE ...'` | 赋值语句中字符串原样保留 | 拼接链保护（§5.1 L1-L2） |
+
+**约束 GapConstraint 规则**（`EXECUTE IMMEDIATE` 语句）：
+
+| 约束点 | newlineMode | indentDelta | 说明 |
+|--------|-------------|-------------|------|
+| `EXECUTE IMMEDIATE` → SQL 表达式 | FORBIDDEN | — | `EXECUTE IMMEDIATE` 与表达式同行 |
+| 拼接 `\|\|` 链 | 按 §5.1 保护策略 | — | 拼接链在 `\|\|` 后 `breakPenalty=0.3` 折行（同 §5.1.3） |
+| 整句 | FORBIDDEN | — | 保持一行不折行 |
 
 **边界声明**：字符串内 SQL 格式化属于 IDE 级别的"字符串内 SQL 检测/注入"功能范畴，
 不在本格式化引擎范围内。格式化引擎仅确保字符串字面量原样透传，不修改其内部格式。
@@ -4455,7 +5627,7 @@ DBMS_UTILITY.EXEC_DDL_STATEMENT('DROP TABLE ' || v_table_name);
 | `parameterTypeCase` | enum | PRESERVE | `PostProcessor.convertTypeKeyword()` | `PostProcessor.java` |
 | `loopOnNewLine` | boolean | true | `gap(LOOP, stmt).forceNewline()` | `LoopConstraintGen.java` |
 | `forLoopFormat` | enum | EXPAND | `gap(LOOP, body).newlineMode()` | `LoopConstraintGen.java` |
-| `blankLineBeforeBlock` | boolean | false | `blankLineBefore(true)` | `BlockConstraintGen.java` |
+| `blankLineBeforeBlock` | boolean | false | `blankLineBefore(true)`（见 §23.1） | `BlockConstraintGen.java` |
 | `exceptionAlign` | enum | FLAT | `gap(EXCEPTION, WHEN).indentDelta(0/1)` | `BlockConstraintGen.java` |
 | `triggerFormat` | enum | EXPAND | `gap(clause, value).forceNewline()` | `TriggerConstraintGen.java` |
 | `caseExprFormat` | enum | EXPAND | `gap(WHEN, expr).newlineMode()` | `CaseExprConstraintGen.java` |
@@ -4494,7 +5666,46 @@ DBMS_UTILITY.EXEC_DDL_STATEMENT('DROP TABLE ' || v_table_name);
 | `dbmsSqlColumnPerLine` | boolean | true | DEFINE/COLUMN_VALUE 每列一行 | `DbmsSqlConstraintGen.java` |
 | `dialect` | String | ORACLE | 方言标识 | `PlSqlDialectFactory.java` |
 | `activeProfile` | String | default | 当前激活预设 | `FormatOptions.java` |
-| `profiles` | Map | - | 预设集合（key=预设名, value=FormatOptions） | `FormatOptions.java` |
+| `profiles` | Map<String, FormatOptions> | — | 预设集合（key=预设名, value=FormatOptions） | `FormatOptions.java` |
+
+### 27.2 Profile 预设机制
+
+Profile 是 FormatOptions 的命名快照（Map<String, FormatOptions>），用于一键切换格式化风格。
+
+**内置预设**：
+
+| 预设名 | 特征 | 适用场景 |
+|--------|------|---------|
+| `default` | 40+ 参数均使用默认值 | 通用 Oracle PL/SQL |
+| `DataGrip` | 紧凑风格，COMMA LEADING，SELECT 列多行 | 偏好 DataGrip 风格的用户 |
+| `Compact` | 最小化换行，同类元素同行 | 节省垂直空间 |
+
+**工作机制**：
+
+```java
+FormatOptions opts = new FormatOptions();
+
+// 设置预设
+opts.activeProfile = "DataGrip";
+
+// 加载预设快照 → 覆盖 opts 的全部字段值
+opts.applyProfile(opts.activeProfile);
+
+// 自定义覆盖：预设加载后单独调整
+opts.indent = 2;
+opts.keywordCase = CaseConvert.LOWER;
+
+// 运行时切换预设（保留自定义覆盖）
+String oldProfile = opts.activeProfile;
+opts.activeProfile = "Compact";
+opts.applyProfile(opts.activeProfile);
+```
+
+**切换规则**：`applyProfile(name)` 从 `profiles` Map 中查找对应预设，
+加载其全部参数值覆盖当前 opts。自定义参数应在 `applyProfile` 之后设置，
+或使用 `preserveOverrides` 标志保留自定义差异。
+
+**风险表**（§34.2）建议将默认 Profile 作为配置入口，减少用户直接接触 40+ 参数。
 
 ---
 
@@ -4511,6 +5722,8 @@ DBMS_UTILITY.EXEC_DDL_STATEMENT('DROP TABLE ' || v_table_name);
 | 控制结构 | `IF(cond)` vs `IF (cond)` | 控制结构括号间距 |
 | 类型声明 | `NUMBER(10)` vs `NUMBER (10)` | 类型括号间距 |
 | 参数列表 | `(a, b)` vs `( a, b )` | 参数括号间距 |
+| 构造函数 | `MyType(...)` vs `MyType (...)` | 构造函数括号间距 |
+| 数组索引 | `arr(i)` vs `arr (i)` | 数组索引括号间距 |
 | 空括号 | `()` vs `( )` | 空括号间距 |
 
 ### 28.2 上下文类型
@@ -4533,8 +5746,8 @@ enum ParenContextType {
 每个上下文类型独立控制 4 个间距：
 
 ```sql
--- 函数调用：左括号前1空格，左括号后0空格，右括号前0空格，右括号后1空格
-func (arg)
+-- 函数调用：左括号前0空格，括号内0空格
+func(arg)
 
 -- 表达式：左括号前后0空格，右括号前后0空格
 (a + b)
@@ -4542,11 +5755,17 @@ func (arg)
 -- 类型声明：左括号前0空格，括号内0空格
 NUMBER(10)
 
--- 控制结构：左括号前1空格
+-- 控制结构：左括号前1空格，括号内0空格
 IF (condition) THEN
 
--- 空括号：括号内无空格
-func()
+-- 参数列表：左括号前0空格，括号内0空格
+func(a IN NUMBER, b IN VARCHAR2)
+
+-- 构造函数：左括号前0空格，括号内0空格
+MyType(arg1, arg2)
+
+-- 数组索引：左括号前0空格，括号内0空格
+arr(i)
 ```
 
 ```java
@@ -4575,17 +5794,24 @@ class ParenSpacingConfig {
 }
 ```
 
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `parenFuncCallBeforeOpen` | int | 0 | 函数调用 ( 前 |
-| `parenFuncCallInside` | int | 0 | 函数调用括号内 |
-| `parenExprBeforeOpen` | int | 1 | 表达式 ( 前 |
-| `parenExprInside` | int | 0 | 表达式括号内 |
-| `parenControlFlowBeforeOpen` | int | 1 | 控制结构 ( 前 |
-| `parenTypeDeclBeforeOpen` | int | 0 | 类型声明 ( 前 |
-| `parenTypeDeclInside` | int | 0 | 类型声明括号内 |
-| `parenParamListInside` | int | 0 | 参数列表括号内 |
-| `parenEmpty` | int | 0 | 空括号间距 ( ) |
+| 参数 | 类型 | 默认值 | 上下文 | 说明 |
+|------|------|--------|--------|------|
+| `parenFuncCallBeforeOpen` | int | 0 | FUNCTION_CALL | 函数调用 ( 前 |
+| `parenFuncCallInside` | int | 0 | FUNCTION_CALL | 函数调用括号内 |
+| `parenExpressionBeforeOpen` | int | 0 | EXPRESSION | 表达式 ( 前 |
+| `parenExpressionInside` | int | 0 | EXPRESSION | 表达式括号内 |
+| `parenControlFlowBeforeOpen` | int | 1 | CONTROL_FLOW | 控制结构 ( 前 |
+| `parenControlFlowInside` | int | 0 | CONTROL_FLOW | 控制结构括号内 |
+| `parenTypeDeclBeforeOpen` | int | 0 | TYPE_DECL | 类型声明 ( 前 |
+| `parenTypeDeclInside` | int | 0 | TYPE_DECL | 类型声明括号内 |
+| `parenParamListBeforeOpen` | int | 0 | PARAM_LIST | 参数列表 ( 前 |
+| `parenParamListInside` | int | 0 | PARAM_LIST | 参数列表括号内 |
+| `parenConstructorBeforeOpen` | int | 0 | CONSTRUCTOR | 构造函数 ( 前 |
+| `parenConstructorInside` | int | 0 | CONSTRUCTOR | 构造函数括号内 |
+| `parenArrayIndexBeforeOpen` | int | 0 | ARRAY_INDEX | 数组索引 ( 前 |
+| `parenArrayIndexInside` | int | 0 | ARRAY_INDEX | 数组索引括号内 |
+| `parenEmptyBeforeOpen` | int | 0 | EMPTY_PARENS | 空括号 ( 前 |
+| `parenEmptyInside` | int | 0 | EMPTY_PARENS | 空括号内 |
 
 ### 28.5 兼容性
 
@@ -4593,9 +5819,9 @@ class ParenSpacingConfig {
 
 | 旧值 | 映射 |
 |------|------|
-| `NONE` | 所有 `*BeforeOpen=0, *Inside=0` |
-| `INSIDE` | 所有 `*BeforeOpen=0, *Inside=1` |
-| `BOTH` | 所有 `*BeforeOpen=1, *Inside=1` |
+| `NONE` | `parenExpressionBeforeOpen=0`<br>所有 `*Inside=0`<br>其余 `*BeforeOpen=0` |
+| `INSIDE` | `parenExpressionBeforeOpen=0`<br>所有 `*Inside=1`<br>其余 `*BeforeOpen=0` |
+| `BOTH` | `parenExpressionBeforeOpen=1`<br>所有 `*Inside=1`<br>`parenControlFlowBeforeOpen=1`<br>其余 `*BeforeOpen=0` |
 
 ---
 
@@ -4703,6 +5929,192 @@ class PlSqlPostProcessor {
 | `blankLineHandling` | enum | PRESERVE | 空白行处理：PRESERVE（保留）/ COMPRESS（合并连续空行）/ DELETE（删除） |
 | `trailingWhitespaceTrim` | boolean | true | 行尾空格修剪 |
 
+### 30.5 @formatter:off / @formatter:on 保护
+
+`@formatter:off` 和 `@formatter:on` 是注释中的格式化控制指令。被 `@formatter:off` 包围的区间
+原样输出，不经过格式化引擎。
+
+```sql
+-- @formatter:off
+SELECT * FROM employees WHERE department_id = 10;
+-- @formatter:on
+```
+
+**保护管线位置**：`@formatter:off/on` 在 Lexer 阶段（§5.1 L1）之前扫描注释文本，作为
+**第 0 层保护**优先于其他所有处理：
+
+```
+0. @formatter:off/on 保护（Lexer 前扫描注释 → 标记保护区间）
+1. Lexer 阶段：注释、字符串替换为占位符（§5.1 L1-L2）
+2. Engine 处理：占位符作为普通 token 参与格式化
+3. PostProcessor：占位符替换回原始注释/字符串文本
+4. 对齐调整：替换后行尾注释的对齐
+```
+
+**实现策略**：
+
+```java
+class FormatterGuard {
+    // 区间标记：每段 [startOffset, endOffset) 原样输出
+    List<Range> protectedRanges;
+
+    void scan(String source) {
+        Matcher m = Pattern.compile(
+            "(?i)/\\*\\s*@formatter:off\\s*\\*/" +
+            "(.*?)" +
+            "/\\*\\s*@formatter:on\\s*\\*/"
+        ).matcher(source);
+        while (m.find()) {
+            protectedRanges.add(new Range(m.start(), m.end()));
+        }
+        // 处理只有 @formatter:off 无 @formatter:on 的区间
+        Matcher openOnly = Pattern.compile(
+            "(?i)/\\*\\s*@formatter:off\\s*\\*/"
+        ).matcher(source);
+        while (openOnly.find()) {
+            if (!isClosed(openOnly.start())) {
+                protectedRanges.add(
+                    new Range(openOnly.start(), source.length()));
+            }
+        }
+    }
+
+    void restore(StringBuilder output, String original, List<Range> ranges) {
+        // 按 offset 排序，将保护区间内容替换回原始文本
+        for (Range r : ranges) {
+            String raw = original.substring(r.start, r.end);
+            // 在输出中定位对应 offset 并替换
+            output.replace(r.start, r.end, raw);
+        }
+    }
+}
+```
+
+**规则**：
+- `@formatter:off/on` 必须成对出现，均为块注释 `/* ... */`
+- 仅 `@formatter:off` 无 `@formatter:on` 时，从 `off` 位置到文件末尾全部保护
+- 保护区间内的所有 token（关键字、字符串、注释）均原样输出，不应用任何转换
+- 区间外的文本正常格式化
+- `@formatter:off/on` 指令注释本身在输出中保留
+
+### 30.6 后处理管线
+
+后处理按以下顺序依次执行：
+
+```
+  applyKeywordCase (§30.2)
+→ handleBlankLines
+→ trimTrailingWhitespace
+→ normalizeLineEnding
+→ restoreProtected (§30.3)
+```
+
+#### 30.6.1 空白行处理（blankLineHandling）
+
+```java
+void handleBlankLines(List<String> lines) {
+    switch (opts.getBlankLineHandling()) {
+        case PRESERVE:  // 保留原空白行数量
+            break;
+        case COMPRESS:  // 连续 N 个空行合并为 1 个
+            for (int i = 0; i < lines.size(); ) {
+                if (lines.get(i).trim().isEmpty()) {
+                    int j = i + 1;
+                    while (j < lines.size() && lines.get(j).trim().isEmpty())
+                        j++;
+                    if (j - i > 1) {
+                        lines.subList(i + 1, j).clear();
+                    }
+
+在约束生成末尾，对所有 token 间隙施加运算符绑定规则，防止某些运算符被拆行：
+
+```java
+void addForbiddenOperatorConstraints(List<GapConstraint> out, List<TokenInfo> tokens) {
+    for (int i = 0; i < tokens.size() - 1; i++) {
+        String text = tokens.get(i).text;
+        String next = tokens.get(i + 1).text;
+
+        // 1. 点号 . ：成员访问（.COUNT、.FIRST、.NEXTVAL）不拆行
+        if (".".equals(text)) {
+            out.add(gap(i, i + 1).forceNewline(false).spaces(0, 0, 0));
+        }
+
+        // 2. || 拼接运算符：|| 与后一个 token 不分离（前部可折行见 breakPenalty）
+        if ("||".equals(text)) {
+            out.add(gap(i, i + 1).forceNewline(false).preferredSpaces(1));
+        }
+
+        // 3. % 属性标记（%TYPE、%ROWTYPE）：不拆行
+        if ("%".equals(text)) {
+            out.add(gap(i, i + 1).forceNewline(false).spaces(0, 0, 0));
+        }
+    }
+}
+```
+
+此方法在 `generate()` 末尾调用，确保这些运算符绑定约束不会被后续生成器覆盖。
+
+#### 2.5.3 括号间距委托
+
+括号间距控制（`(` 前空格、`)` 后空格）不在 `ConstraintGenerator` 中直接处理，
+而是委托给独立的 **ParenSpacing 系统**（§28）。`ConstraintGenerator` 仅为括号
+上下文提供标记（`ParenContextType`），间距具体值由 §28 的 `parenthesisSpacing`
+参数控制，在 `StringAssembler` 阶段应用。
+                    i = j - (j - i);  // 重新定位
+                } else {
+                    i++;
+                }
+            }
+            break;
+        case DELETE:    // 删除所有空行
+            lines.removeIf(line -> line.trim().isEmpty());
+            break;
+    }
+}
+```
+
+边界规则：
+- 文件首部和尾部的空行：COMPRESS 时保留 0 个；DELETE 时全部删除
+- 块注释前的空行：PRESERVE 时保留，COMPRESS 时最多保留 1 个
+- `@formatter:off` 区间内的空行不受此影响（已在 §30.5 保护）
+
+#### 30.6.2 行尾空格修剪（trailingWhitespaceTrim）
+
+```java
+void trimTrailingWhitespace(List<StringBuilder> lines) {
+    for (StringBuilder line : lines) {
+        int end = line.length() - 1;
+        while (end >= 0 && Character.isWhitespace(line.charAt(end)))
+            end--;
+        line.setLength(end + 1);
+    }
+}
+```
+
+边界规则：
+- 保留缩进前导空格（仅修剪行尾空格）
+- 空行（仅含空格的行）修剪后为空行
+- 合并空行后执行此步骤
+
+#### 30.6.3 换行符归一化（lineEnding）
+
+```java
+String normalizeLineEnding(String text) {
+    // 先统一为 LF，再转目标格式
+    String normalized = text.replace("\r\n", "\n").replace("\r", "\n");
+    String le = opts.getLineEnding().name();  // "LF" 或 "CRLF"
+    if ("CRLF".equals(le)) {
+        normalized = normalized.replace("\n", "\r\n");
+    }
+    return normalized;
+}
+```
+
+边界规则：
+- 混合换行符（`\r\n` + `\n` 混用）先归一为 LF 再转换
+- 嵌入字符串内的换行符不参与归一化（已在 §5.1 保护）
+- `@formatter:off` 区间内的换行符不参与归一化（已在 §30.5 保护）
+
 ---
 
 ## 31. 错误处理
@@ -4711,12 +6123,36 @@ class PlSqlPostProcessor {
 
 | 级别 | 代码 | 含义 | 处理 |
 |------|------|------|------|
-| WARNING | SYNTAX_ERROR | 某条语句语法有误 | 该语句跳过格式化，原样输出,提示错误信息 |
+| WARNING | SYNTAX_ERROR | 某条语句语法有误 | 该语句跳过格式化，原样输出，提示错误信息 |
 | WARNING | UNCLOSED_BLOCK | 块缺少 END | 自动补全缺失的 `END;` |
-| WARNING | MISMATCHED_PAREN | 括号不匹配 | 跳过该括号范围 |
+| WARNING | MISMATCHED_PAREN | 括号不匹配 | 跳过该括号范围（见下文） |
 | INFO | EMPTY_INPUT | 输入为空 | 返回空字符串 |
 
----
+### 31.1 MISMATCHED_PAREN 处理细则
+
+当检测到括号不匹配时：
+
+**范围界定**：从第一个无法匹配的左括号 `(` 开始，到同一语句或块内最后一个无法闭合的右括号 `)` 结束。若找不到匹配的右括号，则范围扩展至包含该括号的整个块/语句末尾。
+
+**输出格式**：整个括号范围的原文本按原样保留（不应用任何约束生成或格式化），范围外的内容正常格式化。例如：
+
+```
+-- 输入
+PROCEDURE p IS BEGIN
+    func(a, b(c, d;
+    SELECT e FROM f;
+END;
+
+-- 输出（b(c, d 缺少闭合右括号，其范围原样保留）
+PROCEDURE p IS
+BEGIN
+    func(a, b(c, d;
+    SELECT e
+      FROM f;
+END;
+```
+
+**与 QualityChecker 的关系**：质量分计算时排除 MISMATCHED_PAREN 跳过的范围。该范围不计入格式化质量评分，但会在诊断计数中作为独立指标上报（见 `FormatResult.diagnostics`）。QualityChecker 的总分基于"可格式化 token 数 / 总 token 数"折算，跳过的 token 归入"不可格式化"类别，不降低质量分但会在摘要中标明跳过比例。
 
 ## 32. 旧方案对照
 
@@ -4794,11 +6230,35 @@ class PlSqlPostProcessor {
 | 风险 | 影响 | 缓解 |
 |------|------|------|
 | ParseTree 对语法错误的容错性 | 错误语句无法格式化 | ANTLRErrorListener 恢复，未解析语句原样输出 |
-| DP 折行性能 | 大文件格式化慢 | 断点数量限制，超过阈值回退到贪婪算法 |
+| DP 折行性能 | 大文件格式化慢 | 见 §34.1 性能保障细则 |
 | 方言差异覆盖不全 | 某些方言特有构造被错误格式化 | 扩展方言接口 + 构造模板 |
 | 注释占位符替换错误 | 注释位置偏移 | 五层保障体系 + 后处理验证 |
 | 参数过多导致配置复杂 | 用户难以理解 | 预设 Profile（Default/DataGrip/Compact）|
 
----
+### 34.1 DP 折行性能保障细则
+
+**断点数量阈值**：
+
+| 指标 | 阈值 | 说明 |
+|------|------|------|
+| 单次 DP 最大断点数 | 500 | 超过此数回退到贪婪算法 |
+| DP 最大状态数（`cols × breakpoints`） | 50,000 | 行宽 × 断点数 > 50,000 时回退 |
+| 单次 DP 超时 | 10 ms | 超过后终止 DP 并回退到贪婪算法 |
+
+**贪婪算法实现**：当回退到贪婪算法时，按以下规则处理：
+
+1. 保持 FORBIDDEN/REQUIRED 硬约束不变
+2. OPTIONAL 断行按 breakPenalty 升序贪心决策——优先在 penalty 最低的间隙断行，直到行宽满足为止
+3. indentDelta 和 alignGroupId 仍生效（缩进和对齐不退化）
+4. 仅弃用 DP 的全局最优搜索，局部贪心决策仍保证硬约束正确
+
+**性能监控指标**：
+
+| 指标 | 目标 | 测量方式 |
+|------|------|---------|
+| 单次格式化 P99 延迟 | ≤ 200 ms | 10 KB 以内文件 |
+| 单次格式化 P50 延迟 | ≤ 50 ms | 同上 |
+| DP 回退率 | ≤ 5% | DP 回退次数 / 总格式化次数 |
+| 内存峰值 | ≤ 64 MB | 10 KB 以内文件 |
 
 

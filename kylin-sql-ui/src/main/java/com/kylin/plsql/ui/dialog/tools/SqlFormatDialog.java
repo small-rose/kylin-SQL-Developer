@@ -3,7 +3,8 @@ package com.kylin.plsql.ui.dialog.tools;
 import com.kylin.plsql.ui.dialog.common.BaseToolDialog;
 
 import com.kylin.plsql.core.format.FormatOptions;
-import com.kylin.plsql.core.format.SqlFormatter;
+import com.kylin.plsql.core.format.plsql.PlSqlFormatter;
+import com.kylin.plsql.core.format.plsql.model.FormatResult;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rsyntaxtextarea.Theme;
@@ -70,8 +71,8 @@ public class SqlFormatDialog extends BaseToolDialog {
     private void doFormat() {
         String input = inputArea.getText();
         if (input == null || input.trim().isEmpty()) return;
-        String result = SqlFormatter.format(input, formatOptions);
-        outputArea.setText(result);
+        FormatResult result = PlSqlFormatter.format(input, formatOptions);
+        outputArea.setText(result.getEffectiveText());
     }
 
     private void applyOutputTheme() {

@@ -7,6 +7,9 @@ import com.kylin.plsql.core.config.ThemeManager;
 import com.kylin.plsql.core.config.DbMetadataConfig;
 import com.kylin.plsql.core.config.DbMetadataConfig.TypeDef;
 import com.kylin.plsql.core.format.enums.BlankLineHandling;
+import com.kylin.plsql.core.format.enums.BlockCommentStyle;
+import com.kylin.plsql.core.format.enums.CommentIndent;
+import com.kylin.plsql.core.format.enums.CommentPlacement;
 import com.kylin.plsql.core.format.enums.CaseExpressionFormat;
 import com.kylin.plsql.core.format.enums.CommaPosition;
 import com.kylin.plsql.core.format.enums.ConstraintFormat;
@@ -1164,7 +1167,7 @@ public class SettingsDialog extends JDialog {
         row = addCheckCtrl(p, c, row, "  \u4FDD\u7559\u6CE8\u91CA", workingOptions.isCommentPreserve(),
             v -> { previewSection = "COMMENTS"; workingOptions.setCommentPreserve(v); refreshPreview(); });
         row = addCheckCtrl(p, c, row, "  \u6CE8\u91CA\u7F29\u8FDB", workingOptions.isCommentIndent(),
-            v -> { previewSection = "COMMENTS"; workingOptions.setCommentIndent(v); refreshPreview(); });
+            v -> { previewSection = "COMMENTS"; workingOptions.setCommentIndent(v ? CommentIndent.CODE_LEVEL : CommentIndent.BLOCK_LEVEL); refreshPreview(); });
 
         addSection(p, c, row, "\u7A7A\u767D"); row++;
         row = addComboCtrl(p, c, row, "  \u7A7A\u884C\u5904\u7406", workingOptions.getBlankLineHandling().name(),

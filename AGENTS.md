@@ -24,7 +24,7 @@
 
 **旧架构：** `SqlFormatter.java` 硬编码关键字集 + 仅用 3 个 FormatOptions 参数 + 无 SQL 类型感知
 
-**新架构：**
+**新架构（模板层）：**
 ```
 SqlFormatter.format(source, options, dialect)
   ├── SqlTypeClassifier → SqlType
@@ -32,8 +32,12 @@ SqlFormatter.format(source, options, dialect)
   ├── FormatOptions → 40+ 参数全部生效
   └── TokenProcessor → 基于模板的断行/缩进/对齐 + 递归子查询
 ```
-
 旧枚举（SelectColumnMode, WhereAndPosition 等 7 个文件）已被删除，全部合并到 `FormatOptions` 内部类。
+
+**新架构（约束引擎层）：** 见 `kylin-sql-formatter/ARCHITECTURE.md`
+- 数据模型分三层：`StructuralFrame`（层级）→ `AlignmentCover`（列）→ `FinalLayout`（输出）
+- 模块编排四阶段：StructuralResolver → LineWidthResolver → AlignmentResolver → LayoutMerger
+- 约束生成器分三层：缩进骨架 → 词法间距 → 语义对齐
 
 ### 待定设计决策
 - 子查询展开风格（Inline/Expand/Auto）和位置独立控制
