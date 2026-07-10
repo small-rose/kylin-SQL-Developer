@@ -61,13 +61,13 @@ public class ExportTaskListDialog extends BaseToolDialog {
 
         @Override public String getColumnName(int col) {
             switch (col) {
-                case 0: return "\u4EFB\u52A1\u540D";
-                case 1: return "\u683C\u5F0F";
-                case 2: return "\u72B6\u6001";
-                case 3: return "\u5F00\u59CB\u65F6\u95F4";
-                case 4: return "\u8017\u65F6";
-                case 5: return "\u8FDB\u5EA6";
-                case 6: return "\u64CD\u4F5C";
+                case 0: return "任务名";
+                case 1: return "格式";
+                case 2: return "状态";
+                case 3: return "开始时间";
+                case 4: return "耗时";
+                case 5: return "进度";
+                case 6: return "操作";
                 default: return "";
             }
         }
@@ -94,7 +94,7 @@ public class ExportTaskListDialog extends BaseToolDialog {
     }
 
     private ExportTaskListDialog(Frame owner) {
-        super(owner, "\u5BFC\u51FA\u4EFB\u52A1\u5217\u8868");
+        super(owner, "导出任务列表");
         tasks = new ArrayList<>();
         taskModel = new TaskTableModel(tasks);
 
@@ -118,10 +118,10 @@ public class ExportTaskListDialog extends BaseToolDialog {
 
         JScrollPane scrollPane = new JScrollPane(taskTable);
 
-        JButton clearBtn = new JButton("\u6E05\u9664\u5DF2\u5B8C\u6210");
+        JButton clearBtn = new JButton("清除已完成");
         clearBtn.addActionListener(e -> clearCompleted());
 
-        JButton closeBtn = new JButton("\u5173\u95ED");
+        JButton closeBtn = new JButton("关闭");
         closeBtn.addActionListener(e -> setVisible(false));
 
         JPanel southPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 4));
@@ -145,10 +145,10 @@ public class ExportTaskListDialog extends BaseToolDialog {
                            int maxBlobSize) {
         ExportTask task = new ExportTask();
         task.id = java.util.UUID.randomUUID().toString().substring(0, 8);
-        task.name = "\u5BFC\u51FA " + (tableName.isEmpty() ? "\u8868" : tableName)
-                + " (" + format + ", " + model.getRowCount() + "\u884C)";
+        task.name = "导出 " + (tableName.isEmpty() ? "表" : tableName)
+                + " (" + format + ", " + model.getRowCount() + "行)";
         task.format = format;
-        task.status = "\u6392\u961F\u4E2D";
+        task.status = "排队中";
         task.startTime = System.currentTimeMillis();
         task.totalRows = model.getRowCount();
 
@@ -183,7 +183,7 @@ public class ExportTaskListDialog extends BaseToolDialog {
         task.worker = new SwingWorker<Void, Void>() {
             @Override
             protected Void doInBackground() {
-                task.status = "\u6267\u884C\u4E2D";
+                task.status = "执行中";
                 taskModel.fireTableRowsUpdated(row, row);
 
                 StringBuilder sb = new StringBuilder();
@@ -242,16 +242,16 @@ public class ExportTaskListDialog extends BaseToolDialog {
             @Override
             protected void done() {
                 if (isCancelled()) {
-                    task.status = "\u5DF2\u53D6\u6D88";
+                    task.status = "已取消";
                 } else if (task.errorMessage != null) {
-                    task.status = "\u5931\u8D25";
+                    task.status = "失败";
                     ToastManager.showError(ExportTaskListDialog.this,
-                            "\u5BFC\u51FA\u5931\u8D25: " + task.errorMessage);
+                            "导出失败: " + task.errorMessage);
                 } else {
-                    task.status = "\u5DF2\u5B8C\u6210";
+                    task.status = "已完成";
                     task.endTime = System.currentTimeMillis();
                     ToastManager.show(ExportTaskListDialog.this,
-                            "\u5BFC\u51FA\u5B8C\u6210: " + task.filePath);
+                            "导出完成: " + task.filePath);
                 }
                 taskModel.fireTableRowsUpdated(row, row);
             }
@@ -270,7 +270,7 @@ public class ExportTaskListDialog extends BaseToolDialog {
         ExportTask t = tasks.get(row);
         if (t.worker != null && !t.worker.isDone()) {
             t.worker.cancel(true);
-            t.status = "\u5DF2\u53D6\u6D88";
+            t.status = "已取消";
             taskModel.fireTableRowsUpdated(row, row);
         }
     }
@@ -278,7 +278,7 @@ public class ExportTaskListDialog extends BaseToolDialog {
     private void retryTask(int row) {
         ExportTask failed = tasks.get(row);
         if (failed.modelSnapshot == null || failed.columnNames == null) {
-            ToastManager.showError(this, "\u65E0\u6CD5\u91CD\u8BD5\uFF1A\u7F3A\u5C11\u4EFB\u52A1\u53C2\u6570");
+            ToastManager.showError(this, "无法重试：缺少任务参数");
             return;
         }
         tasks.remove(row);
@@ -306,13 +306,13 @@ public class ExportTaskListDialog extends BaseToolDialog {
             try {
                 Desktop.getDesktop().open(new File(t.filePath));
             } catch (Exception e) {
-                ToastManager.showError(this, "\u6253\u5F00\u6587\u4EF6\u5931\u8D25: " + e.getMessage());
+                ToastManager.showError(this, "打开文件失败: " + e.getMessage());
             }
         }
     }
 
     private void clearCompleted() {
-        tasks.removeIf(t -> "\u5DF2\u5B8C\u6210".equals(t.status) || "\u5931\u8D25".equals(t.status));
+        tasks.removeIf(t -> "已完成".equals(t.status) || "失败".equals(t.status));
         taskModel.fireTableDataChanged();
     }
 
@@ -322,10 +322,10 @@ public class ExportTaskListDialog extends BaseToolDialog {
             if (value instanceof ExportTask) {
                 ExportTask t = (ExportTask) value;
                 JButton btn = new JButton();
-                if ("\u5DF2\u5B8C\u6210".equals(t.status)) btn.setText("\u6253\u5F00\u6587\u4EF6");
-                else if ("\u5931\u8D25".equals(t.status)) btn.setText("\u91CD\u8BD5");
-                else if ("\u6392\u961F\u4E2D".equals(t.status) || "\u6267\u884C\u4E2D".equals(t.status))
-                    btn.setText("\u53D6\u6D88");
+                if ("已完成".equals(t.status)) btn.setText("打开文件");
+                else if ("失败".equals(t.status)) btn.setText("重试");
+                else if ("排队中".equals(t.status) || "执行中".equals(t.status))
+                    btn.setText("取消");
                 else btn.setText("--");
                 return btn;
             }
@@ -346,14 +346,14 @@ public class ExportTaskListDialog extends BaseToolDialog {
                 JButton btn = new JButton();
                 String text;
                 Runnable action;
-                if ("\u5DF2\u5B8C\u6210".equals(t.status)) {
-                    text = "\u6253\u5F00\u6587\u4EF6";
+                if ("已完成".equals(t.status)) {
+                    text = "打开文件";
                     action = () -> openFile(row);
-                } else if ("\u5931\u8D25".equals(t.status)) {
-                    text = "\u91CD\u8BD5";
+                } else if ("失败".equals(t.status)) {
+                    text = "重试";
                     action = () -> retryTask(row);
-                } else if ("\u6392\u961F\u4E2D".equals(t.status) || "\u6267\u884C\u4E2D".equals(t.status)) {
-                    text = "\u53D6\u6D88";
+                } else if ("排队中".equals(t.status) || "执行中".equals(t.status)) {
+                    text = "取消";
                     action = () -> cancelTask(row);
                 } else {
                     text = "--";
@@ -366,7 +366,7 @@ public class ExportTaskListDialog extends BaseToolDialog {
                 });
                 return btn;
             }
-            return new JLabel("\u9519\u8BEF");
+            return new JLabel("错误");
         }
 
         @Override public Object getCellEditorValue() {

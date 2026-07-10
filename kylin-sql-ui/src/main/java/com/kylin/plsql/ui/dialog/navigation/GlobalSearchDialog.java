@@ -119,7 +119,7 @@ public class GlobalSearchDialog extends JDialog {
     private SwingWorker<String, Void> previewWorker;
     private final ConfigManager configManager;
     private final Consumer<String> fileOpener;
-    private final JToggleButton pinBtn = new JToggleButton("\uD83D\uDCCD");
+    private final JToggleButton pinBtn = new JToggleButton("📍");
     private boolean pinned;
     private JPanel top;
     private JPanel topRight;
@@ -128,7 +128,7 @@ public class GlobalSearchDialog extends JDialog {
 
     public GlobalSearchDialog(Frame owner, JTabbedPane editorTabs, ConnectionManager connManager,
                               ConfigManager configManager, Consumer<String> fileOpener) {
-        super(owner, "\u5168\u5C40\u641C\u7D22", false);
+        super(owner, "全局搜索", false);
         this.editorTabs = editorTabs;
         this.connManager = connManager;
         this.configManager = configManager;
@@ -158,11 +158,11 @@ public class GlobalSearchDialog extends JDialog {
         top.setBorder(BorderFactory.createEmptyBorder(6, 6, 4, 6));
         top.setOpaque(true);
 
-        searchIcon.setText("\uD83D\uDD0D");
+        searchIcon.setText("🔍");
         searchIcon.setFont(searchIcon.getFont().deriveFont(16f));
         searchIcon.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 4));
         searchIcon.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        searchIcon.setToolTipText("\u70B9\u51FB\u8BBE\u7F6E\u641C\u7D22\u8303\u56F4");
+        searchIcon.setToolTipText("点击设置搜索范围");
         searchIcon.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
@@ -190,17 +190,17 @@ public class GlobalSearchDialog extends JDialog {
         topRight.setOpaque(true);
 
         matchCaseBtn.setFocusable(false);
-        matchCaseBtn.setToolTipText("\u533A\u5206\u5927\u5C0F\u5199");
+        matchCaseBtn.setToolTipText("区分大小写");
         matchCaseBtn.addActionListener(e -> scheduleSearch());
         topRight.add(matchCaseBtn);
 
         wordsBtn.setFocusable(false);
-        wordsBtn.setToolTipText("\u5168\u8BCD\u5339\u914D");
+        wordsBtn.setToolTipText("全词匹配");
         wordsBtn.addActionListener(e -> scheduleSearch());
         topRight.add(wordsBtn);
 
         regexBtn.setFocusable(false);
-        regexBtn.setToolTipText("\u6B63\u5219\u8868\u8FBE\u5F0F");
+        regexBtn.setToolTipText("正则表达式");
         regexBtn.addActionListener(e -> scheduleSearch());
         topRight.add(regexBtn);
 
@@ -208,7 +208,7 @@ public class GlobalSearchDialog extends JDialog {
         pinBtn.setFocusable(false);
         pinBtn.addActionListener(e -> {
             pinned = pinBtn.isSelected();
-            pinBtn.setText(pinned ? "\uD83D\uDCCC" : "\uD83D\uDCCD");
+            pinBtn.setText(pinned ? "📌" : "📍");
         });
         top.add(topRight, BorderLayout.EAST);
 
@@ -277,13 +277,13 @@ public class GlobalSearchDialog extends JDialog {
         JPopupMenu popup = new JPopupMenu();
         popup.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
-        JLabel header = new JLabel(" \u641C\u7D22\u8303\u56F4");
+        JLabel header = new JLabel(" 搜索范围");
         header.setFont(header.getFont().deriveFont(Font.BOLD));
         header.setBorder(BorderFactory.createEmptyBorder(2, 4, 4, 4));
         popup.add(header);
 
-        JCheckBoxMenuItem allTabsItem = new JCheckBoxMenuItem("\u5168\u90E8\u6807\u7B7E\u9875", searchAllTabs);
-        JCheckBoxMenuItem curTabItem = new JCheckBoxMenuItem("\u5F53\u524D\u6807\u7B7E\u9875", !searchAllTabs);
+        JCheckBoxMenuItem allTabsItem = new JCheckBoxMenuItem("全部标签页", searchAllTabs);
+        JCheckBoxMenuItem curTabItem = new JCheckBoxMenuItem("当前标签页", !searchAllTabs);
         allTabsItem.addActionListener(e -> {
             searchAllTabs = true;
             allTabsItem.setSelected(true);
@@ -312,7 +312,7 @@ public class GlobalSearchDialog extends JDialog {
         }
 
         popup.addSeparator();
-        JMenuItem selectAllItem = new JMenuItem("\u5168\u9009");
+        JMenuItem selectAllItem = new JMenuItem("全选");
         selectAllItem.addActionListener(e -> {
             enabledTypes.addAll(Arrays.asList(OBJECT_TYPES));
             updateFilterIndicator();
@@ -321,7 +321,7 @@ public class GlobalSearchDialog extends JDialog {
         });
         popup.add(selectAllItem);
 
-        JMenuItem invertItem = new JMenuItem("\u53CD\u9009");
+        JMenuItem invertItem = new JMenuItem("反选");
         invertItem.addActionListener(e -> {
             Set<String> all = new HashSet<>(Arrays.asList(OBJECT_TYPES));
             enabledTypes.clear();
@@ -360,7 +360,7 @@ public class GlobalSearchDialog extends JDialog {
         listModel.clear();
 
         if (query.isEmpty()) {
-            statusLabel.setText("\u8BF7\u8F93\u5165\u641C\u7D22\u5173\u952E\u5B57");
+            statusLabel.setText("请输入搜索关键字");
             updateTitle(0);
             return;
         }
@@ -431,18 +431,18 @@ public class GlobalSearchDialog extends JDialog {
 
         StringBuilder sb = new StringBuilder();
         if (editorMatches > 0) {
-            sb.append("\u627E\u5230 ").append(editorMatches).append(" \u4E2A\u5339\u914D\uFF0C\u5206\u5E03\u5728 ").append(editorFileCount).append(" \u4E2A\u6587\u4EF6\u4E2D");
+            sb.append("找到 ").append(editorMatches).append(" 个匹配，分布在 ").append(editorFileCount).append(" 个文件中");
         }
         if (metadataMatches > 0) {
-            if (sb.length() > 0) sb.append(" \uFF5C ");
-            sb.append("\u627E\u5230 ").append(metadataMatches).append(" \u4E2A\u5BF9\u8C61");
+            if (sb.length() > 0) sb.append(" ｜ ");
+            sb.append("找到 ").append(metadataMatches).append(" 个对象");
         }
         if (fileMatches > 0) {
-            if (sb.length() > 0) sb.append(" \uFF5C ");
-            sb.append("\u627E\u5230 ").append(fileMatches).append(" \u4E2A\u5339\u914D\uFF0C\u5206\u5E03\u5728 ").append(fileCount).append(" \u4E2A\u5B58\u50A8\u6587\u4EF6\u4E2D");
+            if (sb.length() > 0) sb.append(" ｜ ");
+            sb.append("找到 ").append(fileMatches).append(" 个匹配，分布在 ").append(fileCount).append(" 个存储文件中");
         }
         if (sb.length() == 0) {
-            sb.append("\u65E0\u5339\u914D");
+            sb.append("无匹配");
         }
         statusLabel.setText(sb.toString());
 
@@ -590,8 +590,8 @@ public class GlobalSearchDialog extends JDialog {
         currentQuery = "";
         pinned = false;
         pinBtn.setSelected(false);
-        pinBtn.setText("\uD83D\uDCCD");
-        pinBtn.setToolTipText("\u56FA\u5B9A\u9762\u677F");
+        pinBtn.setText("📍");
+        pinBtn.setToolTipText("固定面板");
         updateTitle(0);
         syncTheme();
         searchField.requestFocusInWindow();
@@ -599,8 +599,8 @@ public class GlobalSearchDialog extends JDialog {
     }
 
     private void updateTitle(int count) {
-        if (count > 0) setTitle("\u5168\u5C40\u641C\u7D22 (" + count + ")");
-        else setTitle("\u5168\u5C40\u641C\u7D22");
+        if (count > 0) setTitle("全局搜索 (" + count + ")");
+        else setTitle("全局搜索");
     }
 
     private void syncTheme() {

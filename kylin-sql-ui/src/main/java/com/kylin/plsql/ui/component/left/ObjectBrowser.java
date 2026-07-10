@@ -1,5 +1,6 @@
 package com.kylin.plsql.ui.component.left;
 
+import com.kylin.plsql.ui.component.common.IconUtil;
 import com.kylin.plsql.core.cache.MetadataCache;
 import com.kylin.plsql.core.config.ConfigManager;
 import com.kylin.plsql.core.config.DbMetadataConfig;
@@ -169,10 +170,10 @@ public class ObjectBrowser extends JPanel {
 
     // ── Toolbar icons (same approach as tree icons) ──
 
-    private static final Icon ICON_NEW  = makeIcon("\u002B", new Color(0x5CB85C));
-    private static final Icon ICON_PROP = makeIcon("\u2699", new Color(0x337AB7));
-    private static final Icon ICON_REFR = makeIcon("\u21BB", new Color(0xF0AD4E));
-    private static final Icon ICON_SQL  = makeIcon("\u25B6", new Color(0x5CB85C));
+    private static final Icon ICON_NEW  = makeIcon("+", new Color(0x5CB85C));
+    private static final Icon ICON_PROP = makeIcon("⚙", new Color(0x337AB7));
+    private static final Icon ICON_REFR = makeIcon("↻", new Color(0xF0AD4E));
+    private static final Icon ICON_SQL  = makeIcon("▶", new Color(0x5CB85C));
 
     private static ImageIcon makeIcon18(String text, Color bg) {
         BufferedImage img = new BufferedImage(18, 18, BufferedImage.TYPE_INT_ARGB);
@@ -215,24 +216,24 @@ public class ObjectBrowser extends JPanel {
         JToolBar tb = new JToolBar();
         tb.setFloatable(false);
 
-        JButton newBtn = makeToolBtn(ICON_NEW, "\u65B0\u5EFA\u8FDE\u63A5", e -> callback.onOpenConnections());
+        JButton newBtn = makeToolBtn(ICON_NEW, "新建连接", e -> callback.onOpenConnections());
         tb.add(newBtn);
 
-        JButton propBtn = makeToolBtn(ICON_PROP, "\u8FDE\u63A5\u5C5E\u6027", e -> showProperties());
+        JButton propBtn = makeToolBtn(ICON_PROP, "连接属性", e -> showProperties());
         tb.add(propBtn);
 
-        refreshBtn = makeToolBtn(ICON_REFR, "\u5237\u65B0\u5F53\u524D\u8FDE\u63A5", e -> refreshSelected());
+        refreshBtn = makeToolBtn(ICON_REFR, "刷新当前连接", e -> refreshSelected());
         tb.add(refreshBtn);
 
         tb.addSeparator();
 
-        JButton sqlBtn = makeToolBtn(ICON_SQL, "\u65B0\u5EFA SQL \u7F16\u8F91\u5668", e -> callback.onNewSqlEditor(getSelectedConnName()));
+        JButton sqlBtn = makeToolBtn(ICON_SQL, "新建 SQL 编辑器", e -> callback.onNewSqlEditor(getSelectedConnName()));
         tb.add(sqlBtn);
 
         add(tb, BorderLayout.NORTH);
 
         // Tree
-        root = new DefaultMutableTreeNode("\u6570\u636E\u5E93");
+        root = new DefaultMutableTreeNode("数据库");
         treeModel = new DefaultTreeModel(root);
         tree = new JTree(treeModel);
         tree.setRootVisible(false);
@@ -295,7 +296,7 @@ public class ObjectBrowser extends JPanel {
                 // Level 1: load schemas lazily
                 if (node.getUserObject() instanceof ConnHolder && node.getChildCount() == 1) {
                     DefaultMutableTreeNode first = (DefaultMutableTreeNode) node.getChildAt(0);
-                    if ("\u52A0\u8F7D\u4E2D...".equals(first.getUserObject())) {
+                    if ("加载中...".equals(first.getUserObject())) {
                         SwingWorker<Void, Void> worker = new SwingWorker<>() {
                             @Override
                             protected Void doInBackground() {
@@ -310,7 +311,7 @@ public class ObjectBrowser extends JPanel {
                 // Level 4: table node - lazy load columns
                 if (node.getLevel() == 4 && node.getChildCount() == 0) {
                     String typeLabel = getNodeLabel(node, 3);
-                    if ("\u8868".equals(typeLabel)) {
+                    if ("表".equals(typeLabel)) {
                         SwingWorker<Void, Void> worker = new SwingWorker<>() {
                             @Override
                             protected Void doInBackground() {
@@ -412,7 +413,7 @@ public class ObjectBrowser extends JPanel {
 
     private void copyToClipboard(String text) {
         TK.getSystemClipboard().setContents(new StringSelection(text), null);
-        showToast("\u5DF2\u590D\u5236: " + text);
+        showToast("已复制: " + text);
     }
 
     private void showToast(String msg) {
@@ -488,7 +489,7 @@ public class ObjectBrowser extends JPanel {
             }
             cache.putColumns(connName, schema, tableName, cols);
         } catch (SQLException e) {
-            log.warn("\u52A0\u8F7D\u5217\u5931\u8D25 {}: {}", tableName, e.getMessage());
+            log.warn("加载列失败 {}: {}", tableName, e.getMessage());
         }
         treeModel.reload(tblNode);
     }
@@ -532,7 +533,7 @@ public class ObjectBrowser extends JPanel {
         // If connection not yet loaded, trigger load
         if (connNode.getChildCount() == 1) {
             Object first = connNode.getFirstChild();
-            if (first instanceof DefaultMutableTreeNode && "\u52A0\u8F7D\u4E2D...".equals(((DefaultMutableTreeNode) first).getUserObject())) {
+            if (first instanceof DefaultMutableTreeNode && "加载中...".equals(((DefaultMutableTreeNode) first).getUserObject())) {
                 loadConnection(connNode);
             }
         }
@@ -601,7 +602,7 @@ public class ObjectBrowser extends JPanel {
         final DefaultMutableTreeNode finalConnNode = connNode;
 
         finalConnNode.removeAllChildren();
-        finalConnNode.add(new DefaultMutableTreeNode("\u5237\u65B0\u4E2D..."));
+        finalConnNode.add(new DefaultMutableTreeNode("刷新中..."));
         treeModel.reload(finalConnNode);
         refreshBtn.setEnabled(false);
         callback.onSyncProgress(cname, 0);
@@ -615,7 +616,7 @@ public class ObjectBrowser extends JPanel {
                     try {
                         cm.connect(h.info);
                     } catch (Exception e) {
-                        log.warn("\u81EA\u52A8\u8FDE\u63A5 '{}' \u5931\u8D25: {}", cname, e.getMessage());
+                        log.warn("自动连接 '{}' 失败: {}", cname, e.getMessage());
                         return null;
                     }
                 }
@@ -652,7 +653,7 @@ public class ObjectBrowser extends JPanel {
                         }
                     }
                 } catch (Exception e) {
-                    log.error("\u5237\u65B0\u8FDE\u63A5 '{}' \u5931\u8D25", cname, e);
+                    log.error("刷新连接 '{}' 失败", cname, e);
                 }
                 publish(100);
                 return null;
@@ -672,12 +673,12 @@ public class ObjectBrowser extends JPanel {
                         loadConnection(finalConnNode);
                     } else {
                         finalConnNode.removeAllChildren();
-                        finalConnNode.add(new DefaultMutableTreeNode("\u5237\u65B0\u5931\u8D25"));
+                        finalConnNode.add(new DefaultMutableTreeNode("刷新失败"));
                         treeModel.reload(finalConnNode);
                     }
                 } catch (Exception e) {
                     finalConnNode.removeAllChildren();
-                    finalConnNode.add(new DefaultMutableTreeNode("\u5237\u65B0\u5931\u8D25: " + e.getMessage()));
+                    finalConnNode.add(new DefaultMutableTreeNode("刷新失败: " + e.getMessage()));
                     treeModel.reload(finalConnNode);
                 } finally {
                     refreshBtn.setEnabled(true);
@@ -794,7 +795,7 @@ public class ObjectBrowser extends JPanel {
             connFullSchemas.put(name, new ArrayList<>(schemas));
             initHiddenSchemas(h, schemas);
             if (schemas.isEmpty()) {
-                connNode.add(new DefaultMutableTreeNode("(\u65E0 schema)"));
+                connNode.add(new DefaultMutableTreeNode("(无 schema)"));
                 treeModel.reload(connNode);
             } else {
                 rebuildConnectionNode(connNode);
@@ -807,8 +808,8 @@ public class ObjectBrowser extends JPanel {
             try {
                 cm.connect(h.info);
             } catch (Exception e) {
-                log.warn("\u81EA\u52A8\u8FDE\u63A5 '{}' \u5931\u8D25: {}", name, e.getMessage());
-                connNode.add(new DefaultMutableTreeNode("\u8FDE\u63A5\u5931\u8D25: " + e.getMessage()));
+                log.warn("自动连接 '{}' 失败: {}", name, e.getMessage());
+                connNode.add(new DefaultMutableTreeNode("连接失败: " + e.getMessage()));
                 treeModel.reload(connNode);
                 return;
             }
@@ -837,12 +838,12 @@ public class ObjectBrowser extends JPanel {
                 }
                 rebuildConnectionNode(connNode);
             } else {
-                connNode.add(new DefaultMutableTreeNode("(\u65E0 schema)"));
+                connNode.add(new DefaultMutableTreeNode("(无 schema)"));
                 treeModel.reload(connNode);
             }
         } catch (SQLException e) {
-            log.error("\u52A0\u8F7D\u8FDE\u63A5 '{}' \u5931\u8D25", name, e);
-            connNode.add(new DefaultMutableTreeNode("\u52A0\u8F7D\u5931\u8D25: " + e.getMessage()));
+            log.error("加载连接 '{}' 失败", name, e);
+            connNode.add(new DefaultMutableTreeNode("加载失败: " + e.getMessage()));
             treeModel.reload(connNode);
         }
     }
@@ -982,9 +983,9 @@ public class ObjectBrowser extends JPanel {
         try (Connection conn = cm.getConnection(connName); PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, schema); ps.setString(2, packageName);
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) { String p = rs.getString("PROCEDURE_NAME"); if (p != null) pkgNode.add(new DefaultMutableTreeNode(p + " (\u8FC7\u7A0B)")); }
+                while (rs.next()) { String p = rs.getString("PROCEDURE_NAME"); if (p != null) pkgNode.add(new DefaultMutableTreeNode(p + " (过程)")); }
             }
-        } catch (SQLException e) { log.error("\u5C55\u5F00\u5305\u5931\u8D25: {}", e.getMessage()); }
+        } catch (SQLException e) { log.error("展开包失败: {}", e.getMessage()); }
         treeModel.reload(pkgNode);
         tree.expandPath(path);
     }
@@ -1042,18 +1043,18 @@ public class ObjectBrowser extends JPanel {
             boolean connected = cm.isConnected(cname);
 
             if (!connected) {
-                menu.add(menuItem("\u8FDE\u63A5", () -> { loadConnection(node); tree.expandPath(path); }));
+                menu.add(menuItem("连接", "connect", () -> { loadConnection(node); tree.expandPath(path); }));
             } else {
-                menu.add(menuItem("\u65AD\u5F00", () -> { cm.disconnect(cname); loadAll(cm, getConnInfos()); }));
+                menu.add(menuItem("断开", "connect", () -> { cm.disconnect(cname); loadAll(cm, getConnInfos()); }));
             }
             menu.addSeparator();
-            menu.add(menuItem("\u5C5E\u6027", () -> callback.onConnectionProperties(cname)));
-            menu.add(menuItem("\u5237\u65B0", () -> {
+            menu.add(menuItem("属性", "info", () -> callback.onConnectionProperties(cname)));
+            menu.add(menuItem("刷新", "refresh", () -> {
                 MetadataCache.getInstance().clearConnection(cname);
                 loadConnection(node);
             }));
             menu.addSeparator();
-            menu.add(menuItem("\u65B0\u5EFA SQL \u7F16\u8F91\u5668", () -> callback.onNewSqlEditor(cname)));
+            menu.add(menuItem("新建 SQL 编辑器", "new", () -> callback.onNewSqlEditor(cname)));
         } else if (level == 4) {
             String connName = getConnName(node);
             String schema = getNodePath(node, 2);
@@ -1064,24 +1065,24 @@ public class ObjectBrowser extends JPanel {
             for (var t : ORACLE_TYPES) { if (t.label.equals(typeLabel) && t.expandable) { pkg = true; break; } }
 
             if ("TABLE".equals(typeCode) || "VIEW".equals(typeCode)) {
-                menu.add(menuItem("\u751F\u6210 SELECT", () -> callback.onObjectAction(connName, schema, typeCode, objName, "SELECT")));
-                menu.add(menuItem("\u751F\u6210 INSERT", () -> callback.onObjectAction(connName, schema, typeCode, objName, "INSERT")));
-                menu.add(menuItem("\u751F\u6210 UPDATE", () -> callback.onObjectAction(connName, schema, typeCode, objName, "UPDATE")));
-                menu.add(menuItem("\u751F\u6210 DELETE", () -> callback.onObjectAction(connName, schema, typeCode, objName, "DELETE")));
+                menu.add(menuItem("生成 SELECT", null, () -> callback.onObjectAction(connName, schema, typeCode, objName, "SELECT")));
+                menu.add(menuItem("生成 INSERT", null, () -> callback.onObjectAction(connName, schema, typeCode, objName, "INSERT")));
+                menu.add(menuItem("生成 UPDATE", null, () -> callback.onObjectAction(connName, schema, typeCode, objName, "UPDATE")));
+                menu.add(menuItem("生成 DELETE", null, () -> callback.onObjectAction(connName, schema, typeCode, objName, "DELETE")));
                 menu.addSeparator();
-                menu.add(menuItem("\u6570\u636E\u9884\u89C8 (\u524D100\u884C)", () -> callback.onObjectAction(connName, schema, typeCode, objName, "PREVIEW")));
+                menu.add(menuItem("数据预览 (前100行)", "search", () -> callback.onObjectAction(connName, schema, typeCode, objName, "PREVIEW")));
                 menu.addSeparator();
             }
-            menu.add(menuItem("\u67E5\u770B DDL", () -> callback.onObjectAction(connName, schema, typeCode, objName, "DDL")));
+            menu.add(menuItem("查看 DDL", "database-search", () -> callback.onObjectAction(connName, schema, typeCode, objName, "DDL")));
             menu.addSeparator();
-            menu.add(menuItem("\u590D\u5236\u8868\u540D", () -> copyToClipboard(objName)));
+            menu.add(menuItem("复制表名", "copy", () -> copyToClipboard(objName)));
             if (pkg) {
                 menu.addSeparator();
-                menu.add(menuItem("\u5C55\u5F00\u5305 (\u8FC7\u7A0B/\u51FD\u6570)", () -> expandPackage(connName, schema, objName)));
+                menu.add(menuItem("展开包 (过程/函数)", "skip-forward", () -> expandPackage(connName, schema, objName)));
             }
         } else if (level == 5) {
             // Column node: copy name
-            menu.add(menuItem("\u590D\u5236\u5217\u540D", () -> copyToClipboard(node.getUserObject().toString())));
+            menu.add(menuItem("复制列名", "copy", () -> copyToClipboard(node.getUserObject().toString())));
         }
 
         if (menu.getComponentCount() > 0) menu.show(tree, e.getX(), e.getY());
@@ -1089,10 +1090,15 @@ public class ObjectBrowser extends JPanel {
 
     // ── Helpers ──
 
-    private static JMenuItem menuItem(String text, Runnable action) {
+    private static JMenuItem menuItem(String text, String icon, Runnable action) {
         JMenuItem item = new JMenuItem(text);
+        if (icon != null) item.setIcon(IconUtil.menuIcon(icon));
         item.addActionListener(ev -> action.run());
         return item;
+    }
+
+    private static JMenuItem menuItem(String text, Runnable action) {
+        return menuItem(text, null, action);
     }
 
     private String getNodePath(DefaultMutableTreeNode node, int depth) {

@@ -45,16 +45,16 @@ public class SearchReplacePanel extends JPanel {
 
     private final JTextField searchField = new JTextField(20);
     private final JLabel matchCountLabel = new JLabel(" ");
-    private final JButton prevBtn = new JButton("\u2191");
-    private final JButton nextBtn = new JButton("\u2193");
+    private final JButton prevBtn = new JButton("↑");
+    private final JButton nextBtn = new JButton("↓");
     private final JToggleButton matchCaseBtn = new JToggleButton("Aa");
     private final JToggleButton wordsBtn = new JToggleButton("ab");
     private final JToggleButton regexBtn = new JToggleButton(".*");
-    private final JButton closeBtn = new JButton("\u00D7");
+    private final JButton closeBtn = new JButton("×");
 
     private final JTextField replaceField = new JTextField(20);
-    private final JButton replaceBtn = new JButton("\u66FF\u6362");
-    private final JButton replaceAllBtn = new JButton("\u5168\u90E8\u66FF\u6362");
+    private final JButton replaceBtn = new JButton("替换");
+    private final JButton replaceAllBtn = new JButton("全部替换");
     private final JPanel replaceBar;
     private final JButton searchHistoryBtn;
     private final JButton replaceHistoryBtn;
@@ -67,15 +67,15 @@ public class SearchReplacePanel extends JPanel {
         setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
         setOpaque(false);
 
-        searchHistoryBtn = new JButton("\u25BC");
-        searchHistoryBtn.setToolTipText("\u641C\u7D22\u5386\u53F2");
+        searchHistoryBtn = new JButton("▼");
+        searchHistoryBtn.setToolTipText("搜索历史");
         searchHistoryBtn.addActionListener(e -> showSearchHistoryPopup());
 
-        replaceHistoryBtn = new JButton("\u25BC");
-        replaceHistoryBtn.setToolTipText("\u66FF\u6362\u5386\u53F2");
+        replaceHistoryBtn = new JButton("▼");
+        replaceHistoryBtn.setToolTipText("替换历史");
         replaceHistoryBtn.addActionListener(e -> showReplaceHistoryPopup());
 
-        closeBtn.setToolTipText("\u5173\u95ED\u641C\u7D22 (Esc)");
+        closeBtn.setToolTipText("关闭搜索 (Esc)");
         closeBtn.addActionListener(e -> hideSearch());
 
         searchField.setPreferredSize(new Dimension(180, 24));
@@ -132,7 +132,7 @@ public class SearchReplacePanel extends JPanel {
         findRow.setOpaque(false);
         JPanel findCenter = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         findCenter.setOpaque(false);
-        JLabel searchIcon = new JLabel("\uD83D\uDD0D");
+        JLabel searchIcon = new JLabel("🔍");
         searchIcon.setPreferredSize(new Dimension(24, 24));
         searchIcon.setHorizontalAlignment(SwingConstants.CENTER);
         searchIcon.setCursor(new Cursor(Cursor.HAND_CURSOR));
@@ -162,7 +162,7 @@ public class SearchReplacePanel extends JPanel {
         replaceBar.setOpaque(false);
         JPanel replaceCenter = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
         replaceCenter.setOpaque(false);
-        JLabel repIcon = new JLabel("\uD83D\uDD0D");
+        JLabel repIcon = new JLabel("🔍");
         repIcon.setPreferredSize(new Dimension(24, 24));
         repIcon.setHorizontalAlignment(SwingConstants.CENTER);
         repIcon.setCursor(new Cursor(Cursor.HAND_CURSOR));
@@ -193,12 +193,12 @@ public class SearchReplacePanel extends JPanel {
         });
         replaceCenter.add(replaceField);
         replaceCenter.add(Box.createHorizontalStrut(6));
-        replaceBtn.setToolTipText("\u66FF\u6362\u5F53\u524D\u5339\u914D");
+        replaceBtn.setToolTipText("替换当前匹配");
         replaceBtn.addActionListener(e -> replace());
         replaceBtn.setEnabled(false);
         replaceCenter.add(replaceBtn);
         replaceCenter.add(Box.createHorizontalStrut(2));
-        replaceAllBtn.setToolTipText("\u5168\u90E8\u66FF\u6362");
+        replaceAllBtn.setToolTipText("全部替换");
         replaceAllBtn.addActionListener(e -> replaceAll());
         replaceAllBtn.setEnabled(false);
         replaceCenter.add(replaceAllBtn);
@@ -498,14 +498,14 @@ public class SearchReplacePanel extends JPanel {
                 }
             }
         } catch (PatternSyntaxException e) {
-            matchCountLabel.setText("\u6B63\u5219\u9519\u8BEF");
+            matchCountLabel.setText("正则错误");
             replaceBtn.setEnabled(false);
             replaceAllBtn.setEnabled(false);
             return;
         }
 
         if (matches.isEmpty()) {
-            matchCountLabel.setText("\u65E0\u5339\u914D");
+            matchCountLabel.setText("无匹配");
             replaceBtn.setEnabled(false);
             replaceAllBtn.setEnabled(false);
             return;

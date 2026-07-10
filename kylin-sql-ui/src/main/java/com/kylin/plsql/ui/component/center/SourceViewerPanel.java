@@ -32,6 +32,7 @@ public class SourceViewerPanel extends JPanel {
     private final JLabel statusLabel = new JLabel(" ");
 
     private boolean editable;
+    private boolean fileMode;
     private String specSource;
     private String bodySource;
     private boolean showingBody;
@@ -100,12 +101,17 @@ public class SourceViewerPanel extends JPanel {
     }
 
     public SourceViewerPanel(ConnectionManager cm, String connName, String schema, String objectName, String objectType) {
+        this(cm, connName, schema, objectName, objectType, null);
+    }
+
+    public SourceViewerPanel(ConnectionManager cm, String connName, String schema, String objectName, String objectType, String preloadedContent) {
         this.connectionManager = cm;
         this.connName = connName;
         this.schema = schema;
         this.objectName = objectName;
         this.objectType = "PACKAGE".equals(objectType) ? "PACKAGE" : objectType;
         this.showingBody = "PACKAGE_BODY".equals(objectType);
+        this.fileMode = (preloadedContent != null);
 
         setLayout(new BorderLayout());
 
@@ -148,11 +154,11 @@ public class SourceViewerPanel extends JPanel {
 
         rightBar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 2, 2));
         rightBar.setBackground(theme.resolve("bg.main"));
-        editBtn = flatBtn("E", e -> toggleEdit());
-        editBtn.setToolTipText("Toggle edit mode");
+        editBtn = flatBtn("edit", "编辑", e -> toggleEdit());
+        editBtn.setToolTipText("编辑");
         rightBar.add(editBtn);
-        compileBtn = flatBtn("C", e -> compile());
-        compileBtn.setToolTipText("Compile");
+        compileBtn = flatBtn("compile", "编译", e -> compile());
+        compileBtn.setToolTipText("编译");
         rightBar.add(compileBtn);
         toolBar.add(rightBar, BorderLayout.EAST);
 
@@ -293,7 +299,19 @@ public class SourceViewerPanel extends JPanel {
         add(statusLabel, BorderLayout.PAGE_END);
 
         applyTheme();
-        loadSource();
+        if (preloadedContent != null) {
+            fileMode = true;
+            if (compileBtn != null) compileBtn.setVisible(false);
+            if ("PACKAGE".equals(this.objectType) && splitPackageContent(preloadedContent)) {
+            } else {
+                specSource = preloadedContent;
+                specMethods = parseMethods(preloadedContent);
+                applyCurrentSource();
+            }
+            statusLabel.setText("Done");
+        } else {
+            loadSource();
+        }
     }
 
     public void applyTheme() {
@@ -371,11 +389,26 @@ public class SourceViewerPanel extends JPanel {
     private void toggleEdit() {
         editable = !editable;
         textArea.setEditable(editable);
-        editBtn.setText(editable ? "S" : "E");
-        editBtn.setToolTipText(editable ? "Save changes" : "Toggle edit mode");
+        String iconName = editable ? "save-plus" : "edit";
+        ImageIcon svgIcon = com.kylin.plsql.ui.component.common.IconUtil.loadButtonIcon(iconName, null);
+        if (svgIcon != null) {
+            editBtn.setIcon(svgIcon);
+            editBtn.setText(null);
+        } else {
+            java.net.URL url = SourceViewerPanel.class.getResource("/icons/" + iconName + ".png");
+            if (url != null) {
+                editBtn.setIcon(new ImageIcon(url));
+                editBtn.setText(null);
+            } else {
+                editBtn.setIcon(null);
+                editBtn.setText(editable ? "S" : "E");
+            }
+        }
+        editBtn.setToolTipText(editable ? "保存更改" : "切换编辑模式");
     }
 
     private void compile() {
+        if (fileMode || connName == null) return;
         String source = textArea.getText();
         if (source == null || source.isBlank()) return;
         outputPanel.setVisible(true);
@@ -516,19 +549,48 @@ public class SourceViewerPanel extends JPanel {
     }
 
     public RSyntaxTextArea getTextArea() { return textArea; }
-    public String getTabTitle() { return schema + "." + objectName; }
+    public String getTabTitle() { return fileMode ? objectName : schema + "." + objectName; }
     public String getConnName() { return connName; }
     public String getSchema() { return schema; }
     public String getObjectName() { return objectName; }
     public String getObjectType() { return objectType; }
 
-    private static JButton flatBtn(String text, java.awt.event.ActionListener action) {
-        JButton btn = new JButton(text);
+    private static JButton flatBtn(String iconName, String fallback, java.awt.event.ActionListener action) {
+        JButton btn = new JButton();
         btn.setFont(new Font("Segoe UI", Font.BOLD, 11));
         btn.setFocusable(false);
         btn.setContentAreaFilled(false);
         btn.setBorder(BorderFactory.createEmptyBorder(1, 5, 1, 5));
         btn.addActionListener(action);
+        ImageIcon svgIcon = com.kylin.plsql.ui.component.common.IconUtil.loadButtonIcon(iconName, null);
+        if (svgIcon != null) {
+            btn.setIcon(svgIcon);
+        } else {
+            java.net.URL url = SourceViewerPanel.class.getResource("/icons/" + iconName + ".png");
+            if (url != null) {
+                btn.setIcon(new ImageIcon(url));
+            } else {
+                btn.setText(fallback);
+            }
+        }
         return btn;
+    }
+
+    private static final Pattern BODY_START = Pattern.compile(
+        "(?i)CREATE\\s+(?:OR\\s+REPLACE\\s+)?PACKAGE\\s+BODY\\b|(?m)^\\s*PACKAGE\\s+BODY\\b");
+
+    private boolean splitPackageContent(String content) {
+        Matcher m = BODY_START.matcher(content);
+        if (!m.find()) return false;
+        int split = m.start();
+        String spec = content.substring(0, split).trim();
+        String body = content.substring(split).trim();
+        if (spec.isEmpty() || body.isEmpty()) return false;
+        specSource = spec;
+        bodySource = body;
+        specMethods = parseMethods(spec);
+        bodyMethods = parseMethods(body);
+        applyCurrentSource();
+        return true;
     }
 }

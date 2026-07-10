@@ -19,7 +19,7 @@ public class CallHierarchyDialog extends JDialog {
 
     public CallHierarchyDialog(Window owner, PlSqlCallHierarchy.CallNode root,
                                 NavigateCallback callback) {
-        super(owner, "\u8C03\u7528\u5C42\u6B21", ModalityType.MODELESS);
+        super(owner, "调用层次", ModalityType.MODELESS);
         setSize(500, 400);
         setLocationRelativeTo(owner);
 
@@ -40,7 +40,7 @@ public class CallHierarchyDialog extends JDialog {
 
         add(new JScrollPane(tree), BorderLayout.CENTER);
 
-        var closeBtn = new JButton("\u5173\u95ED");
+        var closeBtn = new JButton("关闭");
         closeBtn.addActionListener(e -> dispose());
         var panel = new JPanel();
         panel.add(closeBtn);

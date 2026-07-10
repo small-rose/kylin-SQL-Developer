@@ -1,5 +1,6 @@
 package com.kylin.plsql.ui.component.right;
 
+import com.kylin.plsql.ui.component.common.IconUtil;
 import com.kylin.plsql.core.config.ConfigManager;
 import com.kylin.plsql.core.config.ConfigManager.SavedFileRecord;
 import com.kylin.plsql.core.config.ThemeManager;
@@ -269,24 +270,28 @@ public class RightPanel extends JPanel {
             JPopupMenu popup = new JPopupMenu();
             popup.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
-            JMenuItem openItem = new JMenuItem("\u5728\u6807\u7B7E\u9875\u4E2D\u6253\u5F00");
+            JMenuItem openItem = new JMenuItem("在标签页中打开");
+            openItem.setIcon(IconUtil.menuIcon("open"));
             openItem.addActionListener(e -> callback.onFileSelected(rec.filePath));
             popup.add(openItem);
 
-            JMenuItem openLocItem = new JMenuItem("\u6253\u5F00\u6587\u4EF6\u6240\u5728\u4F4D\u7F6E");
+            JMenuItem openLocItem = new JMenuItem("打开文件所在位置");
+            openLocItem.setIcon(IconUtil.menuIcon("locate"));
             openLocItem.addActionListener(e -> openFileLocation(rec.filePath));
             popup.add(openLocItem);
 
             popup.addSeparator();
 
-            JMenuItem removeItem = new JMenuItem("\u5220\u9664\u6587\u4EF6");
+            JMenuItem removeItem = new JMenuItem("删除文件");
+            removeItem.setIcon(IconUtil.menuIcon("trash"));
             removeItem.addActionListener(e -> {
                 configManager.removeFileRecord(rec.filePath);
                 refresh();
             });
             popup.add(removeItem);
 
-            JMenuItem deleteItem = new JMenuItem("\u6C38\u4E45\u5220\u9664\u6587\u4EF6");
+            JMenuItem deleteItem = new JMenuItem("永久删除文件");
+            deleteItem.setIcon(IconUtil.menuIcon("trash-2"));
             deleteItem.addActionListener(e -> permanentlyDelete(rec));
             popup.add(deleteItem);
 
@@ -298,21 +303,21 @@ public class RightPanel extends JPanel {
                 File file = new File(filePath);
                 if (!file.exists()) {
                     JOptionPane.showMessageDialog(RightPanel.this,
-                        "\u6587\u4EF6\u4E0D\u5B58\u5728: " + filePath);
+                        "文件不存在: " + filePath);
                     return;
                 }
                 Desktop.getDesktop().open(file.getParentFile());
             } catch (Exception ex) {
                 JOptionPane.showMessageDialog(RightPanel.this,
-                    "\u65E0\u6CD5\u6253\u5F00\u6587\u4EF6\u4F4D\u7F6E: " + ex.getMessage());
+                    "无法打开文件位置: " + ex.getMessage());
             }
         }
 
         private void permanentlyDelete(SavedFileRecord rec) {
             int result = JOptionPane.showConfirmDialog(RightPanel.this,
-                "\u786E\u5B9A\u8981\u6C38\u4E45\u5220\u9664\u6587\u4EF6 " + rec.fileName
-                    + " \u5417\uFF1F\n\u6B64\u64CD\u4F5C\u4E0D\u53EF\u6062\u590D\u3002",
-                "\u6C38\u4E45\u5220\u9664\u6587\u4EF6",
+                "确定要永久删除文件 " + rec.fileName
+                    + " 吗？\n此操作不可恢复。",
+                "永久删除文件",
                 JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
             if (result != JOptionPane.YES_OPTION) return;
 
@@ -320,12 +325,12 @@ public class RightPanel extends JPanel {
                 File file = new File(rec.filePath);
                 if (file.exists() && !file.delete()) {
                     JOptionPane.showMessageDialog(RightPanel.this,
-                        "\u5220\u9664\u6587\u4EF6\u5931\u8D25: " + rec.filePath);
+                        "删除文件失败: " + rec.filePath);
                     return;
                 }
             } catch (Exception ex) {
                 JOptionPane.showMessageDialog(RightPanel.this,
-                    "\u5220\u9664\u6587\u4EF6\u5931\u8D25: " + ex.getMessage());
+                    "删除文件失败: " + ex.getMessage());
                 return;
             }
             configManager.removeFileRecord(rec.filePath);
@@ -672,14 +677,14 @@ public class RightPanel extends JPanel {
                 String display = item.sql;
                 if (fm.stringWidth(display) > availW) {
                     for (int i = display.length() - 1; i > 0; i--) {
-                        if (fm.stringWidth(display.substring(0, i) + "\u2026") <= availW) {
-                            display = display.substring(0, i) + "\u2026";
+                        if (fm.stringWidth(display.substring(0, i) + "…") <= availW) {
+                            display = display.substring(0, i) + "…";
                             break;
                         }
                     }
                 }
                 sqlLabel.setText(display);
-                String status = item.success ? "\u2713" : "\u2717";
+                String status = item.success ? "✓" : "✗";
                 Color statusColor = item.success ? new Color(0x5CB85C) : new Color(0xD9534F);
                 infoLabel.setText(item.timestamp + "  " + status + " " + item.elapsedMs + "ms");
                 infoLabel.setForeground(theme.resolve("fg.muted"));

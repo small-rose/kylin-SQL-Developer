@@ -30,7 +30,7 @@ public class AdvancedExportDialog extends BaseToolDialog {
     private final JPanel colCheckPanel;
 
     public AdvancedExportDialog(Frame owner, TableModel sourceModel) {
-        super(owner, "\u9AD8\u7EA7\u5BFC\u51FA");
+        super(owner, "高级导出");
         this.sourceModel = sourceModel;
         setSizeRatio(0.7);
         centerOnOwner();
@@ -44,7 +44,7 @@ public class AdvancedExportDialog extends BaseToolDialog {
                 new String[]{"Oracle", "MySQL", "PostgreSQL", "ANSI SQL"});
         dialectCombo.addActionListener(e -> doExport());
 
-        tableNameField = new JTextField("\u8868\u540D", 15);
+        tableNameField = new JTextField("表名", 15);
 
         formatCombo = new JComboBox<>(
                 new String[]{"INSERT", "CSV", "JSON", "XML", "Markdown"});
@@ -55,7 +55,7 @@ public class AdvancedExportDialog extends BaseToolDialog {
             doExport();
         });
 
-        headerCb = new JCheckBox("\u5305\u542B\u5217\u5934");
+        headerCb = new JCheckBox("包含列头");
         headerCb.setSelected(true);
         headerCb.addActionListener(e -> doExport());
 
@@ -84,46 +84,46 @@ public class AdvancedExportDialog extends BaseToolDialog {
         outputArea.setEditable(false);
 
         JPanel configPanel = new JPanel(new GridBagLayout());
-        configPanel.setBorder(BorderFactory.createTitledBorder("\u5BFC\u51FA\u8BBE\u7F6E"));
+        configPanel.setBorder(BorderFactory.createTitledBorder("导出设置"));
         GridBagConstraints c = new GridBagConstraints();
         c.fill = GridBagConstraints.HORIZONTAL;
         c.insets = new Insets(3, 5, 3, 5);
 
         c.gridy = 0; c.gridx = 0; c.weightx = 0;
-        configPanel.add(new JLabel("\u5BFC\u51FA\u683C\u5F0F:"), c);
+        configPanel.add(new JLabel("导出格式:"), c);
         c.gridx = 1; c.weightx = 0.3;
         configPanel.add(formatCombo, c);
         c.gridx = 2; c.weightx = 0;
-        configPanel.add(new JLabel("\u8868\u540D:"), c);
+        configPanel.add(new JLabel("表名:"), c);
         c.gridx = 3; c.weightx = 0.5;
         configPanel.add(tableNameField, c);
         c.gridx = 4; c.weightx = 0;
         configPanel.add(headerCb, c);
         c.gridx = 5; c.weightx = 0;
-        configPanel.add(new JLabel("\u7F16\u7801:"), c);
+        configPanel.add(new JLabel("编码:"), c);
         c.gridx = 6; c.weightx = 0.3;
         configPanel.add(charsetCombo, c);
 
         c.gridy = 1; c.gridx = 0; c.weightx = 0;
-        configPanel.add(new JLabel("\u65B9\u8A00:"), c);
+        configPanel.add(new JLabel("方言:"), c);
         c.gridx = 1; c.weightx = 0.3;
         configPanel.add(dialectCombo, c);
         c.gridx = 2; c.weightx = 0;
-        configPanel.add(new JLabel("\u65E5\u671F\u683C\u5F0F:"), c);
+        configPanel.add(new JLabel("日期格式:"), c);
         c.gridx = 3; c.weightx = 0.5;
         configPanel.add(dateFormatField, c);
         c.gridx = 4; c.weightx = 0;
-        configPanel.add(new JLabel("NULL\u503C:"), c);
+        configPanel.add(new JLabel("NULL值:"), c);
         c.gridx = 5; c.weightx = 0.3;
         configPanel.add(nullPlaceholder, c);
 
         c.gridy = 2; c.gridx = 0; c.weightx = 0;
-        configPanel.add(new JLabel("BLOB\u4E0A\u9650:"), c);
+        configPanel.add(new JLabel("BLOB上限:"), c);
         c.gridx = 1; c.weightx = 0.3;
         configPanel.add(maxBlobSize, c);
 
         JLabel hintLabel = new JLabel(
-                "\u9009\u62E9\u8981\u5BFC\u51FA\u7684\u5217\uFF0C\u5207\u6362\u683C\u5F0F\u81EA\u52A8\u9884\u89C8 | INSERT \u683C\u5F0F\u9700\u586B\u5199\u8868\u540D | \u5927\u6570\u636E\u91CF\u5EFA\u8BAE\u4F7F\u7528\u5F02\u6B65\u5BFC\u51FA");
+                "选择要导出的列，切换格式自动预览 | INSERT 格式需填写表名 | 大数据量建议使用异步导出");
         hintLabel.setFont(new Font("Dialog", Font.PLAIN, 11));
         hintLabel.setOpaque(true);
         hintLabel.setBackground(theme.resolve("bg.panel"));
@@ -137,19 +137,19 @@ public class AdvancedExportDialog extends BaseToolDialog {
         JScrollPane outputScroll = new JScrollPane(outputArea);
 
         JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
-                wrapTitled("\u9009\u62E9\u5BFC\u51FA\u5217", colScroll),
-                wrapTitled("\u5BFC\u51FA\u9884\u89C8", outputScroll));
+                wrapTitled("选择导出列", colScroll),
+                wrapTitled("导出预览", outputScroll));
         splitPane.setResizeWeight(0.25);
         splitPane.setContinuousLayout(true);
 
-        JButton syncBtn = new JButton("\u540C\u6B65\u5BFC\u51FA");
+        JButton syncBtn = new JButton("同步导出");
         syncBtn.addActionListener(e -> {
             if (sourceModel.getRowCount() > 1000) {
                 int opt = JOptionPane.showOptionDialog(this,
-                        "\u6570\u636E\u91CF\u8F83\u5927\uFF08" + sourceModel.getRowCount() + " \u884C\uFF09\uFF0C\u662F\u5426\u6539\u4E3A\u5F02\u6B65\u5BFC\u51FA\uFF1F",
-                        "\u786E\u8BA4", JOptionPane.YES_NO_CANCEL_OPTION,
+                        "数据量较大（" + sourceModel.getRowCount() + " 行），是否改为异步导出？",
+                        "确认", JOptionPane.YES_NO_CANCEL_OPTION,
                         JOptionPane.QUESTION_MESSAGE, null,
-                        new String[]{"\u5F02\u6B65", "\u540C\u6B65", "\u53D6\u6D88"}, "\u5F02\u6B65");
+                        new String[]{"异步", "同步", "取消"}, "异步");
                 if (opt == 0) { doExportAsync(); return; }
                 if (opt == 2) return;
             }
@@ -157,14 +157,14 @@ public class AdvancedExportDialog extends BaseToolDialog {
             if (!content.isEmpty()) {
                 Toolkit.getDefaultToolkit().getSystemClipboard()
                         .setContents(new StringSelection(content), null);
-                ToastManager.show(this, "\u5DF2\u590D\u5236\u5230\u526A\u8D34\u677F");
+                ToastManager.show(this, "已复制到剪贴板");
             }
         });
 
-        JButton asyncBtn = new JButton("\u5F02\u6B65\u5BFC\u51FA");
+        JButton asyncBtn = new JButton("异步导出");
         asyncBtn.addActionListener(e -> doExportAsync());
 
-        JButton saveBtn = new JButton("\u4FDD\u5B58\u6587\u4EF6...");
+        JButton saveBtn = new JButton("保存文件...");
         saveBtn.addActionListener(e -> saveToFile());
 
         JPanel southPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 4));
@@ -216,7 +216,7 @@ public class AdvancedExportDialog extends BaseToolDialog {
                 case "Markdown": outputArea.setText(exportMarkdown()); break;
             }
         } catch (Exception e) {
-            outputArea.setText("\u5BFC\u51FA\u9519\u8BEF: " + e.getMessage());
+            outputArea.setText("导出错误: " + e.getMessage());
         }
     }
 
@@ -399,7 +399,7 @@ public class AdvancedExportDialog extends BaseToolDialog {
                     case "Oracle": return "HEXTORAW('" + hex + "')";
                     case "MySQL": return "X'" + hex + "'";
                     case "PostgreSQL": return "'\\x" + hex.toString().toLowerCase() + "'::bytea";
-                    case "ANSI SQL": return "NULL /* BLOB \u4E0D\u652F\u6301\u76F4\u63A5 INSERT */";
+                    case "ANSI SQL": return "NULL /* BLOB 不支持直接 INSERT */";
                 }
             }
             if ("CSV".equals(format)) return "\"" + hex + "\"";
@@ -448,9 +448,9 @@ public class AdvancedExportDialog extends BaseToolDialog {
             String charset = (String) charsetCombo.getSelectedItem();
             try (Writer w = new OutputStreamWriter(new FileOutputStream(file), charset)) {
                 w.write(outputArea.getText());
-                ToastManager.show(this, "\u5DF2\u4FDD\u5B58\u5230: " + file.getName());
+                ToastManager.show(this, "已保存到: " + file.getName());
             } catch (Exception e) {
-                ToastManager.showError(this, "\u4FDD\u5B58\u5931\u8D25: " + e.getMessage());
+                ToastManager.showError(this, "保存失败: " + e.getMessage());
             }
         }
     }

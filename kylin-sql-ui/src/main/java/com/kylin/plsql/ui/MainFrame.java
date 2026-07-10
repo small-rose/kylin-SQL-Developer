@@ -3,15 +3,14 @@ package com.kylin.plsql.ui;
 import com.kylin.plsql.core.cache.MetadataCache;
 import com.kylin.plsql.core.config.AppTheme;
 import com.kylin.plsql.core.config.ConfigManager;
-import com.kylin.plsql.core.config.ConfigManager.WorkspaceState;
 import com.kylin.plsql.core.config.ConfigManager.TabState;
+import com.kylin.plsql.core.config.ConfigManager.WorkspaceState;
 import com.kylin.plsql.core.config.ThemeManager;
 import com.kylin.plsql.core.db.ConnectionInfo;
 import com.kylin.plsql.core.db.ConnectionManager;
 import com.kylin.plsql.core.db.SqlExecutor;
 import com.kylin.plsql.core.db.SqlHistory;
 import com.kylin.plsql.core.format.FormatOptions;
-import com.kylin.plsql.core.format.SqlFormatter;
 import com.kylin.plsql.core.format.dialect.DialectManager;
 import com.kylin.plsql.core.format.dialect.SqlDialect;
 import com.kylin.plsql.core.format.plsql.PlSqlFormatter;
@@ -21,33 +20,28 @@ import com.kylin.plsql.core.parser.PlSqlNavigator;
 import com.kylin.plsql.core.parser.PlSqlSymbolIndex;
 import com.kylin.plsql.ui.component.bottom.BottomPanel;
 import com.kylin.plsql.ui.component.bottom.BottomPanel.TabInfo;
-import com.kylin.plsql.ui.component.bottom.ResultPanel;
 import com.kylin.plsql.ui.component.bottom.StatusBar;
 import com.kylin.plsql.ui.component.center.SourceViewerPanel;
 import com.kylin.plsql.ui.component.center.SqlEditorPanel;
 import com.kylin.plsql.ui.component.center.WelcomePanel;
-import com.kylin.plsql.ui.component.common.PlSqlTokenMaker;
+import com.kylin.plsql.ui.component.common.IconUtil;
 import com.kylin.plsql.ui.component.common.ToastManager;
 import com.kylin.plsql.ui.component.left.LeftPanel;
 import com.kylin.plsql.ui.component.left.LocalFileBrowser;
 import com.kylin.plsql.ui.component.left.ObjectBrowser;
 import com.kylin.plsql.ui.component.right.RightPanel;
-import com.kylin.plsql.ui.dialog.common.BaseToolDialog;
 import com.kylin.plsql.ui.dialog.connection.ConnectionDialog;
 import com.kylin.plsql.ui.dialog.navigation.CallHierarchyDialog;
 import com.kylin.plsql.ui.dialog.navigation.GlobalSearchDialog;
 import com.kylin.plsql.ui.dialog.settings.SettingsDialog;
 import com.kylin.plsql.ui.dialog.tools.AdvancedExportDialog;
 import com.kylin.plsql.ui.dialog.tools.DataGeneratorDialog;
-import com.kylin.plsql.ui.dialog.tools.ExportTaskListDialog;
 import com.kylin.plsql.ui.dialog.tools.ObjectSearchDialog;
 import com.kylin.plsql.ui.dialog.tools.RegexTesterDialog;
 import com.kylin.plsql.ui.dialog.tools.SqlFormatDialog;
 import com.kylin.plsql.ui.dialog.tools.SqlHistoryDialog;
 import com.kylin.plsql.ui.dialog.tools.SqlToolsDialog;
 import com.kylin.plsql.ui.dialog.tools.TextDiffDialog;
-
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,22 +50,19 @@ import javax.swing.event.CaretListener;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.swing.text.BadLocationException;
 import javax.swing.tree.DefaultMutableTreeNode;
-import javax.swing.tree.TreePath;
 import java.awt.*;
-
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
-import java.awt.image.BufferedImage;
 import java.awt.event.WindowEvent;
+import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Connection;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.sql.Connection;
-import java.sql.SQLException;
-import java.util.List;
+import java.util.regex.Pattern;
 
 /** Main application window with menu bar, toolbars, editor tabs, and status bar. */
 public class MainFrame extends JFrame {
@@ -124,6 +115,7 @@ public class MainFrame extends JFrame {
         this.configManager = configManager;
         this.connectionManager = new ConnectionManager();
         consoleCounter = 1;
+        com.kylin.plsql.core.format.EngineManager.registerCustomEngine(formatOptions);
         initComponents();
         layoutComponents();
         setupMenu();
@@ -165,32 +157,33 @@ public class MainFrame extends JFrame {
         toolbar.setBorder(BorderFactory.createMatteBorder(1, 0, 1, 0,
             ThemeManager.getInstance().resolve("border.light")));
 
-        JButton newBtn = tb("\u2795", "\u65B0\u5EFA SQL \u6587\u4EF6 (Ctrl+N)", e -> newFile(null, null));
+        JButton newBtn = tb("new", "新建", "新建 SQL 文件 (Ctrl+N)", e -> newFile(null, null));
         toolbar.add(newBtn);
 
-        JButton openBtn = tb("\uD83D\uDCC2", "\u6253\u5F00 (Ctrl+O)", e -> openFile());
+        JButton openBtn = tb("open", "打开", "打开 (Ctrl+O)", e -> openFile());
         toolbar.add(openBtn);
 
-        JButton saveBtn = tb("\uD83D\uDCBE", "\u4FDD\u5B58 (Ctrl+S)", e -> saveActiveFile());
+        JButton saveBtn = tb("save", "保存", "保存 (Ctrl+S)", e -> saveActiveFile());
         toolbar.add(saveBtn);
 
         toolbar.addSeparator();
 
-        JButton execBtn = tb("\u25B6", "\u6267\u884C (F8)", e -> executeActiveEditor());
+        JButton execBtn = tb("execute", "执行", "执行 (F8)", e -> executeActiveEditor());
         execBtn.setForeground(new Color(0x5CB85C));
         toolbar.add(execBtn);
 
-        JButton formatBtn = tb("\u2699", "\u683C\u5F0F\u5316 (Ctrl+Shift+F)", e -> formatSql());
+        JButton formatBtn = tb("format", "格式化", "格式化 (Ctrl+Shift+F)", e -> formatSql());
         toolbar.add(formatBtn);
 
         toolbar.addSeparator();
 
-        JButton connBtn = tb("\uD83D\uDD17", "\u7BA1\u7406\u8FDE\u63A5", e -> showConnectionDialog());
+        JButton connBtn = tb("connect", "连接", "管理连接", e -> showConnectionDialog());
         toolbar.add(connBtn);
 
         toolbar.addSeparator();
 
-        JButton locateBtn = tb("\u2693", "\u5B9A\u4F4D\u6587\u4EF6", e -> {
+        // 定位文件
+        JButton locateBtn = tb("locate", "定位", "定位文件", e -> {
             if (fileBrowser != null) {
                 Runnable r = fileBrowser.getOnLocateFile();
                 if (r != null) r.run();
@@ -222,11 +215,12 @@ public class MainFrame extends JFrame {
             }
             @Override
             public void onSyncProgress(String connName, int percent) {
-                statusBar.setSyncProgress("\u5237\u65B0\u5143\u6570\u636E: " + connName, percent);
+                statusBar.setSyncProgress("刷新元数据: " + connName, percent);
             }
             @Override
             public void onSyncComplete(String connName) {
-                statusBar.setMessage(connName + " \u5237\u65B0\u5B8C\u6210");
+                // 刷新完成
+                statusBar.setMessage(connName + " 刷新完成");
                 javax.swing.Timer t = new javax.swing.Timer(4000, ev -> statusBar.hideSyncProgress());
                 t.setRepeats(false);
                 t.start();
@@ -248,7 +242,7 @@ public class MainFrame extends JFrame {
             if (active instanceof SqlEditorPanel ep) {
                 String fp = ep.getFilePath();
                 if (fp == null) {
-                    showToast("\u5F53\u524D\u6807\u7B7E\u9875\u6CA1\u6709\u5173\u8054\u6587\u4EF6");
+                    showToast("当前标签页没有关联文件");
                     return;
                 }
                 // Try left panel LocalFileBrowser first
@@ -263,17 +257,17 @@ public class MainFrame extends JFrame {
                     rightPanel.selectFilesTab();
                     return;
                 }
-                showToast("\u6587\u4EF6\u672A\u5728\u6587\u4EF6\u6D4F\u89C8\u5668\u4E2D\u627E\u5230");
+                showToast("文件未在文件浏览器中找到");
             } else if (active instanceof SourceViewerPanel sv) {
                 String cn = sv.getConnName();
                 if (cn == null || cn.isEmpty()) {
-                    showToast("\u5F53\u524D\u6807\u7B7E\u9875\u6CA1\u6709\u5173\u8054\u8FDE\u63A5");
+                    showToast("当前标签页没有关联连接");
                     return;
                 }
                 leftPanel.ensureDatabaseTab();
                 objectBrowser.locateObject(sv.getConnName(), sv.getSchema(), sv.getObjectType(), sv.getObjectName());
             } else {
-                showToast("\u5F53\u524D\u6807\u7B7E\u9875\u6CA1\u6709\u53EF\u5B9A\u4F4D\u7684\u5BF9\u8C61");
+                showToast("当前标签页没有可定位的对象");
             }
         });
         leftPanel = new LeftPanel(objectBrowser, fileBrowser, () -> {
@@ -358,8 +352,8 @@ public class MainFrame extends JFrame {
         });
         bottomPanel.setOnDeleteRecord(ti -> {
             int ret = JOptionPane.showConfirmDialog(this,
-                "\u786E\u5B9A\u8981\u5220\u9664\u8BB0\u5F55\u201C" + ti.tabTitle + "\u201D\u5417\uFF1F",
-                "\u5220\u9664\u8BB0\u5F55", JOptionPane.YES_NO_OPTION);
+                "确定要删除记录“" + ti.tabTitle + "”吗？",
+                "删除记录", JOptionPane.YES_NO_OPTION);
             if (ret != JOptionPane.YES_OPTION) return;
             removeFromClosedTabs(ti);
             bottomPanel.refreshConnTree();
@@ -428,7 +422,7 @@ public class MainFrame extends JFrame {
             }
         });
         statusBar.setOnEncodingChange(cs -> {
-            statusBar.setMessage("\u7F16\u7801\u5DF2\u66F4\u6539: " + cs);
+            statusBar.setMessage("编码已更改: " + cs);
         });
 
         // Ctrl+Shift+F10 to execute active editor
@@ -575,70 +569,79 @@ public class MainFrame extends JFrame {
         updateLogoIcon();
         menuBar.add(logoLabel);
 
-        JMenu fileMenu = new JMenu("\u6587\u4EF6");
-        JMenuItem newItem = new JMenuItem("\u65B0\u5EFA SQL \u6587\u4EF6");
+        JMenu fileMenu = new JMenu("文件");
+        JMenuItem newItem = new JMenuItem("新建 SQL 文件");
+        newItem.setIcon(IconUtil.menuIcon("new"));
         newItem.setAccelerator(KeyStroke.getKeyStroke("control N"));
         newItem.addActionListener(e -> newFile(null, null));
         fileMenu.add(newItem);
 
-        JMenuItem openItem = new JMenuItem("\u6253\u5F00 SQL \u6587\u4EF6");
+        JMenuItem openItem = new JMenuItem("打开 SQL 文件");
+        openItem.setIcon(IconUtil.menuIcon("open"));
         openItem.setAccelerator(KeyStroke.getKeyStroke("control O"));
         openItem.addActionListener(e -> openFile());
         fileMenu.add(openItem);
 
         fileMenu.addSeparator();
 
-        JMenuItem saveItem = new JMenuItem("\u4FDD\u5B58");
+        JMenuItem saveItem = new JMenuItem("保存");
+        saveItem.setIcon(IconUtil.menuIcon("save"));
         saveItem.setAccelerator(KeyStroke.getKeyStroke("control S"));
         saveItem.addActionListener(e -> saveActiveFile());
         fileMenu.add(saveItem);
 
-        JMenuItem saveAsItem = new JMenuItem("\u53E6\u5B58\u4E3A");
+        JMenuItem saveAsItem = new JMenuItem("另存为");
+        saveAsItem.setIcon(IconUtil.menuIcon("save-plus"));
         saveAsItem.setAccelerator(KeyStroke.getKeyStroke("control shift S"));
         saveAsItem.addActionListener(e -> saveActiveFileAs());
         fileMenu.add(saveAsItem);
 
         fileMenu.addSeparator();
-        JMenuItem closeItem = new JMenuItem("\u5173\u95ED\u6807\u7B7E");
+        JMenuItem closeItem = new JMenuItem("关闭标签");
+        closeItem.setIcon(IconUtil.menuIcon("x"));
         closeItem.setAccelerator(KeyStroke.getKeyStroke("control W"));
         closeItem.addActionListener(e -> closeCurrentTab());
         fileMenu.add(closeItem);
 
         fileMenu.addSeparator();
-        JMenuItem prefItem = new JMenuItem("\u8BBE\u7F6E");
+        JMenuItem prefItem = new JMenuItem("设置");
+        prefItem.setIcon(IconUtil.menuIcon("settings"));
         prefItem.setAccelerator(KeyStroke.getKeyStroke("control alt S"));
         prefItem.addActionListener(e -> showSettingsDialog());
         fileMenu.add(prefItem);
 
         fileMenu.addSeparator();
-        JMenuItem exitItem = new JMenuItem("\u9000\u51FA");
+        JMenuItem exitItem = new JMenuItem("退出");
         exitItem.addActionListener(e -> System.exit(0));
         fileMenu.add(exitItem);
         menuBar.add(fileMenu);
 
-        JMenu editMenu = new JMenu("\u7F16\u8F91");
-        JMenuItem undoItem = new JMenuItem("\u64A4\u9500");
+        JMenu editMenu = new JMenu("编辑");
+        JMenuItem undoItem = new JMenuItem("撤销");
         undoItem.setAccelerator(KeyStroke.getKeyStroke("control Z"));
         undoItem.addActionListener(e -> action("undo"));
         editMenu.add(undoItem);
 
-        JMenuItem redoItem = new JMenuItem("\u91CD\u505A");
+        JMenuItem redoItem = new JMenuItem("重做");
         redoItem.setAccelerator(KeyStroke.getKeyStroke("control Y"));
         redoItem.addActionListener(e -> action("redo"));
         editMenu.add(redoItem);
 
         editMenu.addSeparator();
-        JMenuItem findItem = new JMenuItem("\u67E5\u627E");
+        JMenuItem findItem = new JMenuItem("查找");
+        findItem.setIcon(IconUtil.menuIcon("search"));
         findItem.setAccelerator(KeyStroke.getKeyStroke("control F"));
         findItem.addActionListener(e -> action("find"));
         editMenu.add(findItem);
 
-        JMenuItem replaceItem = new JMenuItem("\u66FF\u6362");
+        JMenuItem replaceItem = new JMenuItem("替换");
+        replaceItem.setIcon(IconUtil.menuIcon("search"));
         replaceItem.setAccelerator(KeyStroke.getKeyStroke("control R"));
         replaceItem.addActionListener(e -> action("replace"));
         editMenu.add(replaceItem);
         editMenu.addSeparator();
-        JMenuItem globalSearchItem = new JMenuItem("\u5168\u5C40\u641C\u7D22");
+        JMenuItem globalSearchItem = new JMenuItem("全局搜索");
+        globalSearchItem.setIcon(IconUtil.menuIcon("file-search"));
         globalSearchItem.setAccelerator(KeyStroke.getKeyStroke("control P"));
         globalSearchItem.addActionListener(e -> showGlobalSearch());
         editMenu.add(globalSearchItem);
@@ -659,43 +662,47 @@ public class MainFrame extends JFrame {
         });
 
         JMenu sqlMenu = new JMenu("SQL");
-        JMenuItem execItem = new JMenuItem("\u6267\u884C (F8)");
+        JMenuItem execItem = new JMenuItem("执行 (F8)");
+        execItem.setIcon(IconUtil.menuIcon("execute"));
         execItem.setAccelerator(KeyStroke.getKeyStroke("F8"));
         execItem.addActionListener(e -> executeActiveEditor());
         sqlMenu.add(execItem);
 
-        JMenuItem appendExecItem = new JMenuItem("\u8FFD\u52A0\u6267\u884C (F9)");
+        JMenuItem appendExecItem = new JMenuItem("追加执行 (F9)");
+        appendExecItem.setIcon(IconUtil.menuIcon("append"));
         appendExecItem.setAccelerator(KeyStroke.getKeyStroke("F9"));
         appendExecItem.addActionListener(e -> executeAppendEditor());
         sqlMenu.add(appendExecItem);
 
-        JMenuItem fmtItem = new JMenuItem("\u683C\u5F0F\u5316 (Ctrl+Shift+F)");
+        JMenuItem fmtItem = new JMenuItem("格式化 (Ctrl+Shift+F)");
+        fmtItem.setIcon(IconUtil.menuIcon("format"));
         fmtItem.setAccelerator(KeyStroke.getKeyStroke("control shift F"));
         fmtItem.addActionListener(e -> formatSql());
         sqlMenu.add(fmtItem);
 
-        JMenuItem planItem = new JMenuItem("\u6267\u884C\u8BA1\u5212");
+        JMenuItem planItem = new JMenuItem("执行计划");
+        planItem.setIcon(IconUtil.menuIcon("skip-forward"));
         planItem.setAccelerator(KeyStroke.getKeyStroke("control E"));
         planItem.addActionListener(e -> explainPlan());
         sqlMenu.add(planItem);
 
-        JMenuItem callItem = new JMenuItem("\u8C03\u7528\u5C42\u7EA7 (Ctrl+Alt+H)");
-        callItem.setAccelerator(KeyStroke.getKeyStroke("control alt H"));
+        JMenuItem callItem = new JMenuItem("调用层级 (Ctrl+Alt+H)");
         callItem.addActionListener(e -> showCallHierarchy());
         sqlMenu.add(callItem);
 
-        JMenuItem histItem = new JMenuItem("SQL \u5386\u53F2\u8BB0\u5F55");
+        JMenuItem histItem = new JMenuItem("SQL 历史记录");
+        histItem.setIcon(IconUtil.menuIcon("history"));
         histItem.setAccelerator(KeyStroke.getKeyStroke("control shift H"));
         histItem.addActionListener(e -> showSqlHistoryDialog());
         sqlMenu.add(histItem);
 
         menuBar.add(sqlMenu);
 
-        JMenu viewMenu = new JMenu("\u89C6\u56FE");
-        JMenu themeMenu = new JMenu("\u4E3B\u9898");
+        JMenu viewMenu = new JMenu("视图");
+        JMenu themeMenu = new JMenu("主题");
         ButtonGroup themeGroup = new ButtonGroup();
         AppTheme[] themes = {AppTheme.DARK, AppTheme.LIGHT, AppTheme.GREEN};
-        String[] themeLabels = {"Darcula", "Light", "\u8C46\u6C99\u7EFF"};
+        String[] themeLabels = {"Darcula", "Light", "豆沙绿"};
         for (int i = 0; i < themes.length; i++) {
             JRadioButtonMenuItem mi = new JRadioButtonMenuItem(themeLabels[i]);
             int idx = i;
@@ -708,46 +715,58 @@ public class MainFrame extends JFrame {
         menuBar.add(viewMenu);
 
         // ── Tools Menu ──
-        JMenu toolsMenu = new JMenu("\u5DE5\u5177");
+        JMenu toolsMenu = new JMenu("工具");
 
-        JMenuItem sqlToolsItem = new JMenuItem("SQL \u5DE5\u5177");
+        JMenuItem sqlToolsItem = new JMenuItem("SQL 工具");
         sqlToolsItem.addActionListener(e -> new SqlToolsDialog(MainFrame.this).setVisible(true));
         toolsMenu.add(sqlToolsItem);
 
-        JMenuItem sqlFmtItem = new JMenuItem("SQL \u683C\u5F0F\u5316");
+        JMenuItem sqlFmtItem = new JMenuItem("SQL 格式化");
+        sqlFmtItem.setIcon(IconUtil.menuIcon("format"));
         sqlFmtItem.addActionListener(e -> new SqlFormatDialog(MainFrame.this, formatOptions).setVisible(true));
         toolsMenu.add(sqlFmtItem);
 
-        JMenuItem dataGenItem = new JMenuItem("\u6570\u636E\u751F\u6210\u5668");
+        JMenuItem dataGenItem = new JMenuItem("数据生成器");
         dataGenItem.addActionListener(e -> showDataGeneratorDialog());
         toolsMenu.add(dataGenItem);
 
-        JMenuItem sqlHistItem = new JMenuItem("SQL \u5386\u53F2");
+        JMenuItem sqlHistItem = new JMenuItem("SQL 历史");
+        sqlHistItem.setIcon(IconUtil.menuIcon("history"));
         sqlHistItem.addActionListener(e -> showSqlHistoryDialog());
         toolsMenu.add(sqlHistItem);
 
-        JMenuItem diffItem = new JMenuItem("\u6587\u672C\u6BD4\u8F83");
+        JMenuItem diffItem = new JMenuItem("文本比较");
+        diffItem.setIcon(IconUtil.menuIcon("compare"));
         diffItem.addActionListener(e -> new TextDiffDialog(MainFrame.this).setVisible(true));
         toolsMenu.add(diffItem);
 
-        JMenuItem regexItem = new JMenuItem("\u6B63\u5219\u6D4B\u8BD5\u5668");
+        JMenuItem regexItem = new JMenuItem("正则测试器");
+        regexItem.setIcon(IconUtil.menuIcon("regex"));
         regexItem.addActionListener(e -> new RegexTesterDialog(MainFrame.this).setVisible(true));
         toolsMenu.add(regexItem);
 
-        JMenuItem objSearchItem = new JMenuItem("\u5BF9\u8C61\u641C\u7D22");
+        JMenuItem objSearchItem = new JMenuItem("对象搜索");
+        objSearchItem.setIcon(IconUtil.menuIcon("database-search"));
         objSearchItem.addActionListener(e -> showObjectSearchDialog());
         toolsMenu.add(objSearchItem);
 
         toolsMenu.addSeparator();
 
-        JMenuItem advExportItem = new JMenuItem("\u9AD8\u7EA7\u5BFC\u51FA");
+        JMenuItem advExportItem = new JMenuItem("高级导出");
         advExportItem.addActionListener(e -> showAdvancedExportDialog());
         toolsMenu.add(advExportItem);
 
         menuBar.add(toolsMenu);
 
-        JMenu helpMenu = new JMenu("\u5E2E\u52A9");
-        helpMenu.add(new JMenuItem("\u5173\u4E8E"));
+        JMenu helpMenu = new JMenu("帮助");
+        JMenuItem logItem = new JMenuItem("应用日志");
+        logItem.setIcon(IconUtil.menuIcon("info"));
+        logItem.addActionListener(e -> new com.kylin.plsql.ui.dialog.common.LogViewerDialog(MainFrame.this).setVisible(true));
+        helpMenu.add(logItem);
+        helpMenu.addSeparator();
+        JMenuItem aboutItem = new JMenuItem("关于");
+        aboutItem.setIcon(IconUtil.menuIcon("help"));
+        helpMenu.add(aboutItem);
         menuBar.add(helpMenu);
 
         setJMenuBar(menuBar);
@@ -789,7 +808,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         initTabComponent(idx, editor);
         editorTabs.setSelectedComponent(editor);
         editor.getTextArea().requestFocusInWindow();
-        statusBar.setMessage("\u65B0\u5EFA: " + editor.getTabTitle());
+        statusBar.setMessage("新建: " + editor.getTabTitle());
         installCaretListener(editor);
         saveWorkspace();
     }
@@ -892,7 +911,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
     }
 
     private static JButton createCloseButton() {
-        JButton btn = new JButton("\u00D7") {
+        JButton btn = new JButton("×") {
             @Override
             protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
@@ -922,55 +941,107 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         return btn;
     }
 
+    /** Matches: CREATE [OR REPLACE] (FUNCTION|PROCEDURE|PACKAGE [BODY]|...) */
+    private static final Pattern OBJ_CREATE_PATTERN = Pattern.compile(
+        "CREATE\\s+(OR\\s+REPLACE\\s+)?(FUNCTION|PROCEDURE|PACKAGE\\s+BODY|PACKAGE|TYPE\\s+BODY|TYPE|TRIGGER)\\b",
+        Pattern.CASE_INSENSITIVE | Pattern.MULTILINE);
+    /** Matches standalone declaration at line start: e.g. "PACKAGE BODY foo IS" */
+    private static final Pattern OBJ_DECL_PATTERN = Pattern.compile(
+        "^(PACKAGE\\s+BODY|PACKAGE|FUNCTION|PROCEDURE)\\s+\\w+",
+        Pattern.CASE_INSENSITIVE | Pattern.MULTILINE);
+
+    private static String detectObjectType(String content) {
+        if (content == null || content.isBlank()) {
+            log.debug("detectObjectType: content is null/blank");
+            return null;
+        }
+        var m = OBJ_CREATE_PATTERN.matcher(content);
+        if (m.find()) {
+            String type = m.group(2).toUpperCase().replace(' ', '_');
+            log.debug("detectObjectType: matched via CREATE, type={}, raw='{}'", type, m.group());
+            return type;
+        }
+        m = OBJ_DECL_PATTERN.matcher(content);
+        if (m.find()) {
+            String type = m.group(1).toUpperCase().replace(' ', '_');
+            log.debug("detectObjectType: matched via line-start decl, type={}, raw='{}'", type, m.group());
+            return type;
+        }
+        log.debug("detectObjectType: no match, first 200 chars: {}",
+            content.substring(0, Math.min(200, content.length())).replace('\n', ' '));
+        return null;
+    }
+
     private void openFile() {
         JFileChooser chooser = new JFileChooser();
-        chooser.setFileFilter(new FileNameExtensionFilter("SQL \u6587\u4EF6 (*.sql)", "sql"));
+        chooser.setFileFilter(new FileNameExtensionFilter("SQL 文件 (*.sql)", "sql"));
         chooser.setAcceptAllFileFilterUsed(true);
         if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
 
         File file = chooser.getSelectedFile();
         if (!file.exists()) return;
 
+        String fileName = file.getName();
         for (int i = 0; i < editorTabs.getTabCount(); i++) {
             Component comp = editorTabs.getComponentAt(i);
-            if (comp instanceof SqlEditorPanel ep && file.getAbsolutePath().equals(ep.getFilePath())) {
+            if (comp instanceof SourceViewerPanel sv && fileName.equals(sv.getObjectName())
+                    || comp instanceof SqlEditorPanel ep && file.getAbsolutePath().equals(ep.getFilePath())) {
                 editorTabs.setSelectedIndex(i);
-                statusBar.setMessage("\u5DF2\u6253\u5F00: " + file.getName());
+                statusBar.setMessage("已打开: " + fileName);
                 return;
             }
         }
 
         try {
             String content = Files.readString(file.toPath());
-            SqlEditorPanel editor = new SqlEditorPanel(connectionManager, file.getName());
-            editor.getTextArea().setSyntaxEditingStyle("text/plsql");
-        editor.setText(content);
-        editor.setFilePath(file.getAbsolutePath());
-        editor.resetModified();
-        var connections = configManager.loadConnections();
-        editor.setConnections(connections);
-        editor.setOnExecute(() -> executeActiveEditor());
-        editor.setOnAppendExecute(() -> executeAppendEditor());
-        editor.setOnFormat(this::formatSql);
-        editor.setOnStatusMessage(msg -> {
-    bottomPanel.showToast(msg);
-    statusBar.setStatusText(msg);
-});
-editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
-        editor.setOnConnectionChange(() -> bottomPanel.refreshConnTree());
-        showEditorTabs();
-        editorTabs.addTab(editor.getTabTitle(), editor);
-        int idx = editorTabs.indexOfComponent(editor);
-        initTabComponent(idx, editor);
-        editorTabs.setSelectedComponent(editor);
-        editor.getTextArea().requestFocusInWindow();
-        statusBar.setMessage("\u5DF2\u6253\u5F00: " + file.getAbsolutePath());
-        installCaretListener(editor);
-        rightPanel.onFileOpenedOrSaved(file.getAbsolutePath());
-        saveWorkspace();
+            log.debug("openFile: {} bytes read from {}", content.length(), file.getAbsolutePath());
+            String objType = detectObjectType(content);
+            log.debug("openFile: detected object type = {}", objType);
+            if (objType != null) {
+                log.debug("openFile: opening in SourceViewerPanel (type={})", objType);
+                SourceViewerPanel viewer = new SourceViewerPanel(connectionManager, null, null,
+                    file.getName(), objType, content);
+                showEditorTabs();
+                editorTabs.addTab(viewer.getTabTitle(), viewer);
+                int idx = editorTabs.indexOfComponent(viewer);
+                initTabComponent(idx, viewer);
+                editorTabs.setSelectedComponent(viewer);
+                viewer.getTextArea().requestFocusInWindow();
+                statusBar.setMessage("已打开: " + file.getAbsolutePath());
+                rightPanel.onFileOpenedOrSaved(file.getAbsolutePath());
+                saveWorkspace();
+            } else {
+                log.debug("openFile: opening in SqlEditorPanel (no object type detected)");
+                SqlEditorPanel editor = new SqlEditorPanel(connectionManager, file.getName());
+                editor.getTextArea().setSyntaxEditingStyle("text/plsql");
+                editor.setText(content);
+                editor.setFilePath(file.getAbsolutePath());
+                editor.resetModified();
+                var connections = configManager.loadConnections();
+                editor.setConnections(connections);
+                editor.setOnExecute(() -> executeActiveEditor());
+                editor.setOnAppendExecute(() -> executeAppendEditor());
+                editor.setOnFormat(this::formatSql);
+                editor.setOnStatusMessage(msg -> {
+                    bottomPanel.showToast(msg);
+                    statusBar.setStatusText(msg);
+                });
+                editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
+                editor.setOnConnectionChange(() -> bottomPanel.refreshConnTree());
+                showEditorTabs();
+                editorTabs.addTab(editor.getTabTitle(), editor);
+                int idx = editorTabs.indexOfComponent(editor);
+                initTabComponent(idx, editor);
+                editorTabs.setSelectedComponent(editor);
+                editor.getTextArea().requestFocusInWindow();
+                statusBar.setMessage("已打开: " + file.getAbsolutePath());
+                installCaretListener(editor);
+                rightPanel.onFileOpenedOrSaved(file.getAbsolutePath());
+                saveWorkspace();
+            }
         } catch (IOException e) {
-            JOptionPane.showMessageDialog(this, "\u6253\u5F00\u6587\u4EF6\u5931\u8D25:\n" + e.getMessage(),
-                "\u9519\u8BEF", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "打开文件失败:\n" + e.getMessage(),
+                "错误", JOptionPane.ERROR_MESSAGE);
         }
     }
 
@@ -1066,7 +1137,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
 
     private boolean saveFileAs(SqlEditorPanel editor) {
         JFileChooser chooser = new JFileChooser();
-        chooser.setFileFilter(new FileNameExtensionFilter("SQL \u6587\u4EF6 (*.sql)", "sql"));
+        chooser.setFileFilter(new FileNameExtensionFilter("SQL 文件 (*.sql)", "sql"));
         if (editor.getFilePath() != null) {
             chooser.setSelectedFile(new File(editor.getFilePath()));
         }
@@ -1079,8 +1150,8 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
 
         if (file.exists()) {
             int ret = JOptionPane.showConfirmDialog(this,
-                "\u6587\u4EF6\u5DF2\u5B58\u5728\uFF0C\u662F\u5426\u8986\u76D6?\n" + file.getName(),
-                "\u786E\u8BA4\u4FDD\u5B58", JOptionPane.YES_NO_OPTION);
+                "文件已存在，是否覆盖?\n" + file.getName(),
+                "确认保存", JOptionPane.YES_NO_OPTION);
             if (ret != JOptionPane.YES_OPTION) return false;
         }
 
@@ -1102,12 +1173,12 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                     label.setText(editor.getTabTitle());
                 }
             }
-            statusBar.setMessage("\u5DF2\u4FDD\u5B58: " + path.toAbsolutePath());
+            statusBar.setMessage("已保存: " + path.toAbsolutePath());
             rightPanel.onFileOpenedOrSaved(path.toAbsolutePath().toString());
             return true;
         } catch (IOException e) {
-            JOptionPane.showMessageDialog(this, "\u4FDD\u5B58\u6587\u4EF6\u5931\u8D25:\n" + e.getMessage(),
-                "\u9519\u8BEF", JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "保存文件失败:\n" + e.getMessage(),
+                "错误", JOptionPane.ERROR_MESSAGE);
             return false;
         }
     }
@@ -1140,8 +1211,8 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
 
             if (editor.isModified()) {
                 int ret = JOptionPane.showConfirmDialog(this,
-                    "\u4FDD\u5B58\u5BF9 \"" + editor.getTabTitle() + "\" \u7684\u66F4\u6539?",
-                    "\u672A\u4FDD\u5B58\u66F4\u6539", JOptionPane.YES_NO_CANCEL_OPTION);
+                    "保存对 \"" + editor.getTabTitle() + "\" 的更改?",
+                    "未保存更改", JOptionPane.YES_NO_CANCEL_OPTION);
                 if (ret == JOptionPane.CANCEL_OPTION) return;
                 if (ret == JOptionPane.YES_OPTION) {
                     if (!saveFile(editor)) return;
@@ -1197,56 +1268,58 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         Component comp = tabs.getComponentAt(index);
         JPopupMenu menu = new JPopupMenu();
 
-        addItem(menu, "\u5173\u95ED", () -> closeTab(tabs, index));
-        addItem(menu, "\u5173\u95ED\u5176\u4ED6", () -> closeOtherTabs(tabs, index));
-        addItem(menu, "\u5173\u95ED\u5168\u90E8", () -> closeAllTabs(tabs));
-        addItem(menu, "\u5173\u95ED\u672A\u4FEE\u6539", () -> closeUnmodifiedTabs(tabs, index));
-        addItem(menu, "\u5173\u95ED\u5DE6\u4FA7\u6807\u7B7E", () -> closeLeftTabs(tabs, index));
-        addItem(menu, "\u5173\u95ED\u53F3\u4FA7\u6807\u7B7E", () -> closeRightTabs(tabs, index));
+        addItem(menu, "关闭", "x", () -> closeTab(tabs, index));
+        addItem(menu, "关闭其他", "x", () -> closeOtherTabs(tabs, index));
+        addItem(menu, "关闭全部", "x", () -> closeAllTabs(tabs));
+        addItem(menu, "关闭未修改", "x", () -> closeUnmodifiedTabs(tabs, index));
+        addItem(menu, "关闭左侧标签", "x", () -> closeLeftTabs(tabs, index));
+        addItem(menu, "关闭右侧标签", "x", () -> closeRightTabs(tabs, index));
         menu.addSeparator();
         boolean pinned = isPinned(tabs, index);
-        addItem(menu, pinned ? "\u53D6\u6D88\u56FA\u5B9A" : "\u56FA\u5B9A\u6807\u7B7E", () -> togglePin(tabs, index));
+        addItem(menu, pinned ? "取消固定" : "固定标签", pinned ? "pin-off" : "pin", () -> togglePin(tabs, index));
         menu.addSeparator();
-        addItem(menu, "\u5411\u53F3\u62C6\u5206", () -> splitEditor(tabs, index, false));
-        addItem(menu, "\u5411\u4E0B\u62C6\u5206", () -> splitEditor(tabs, index, true));
+        addItem(menu, "向右拆分", "split-vertical", () -> splitEditor(tabs, index, false));
+        addItem(menu, "向下拆分", "split-vertical", () -> splitEditor(tabs, index, true));
         menu.addSeparator();
         if (comp instanceof SqlEditorPanel) {
-            addItem(menu, "\u5F00\u59CB\u6267\u884C  (Ctrl+Shift+F10)", () -> executeActiveEditor());
+            addItem(menu, "开始执行  (Ctrl+Shift+F10)", "execute", () -> executeActiveEditor());
             menu.addSeparator();
         }
-        addItem(menu, "\u53E6\u5B58\u4E3A...", () -> saveActiveFileAs());
-        addItem(menu, "\u590D\u5236\u6587\u4EF6\u540D", () -> copyFileName(tabs, index));
+        addItem(menu, "另存为...", "save-plus", () -> saveActiveFileAs());
+        addItem(menu, "复制文件名", "copy", () -> copyFileName(tabs, index));
         if (comp instanceof SqlEditorPanel ep && ep.getFilePath() != null) {
-            addItem(menu, "\u590D\u5236\u5B8C\u6574\u8DEF\u5F84", () -> copyFilePath(ep));
+            addItem(menu, "复制完整路径", "copy", () -> copyFilePath(ep));
         }
         menu.addSeparator();
 
-        JMenu openInMenu = new JMenu("\u7528\u5176\u4ED6\u65B9\u5F0F\u6253\u5F00");
-        addItem(openInMenu, "\u6587\u4EF6\u7BA1\u7406\u5668", () -> openInFileManager(comp));
-        addItem(openInMenu, "\u7EC8\u7AEF", () -> openInTerminal(comp));
-        addItem(openInMenu, "\u5916\u90E8\u7F16\u8F91\u5668", () -> openInExternalEditor(comp));
+        JMenu openInMenu = new JMenu("用其他方式打开");
+        addItem(openInMenu, "文件管理器", null, () -> openInFileManager(comp));
+        addItem(openInMenu, "终端", null, () -> openInTerminal(comp));
+        addItem(openInMenu, "外部编辑器", null, () -> openInExternalEditor(comp));
         menu.add(openInMenu);
 
-        JMenu histMenu = new JMenu("\u672C\u5730\u5386\u53F2");
-        addItem(histMenu, "\u663E\u793A\u5386\u53F2", () -> showLocalHistory(comp));
-        addItem(histMenu, "\u5BF9\u6BD4\u4E0A\u4E2A\u7248\u672C", () -> diffLocalHistory(comp));
-        addItem(histMenu, "\u6062\u590D", () -> restoreLocalHistory(comp));
+        JMenu histMenu = new JMenu("本地历史");
+        addItem(histMenu, "显示历史", "history", () -> showLocalHistory(comp));
+        addItem(histMenu, "对比上个版本", "compare", () -> diffLocalHistory(comp));
+        addItem(histMenu, "恢复", "refresh-ccw", () -> restoreLocalHistory(comp));
         menu.add(histMenu);
 
         menu.addSeparator();
-        addItem(menu, "\u91CD\u65B0\u6253\u5F00\u5DF2\u5173\u95ED\u6807\u7B7E", () -> reopenClosedTab());
+        addItem(menu, "重新打开已关闭标签", "refresh-ccw", () -> reopenClosedTab());
 
         menu.show(tabs, x, y);
     }
 
-    private static void addItem(JMenu menu, String text, Runnable action) {
+    private static void addItem(JMenu menu, String text, String icon, Runnable action) {
         JMenuItem item = new JMenuItem(text);
+        if (icon != null) item.setIcon(IconUtil.menuIcon(icon));
         item.addActionListener(e -> action.run());
         menu.add(item);
     }
 
-    private static void addItem(JPopupMenu menu, String text, Runnable action) {
+    private static void addItem(JPopupMenu menu, String text, String icon, Runnable action) {
         JMenuItem item = new JMenuItem(text);
+        if (icon != null) item.setIcon(IconUtil.menuIcon(icon));
         item.addActionListener(e -> action.run());
         menu.add(item);
     }
@@ -1289,7 +1362,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         if (name != null) {
             Toolkit.getDefaultToolkit().getSystemClipboard()
                 .setContents(new java.awt.datatransfer.StringSelection(name), null);
-            statusBar.setMessage("\u5DF2\u590D\u5236: " + name);
+            statusBar.setMessage("已复制: " + name);
         }
     }
 
@@ -1298,7 +1371,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         if (p != null) {
             Toolkit.getDefaultToolkit().getSystemClipboard()
                 .setContents(new java.awt.datatransfer.StringSelection(p), null);
-            statusBar.setMessage("\u5DF2\u590D\u5236: " + p);
+            statusBar.setMessage("已复制: " + p);
         }
     }
 
@@ -1308,7 +1381,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
 
     private void openInFileManager(Component comp) {
         String path = comp instanceof SqlEditorPanel ep ? ep.getFilePath() : null;
-        if (path == null) { statusBar.setMessage("\u65E0\u6587\u4EF6\u8DEF\u5F84"); return; }
+        if (path == null) { statusBar.setMessage("无文件路径"); return; }
         try {
             File f = new File(path);
             if (isWindows()) {
@@ -1324,7 +1397,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
 
     private void openInTerminal(Component comp) {
         String path = comp instanceof SqlEditorPanel ep ? ep.getFilePath() : null;
-        if (path == null) { statusBar.setMessage("\u65E0\u6587\u4EF6\u8DEF\u5F84"); return; }
+        if (path == null) { statusBar.setMessage("无文件路径"); return; }
         try {
             String dir = new File(path).getParent();
             if (isWindows()) {
@@ -1351,7 +1424,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
 
     private void openInExternalEditor(Component comp) {
         String path = comp instanceof SqlEditorPanel ep ? ep.getFilePath() : null;
-        if (path == null) { statusBar.setMessage("\u65E0\u6587\u4EF6\u8DEF\u5F84"); return; }
+        if (path == null) { statusBar.setMessage("无文件路径"); return; }
         try {
             File f = new File(path);
             if (Desktop.isDesktopSupported()) {
@@ -1400,7 +1473,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         File dir = localHistoryDir().resolve(name).toFile();
         File[] files = dir.listFiles((d, fn) -> fn.endsWith(".sql"));
         if (files == null || files.length == 0) {
-            JOptionPane.showMessageDialog(this, "\u6682\u65E0\u672C\u5730\u5386\u53F2");
+            JOptionPane.showMessageDialog(this, "暂无本地历史");
             return;
         }
         java.util.Arrays.sort(files, (a, b) -> b.getName().compareTo(a.getName()));
@@ -1409,7 +1482,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             display[i] = files[i].getName().replace(".sql", "");
         }
         String sel = (String) JOptionPane.showInputDialog(this,
-            "\u9009\u62E9\u8981\u67E5\u770B\u7684\u7248\u672C:", "\u672C\u5730\u5386\u53F2",
+            "选择要查看的版本:", "本地历史",
             JOptionPane.PLAIN_MESSAGE, null, display, display[0]);
         if (sel == null) return;
         try {
@@ -1427,7 +1500,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         File dir = localHistoryDir().resolve(name).toFile();
         File[] files = dir.listFiles((d, fn) -> fn.endsWith(".sql"));
         if (files == null || files.length < 2) {
-            JOptionPane.showMessageDialog(this, "\u4EC5\u6709\u5F53\u524D\u7248\u672C\uFF0C\u65E0\u6CD5\u5BF9\u6BD4");
+            JOptionPane.showMessageDialog(this, "仅有当前版本，无法对比");
             return;
         }
         java.util.Arrays.sort(files, (a, b) -> b.getName().compareTo(a.getName()));
@@ -1435,7 +1508,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             String current = ep.getText();
             String previous = Files.readString(files[0].toPath());
             String diff = simpleDiff(current, previous);
-            openInNewEditor("-- \u5F53\u524D vs " + files[0].getName().replace(".sql","") + "\n\n" + diff, null);
+            openInNewEditor("-- 当前 vs " + files[0].getName().replace(".sql","") + "\n\n" + diff, null);
         } catch (IOException ex) {
             log.warn("diffLocalHistory failed", ex);
         }
@@ -1447,20 +1520,20 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         File dir = localHistoryDir().resolve(name).toFile();
         File[] files = dir.listFiles((d, fn) -> fn.endsWith(".sql"));
         if (files == null || files.length == 0) {
-            JOptionPane.showMessageDialog(this, "\u6682\u65E0\u672C\u5730\u5386\u53F2");
+            JOptionPane.showMessageDialog(this, "暂无本地历史");
             return;
         }
         java.util.Arrays.sort(files, (a, b) -> b.getName().compareTo(a.getName()));
         String[] display = new String[files.length];
         for (int i = 0; i < files.length; i++) display[i] = files[i].getName().replace(".sql", "");
         String sel = (String) JOptionPane.showInputDialog(this,
-            "\u9009\u62E9\u8981\u6062\u590D\u7684\u7248\u672C:", "\u6062\u590D\u672C\u5730\u5386\u53F2",
+            "选择要恢复的版本:", "恢复本地历史",
             JOptionPane.PLAIN_MESSAGE, null, display, display[0]);
         if (sel == null) return;
         try {
             String content = Files.readString(dir.toPath().resolve(sel + ".sql"));
             if (comp instanceof SqlEditorPanel ep) ep.setText(content);
-            statusBar.setMessage("\u5DF2\u6062\u590D\u5230: " + sel);
+            statusBar.setMessage("已恢复到: " + sel);
         } catch (IOException ex) {
             log.warn("restoreLocalHistory failed", ex);
         }
@@ -1484,10 +1557,10 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             String c = i < curLines.length ? curLines[i] : "";
             String p = i < prevLines.length ? prevLines[i] : "";
             if (!c.equals(p)) {
-                sb.append("<<< \u5F53\u524D\n").append(c).append("\n---\n").append(p).append("\n>>> \u5386\u53F2\n\n");
+                sb.append("<<< 当前\n").append(c).append("\n---\n").append(p).append("\n>>> 历史\n\n");
             }
         }
-        if (sb.isEmpty()) sb.append("(\u65E0\u5DEE\u5F02)");
+        if (sb.isEmpty()) sb.append("(无差异)");
         return sb.toString();
     }
 
@@ -1533,7 +1606,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
 
     private void reopenClosedTab() {
         if (recentlyClosed.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "\u6CA1\u6709\u5DF2\u5173\u95ED\u7684\u6807\u7B7E");
+            JOptionPane.showMessageDialog(this, "没有已关闭的标签");
             return;
         }
         ClosedTabInfo info = recentlyClosed.remove(0);
@@ -1576,7 +1649,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             Component comp = editorTabs.getComponentAt(i);
             if (comp instanceof SqlEditorPanel ep) ep.setConnections(connections);
         }
-        statusBar.setMessage("\u5DF2\u52A0\u8F7D " + connections.size() + " \u4E2A\u5DF2\u4FDD\u5B58\u7684\u8FDE\u63A5");
+        statusBar.setMessage("已加载 " + connections.size() + " 个已保存的连接");
     }
 
     private void showConnectionDialog() {
@@ -1599,7 +1672,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                 .findFirst().orElse(null);
         if (info == null) return;
 
-        statusBar.setSyncProgress("\u540C\u6B65\u5143\u6570\u636E: " + connName, 0);
+        statusBar.setSyncProgress("同步元数据: " + connName, 0);
 
         new SwingWorker<Void, Integer>() {
             @Override
@@ -1663,7 +1736,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             @Override
             protected void process(java.util.List<Integer> chunks) {
                 int pct = chunks.get(chunks.size() - 1);
-                String text = "\u540C\u6B65\u5143\u6570\u636E: " + connName;
+                String text = "同步元数据: " + connName;
                 statusBar.setSyncProgress(text, pct);
             }
 
@@ -1671,10 +1744,10 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             protected void done() {
                 try {
                     get();
-                    statusBar.setMessage(connName + " \u5143\u6570\u636E\u540C\u6B65\u5B8C\u6210");
+                    statusBar.setMessage(connName + " 元数据同步完成");
                     loadSavedConnections();
                 } catch (Exception e) {
-                    statusBar.setMessage("\u5143\u6570\u636E\u540C\u6B65\u5931\u8D25: " + e.getMessage());
+                    statusBar.setMessage("元数据同步失败: " + e.getMessage());
                 }
                 javax.swing.Timer t = new javax.swing.Timer(4000, ev -> statusBar.hideSyncProgress());
                 t.setRepeats(false);
@@ -1694,7 +1767,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
 
         String connName = editor.getConnectionName();
         if (connName == null) {
-            JOptionPane.showMessageDialog(this, "\u6B64\u6807\u7B7E\u9875\u672A\u7ED1\u5B9A\u6570\u636E\u5E93\u8FDE\u63A5\uFF0C\u8BF7\u4ECE\u5BF9\u8C61\u6D4F\u89C8\u5668\u6253\u5F00");
+            JOptionPane.showMessageDialog(this, "此标签页未绑定数据库连接，请从对象浏览器打开");
             return;
         }
         if (!connectionManager.isConnected(connName)) {
@@ -1702,7 +1775,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             for (var ci : connections) {
                 if (ci.getName().equals(connName)) {
                     try { connectionManager.connect(ci); } catch (Exception ex) {
-                        JOptionPane.showMessageDialog(this, "\u8FDE\u63A5\u5931\u8D25: " + ex.getMessage());
+                        JOptionPane.showMessageDialog(this, "连接失败: " + ex.getMessage());
                         return;
                     }
                     break;
@@ -1751,8 +1824,8 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                             catch (BadLocationException ignored) { line = execLine; }
                             if (sql == null) sql = stmt;
                             var result = executor.execute(conn, stmt, qto2);
-                            bottomPanel.appendMessage("\u6267\u884C: " + stmt);
-                            bottomPanel.appendMessage("\u7ED3\u679C: " + result.getSummary());
+                            bottomPanel.appendMessage("执行: " + stmt);
+                            bottomPanel.appendMessage("结果: " + result.getSummary());
                             if (result.isSuccess()) {
                                 anySuccess = true;
                                 bottomPanel.showResult(stmt, result, connName);
@@ -1767,10 +1840,10 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                         sqlHistory.add(sql);
                         rightPanel.addHistoryEntry(sql, anySuccess, 0,
                             LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
-                        statusBar.setMessage(anySuccess ? "\u591A\u8BED\u53E5\u6267\u884C\u5B8C\u6210" : "\u591A\u8BED\u53E5\u6267\u884C\u5931\u8D25");
+                        statusBar.setMessage(anySuccess ? "多语句执行完成" : "多语句执行失败");
                     }
                 } catch (Exception e) {
-                    statusBar.setMessage("\u6267\u884C\u5931\u8D25: " + e.getMessage());
+                    statusBar.setMessage("执行失败: " + e.getMessage());
                     bottomPanel.showError(e.getMessage());
                 } finally {
                     bottomPanel.setBatchExecuting(false);
@@ -1778,7 +1851,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                         try { conn.close(); } catch (java.sql.SQLException ignored) {}
                     }
                 }
-                bottomPanel.appendMessage("\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501");
+                bottomPanel.appendMessage("━━━━━━━━━━━━━━━━━━━━━━━━━");
                 return;
             }
             sql = parts[0].trim();
@@ -1787,16 +1860,16 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             execLine = editor.getLastExecLine();
         }
         if (sql == null || sql.isBlank()) {
-            JOptionPane.showMessageDialog(this, "\u8BF7\u8F93\u5165 SQL \u8BED\u53E5");
+            JOptionPane.showMessageDialog(this, "请输入 SQL 语句");
             return;
         }
 
         sqlHistory.add(sql);
         int qto = connectionManager.getQueryTimeout(connName);
         String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS"));
-        bottomPanel.appendMessage("\u2501\u2501\u2501 SQL \u6267\u884C \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501");
-        bottomPanel.appendMessage("\u5F00\u59CB\u65F6\u95F4: " + ts);
-        bottomPanel.appendMessage("\u6267\u884C SQL: " + sql);
+        bottomPanel.appendMessage("━━━ SQL 执行 ━━━━━━━━━━━━━━━━━━━━━━━━━");
+        bottomPanel.appendMessage("开始时间: " + ts);
+        bottomPanel.appendMessage("执行 SQL: " + sql);
         editor.clearExecResults();
         boolean closeConn2 = connectionManager.isAutoCommit(connName);
         Connection conn2 = null;
@@ -1804,9 +1877,9 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             conn2 = connectionManager.getConnection(connName);
             var executor = new com.kylin.plsql.core.db.SqlExecutor();
             var result = executor.execute(conn2, sql, qto);
-            bottomPanel.appendMessage("\u6267\u884C\u8017\u65F6: " + result.elapsedMs + "ms");
-            bottomPanel.appendMessage("\u7ED3\u679C: " + result.getSummary());
-            bottomPanel.appendMessage("\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501");
+            bottomPanel.appendMessage("执行耗时: " + result.elapsedMs + "ms");
+            bottomPanel.appendMessage("结果: " + result.getSummary());
+            bottomPanel.appendMessage("━━━━━━━━━━━━━━━━━━━━━━━━━");
             bottomPanel.setBatchExecuting(append);
             bottomPanel.showResult(sql, result, connName);
             bottomPanel.setBatchExecuting(false);
@@ -1816,9 +1889,9 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                 LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
         } catch (Exception e) {
             editor.clearExecResults();
-            bottomPanel.appendMessage("\u6267\u884C\u5931\u8D25: " + e.getMessage());
-            bottomPanel.appendMessage("\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501");
-            statusBar.setMessage("\u6267\u884C\u5931\u8D25: " + e.getMessage());
+            bottomPanel.appendMessage("执行失败: " + e.getMessage());
+            bottomPanel.appendMessage("━━━━━━━━━━━━━━━━━━━━━━━━━");
+            statusBar.setMessage("执行失败: " + e.getMessage());
             bottomPanel.showError(e.getMessage());
             editor.markExecResult(execLine, false);
             rightPanel.addHistoryEntry(sql, false, 0,
@@ -1841,23 +1914,17 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             if (sql == null || sql.isBlank()) sql = editor.getText();
         }
         if (sql == null || sql.isBlank()) return;
-        FormatResult result = PlSqlFormatter.format(sql, formatOptions);
-        String formatted = result.getEffectiveText();
-        if (isSqlEditor) {
-            ((SqlEditorPanel) comp).replaceSelection(formatted);
-        }
-        String diag = result.formatDiagnosticsForPanel();
-        if (diag != null && !diag.isBlank()) {
-            bottomPanel.appendMessage(diag);
-        }
-        statusBar.setMessage(result.getMessageText());
-        int qs = result.getQualityScore();
-        if (qs >= 80) {
-            ToastManager.show(editorTabs, "\u683C\u5F0F\u5316\u5B8C\u6210\uFF0C\u8D28\u91CF\u8BC4\u5206: " + qs, 3000);
-        } else if (qs < 60) {
-            ToastManager.show(editorTabs, "\u683C\u5F0F\u5316\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u539F\u59CB\u4EE3\u7801\uFF0C\u8BF7\u68C0\u67E5\u5E95\u90E8\u9762\u677F\u8BCA\u65AD", 4000);
-        } else {
-            ToastManager.show(editorTabs, "\u683C\u5F0F\u5316\u5B8C\u6210\uFF0C\u5B58\u5728 " + result.getDiagnostics().size() + " \u4E2A\u8B66\u544A\uFF0C\u8BF7\u68C0\u67E5\u5E95\u90E8\u9762\u677F", 4000);
+        try {
+            String engineName = com.kylin.plsql.core.format.EngineManager.getCurrent().getName();
+            String formatted = com.kylin.plsql.core.format.EngineManager.format(sql);
+            if (isSqlEditor) {
+                ((SqlEditorPanel) comp).replaceSelection(formatted);
+            }
+            statusBar.setMessage("格式化完成 (" + engineName + ")");
+            ToastManager.show(editorTabs, "格式化完成 - " + engineName, 3000);
+        } catch (Exception ex) {
+            statusBar.setMessage("格式化失败");
+            ToastManager.show(editorTabs, "格式化失败: " + ex.getMessage(), 4000);
         }
     }
 
@@ -1895,7 +1962,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
 
         String connName = editor.getConnectionName();
         if (connName == null) {
-            JOptionPane.showMessageDialog(this, "\u8BF7\u5148\u7ED1\u5B9A\u6570\u636E\u5E93\u8FDE\u63A5");
+            JOptionPane.showMessageDialog(this, "请先绑定数据库连接");
             return;
         }
 
@@ -1909,26 +1976,26 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             var executor = new com.kylin.plsql.core.db.SqlExecutor();
             var result = executor.execute(conn, "EXPLAIN PLAN FOR " + sql, qto);
             if (!result.isSuccess()) {
-                bottomPanel.showError("\u6267\u884C\u8BA1\u5212\u5931\u8D25: " + result.error);
+                bottomPanel.showError("执行计划失败: " + result.error);
                 return;
             }
             var planResult = executor.execute(conn, "SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY)");
             if (planResult.isSuccess()) {
                 bottomPanel.showResult("SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY)", planResult, connName);
-                statusBar.setMessage("\u6267\u884C\u8BA1\u5212\u5B8C\u6210");
+                statusBar.setMessage("执行计划完成");
             } else {
                 var fallback = executor.execute(conn,
                     "SELECT OPERATION, OPTIONS, OBJECT_NAME, COST, CARDINALITY, BYTES " +
                     "FROM PLAN_TABLE ORDER BY ID");
                 if (fallback.isSuccess() && !fallback.rows.isEmpty()) {
                     bottomPanel.showResult("SELECT OPERATION, OPTIONS, OBJECT_NAME, COST, CARDINALITY, BYTES FROM PLAN_TABLE ORDER BY ID", fallback, connName);
-                    statusBar.setMessage("\u6267\u884C\u8BA1\u5212(PLAN_TABLE)");
+                    statusBar.setMessage("执行计划(PLAN_TABLE)");
                 } else {
-                    bottomPanel.showError("\u6267\u884C\u8BA1\u5212\u5931\u8D25: " + planResult.error);
+                    bottomPanel.showError("执行计划失败: " + planResult.error);
                 }
             }
         } catch (Exception e) {
-            statusBar.setMessage("\u6267\u884C\u8BA1\u5212\u5931\u8D25: " + e.getMessage());
+            statusBar.setMessage("执行计划失败: " + e.getMessage());
         } finally {
             if (closeConn && conn != null) {
                 try { conn.close(); } catch (java.sql.SQLException ignored) {}
@@ -1942,7 +2009,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         String text = editor.getText();
         var entries = PlSqlNavigator.parse(text);
         if (entries.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "\u672A\u627E\u5230\u8FC7\u7A0B/\u51FD\u6570\u5B9A\u4E49");
+            JOptionPane.showMessageDialog(this, "未找到过程/函数定义");
             return;
         }
         var root = PlSqlCallHierarchy.buildCallTree(entries, text);
@@ -1955,7 +2022,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
     private void showSqlHistoryDialog() {
         var list = sqlHistory.getAll();
         if (list.isEmpty()) {
-            ToastManager.show(this, "\u6682\u65E0 SQL \u5386\u53F2\u8BB0\u5F55");
+            ToastManager.show(this, "暂无 SQL 历史记录");
             return;
         }
         new SqlHistoryDialog(MainFrame.this, list, sql -> {
@@ -1978,28 +2045,28 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         ObjectSearchDialog dlg = new ObjectSearchDialog(MainFrame.this,
             name -> { try { return connectionManager.getConnection(name); }
             catch (Exception ex) { return null; } },
-            (name, obj) -> ToastManager.show(MainFrame.this, "\u8DF3\u8F6C: " + name + "/" + obj));
+            (name, obj) -> ToastManager.show(MainFrame.this, "跳转: " + name + "/" + obj));
         dlg.populateConnections(java.util.Arrays.asList(conns));
         dlg.setVisible(true);
     }
 
     private void showAdvancedExportDialog() {
         var rp = bottomPanel.getResultPanel();
-        if (rp == null) { ToastManager.show(this, "\u6CA1\u6709\u7ED3\u679C\u96C6"); return; }
+        if (rp == null) { ToastManager.show(this, "没有结果集"); return; }
         var model = rp.getCurrentTableModel();
-        if (model == null || model.getRowCount() == 0) { ToastManager.show(this, "\u7ED3\u679C\u96C6\u4E3A\u7A7A"); return; }
+        if (model == null || model.getRowCount() == 0) { ToastManager.show(this, "结果集为空"); return; }
         new AdvancedExportDialog(MainFrame.this, model).setVisible(true);
     }
 
     private void onObjectAction(String connName, String schema, String objectType, String objectName, String action) {
-        statusBar.setMessage("\u5BF9\u8C61: " + connName + "/" + schema + "." + objectName + " (" + objectType + ") [" + action + "]");
+        statusBar.setMessage("对象: " + connName + "/" + schema + "." + objectName + " (" + objectType + ") [" + action + "]");
         if (connName == null) return;
         if (!connectionManager.isConnected(connName)) {
             var connections = configManager.loadConnections();
             for (var ci : connections) {
                 if (ci.getName().equals(connName)) {
                     try { connectionManager.connect(ci); } catch (Exception ex) {
-                        JOptionPane.showMessageDialog(this, "\u8FDE\u63A5\u5931\u8D25: " + ex.getMessage());
+                        JOptionPane.showMessageDialog(this, "连接失败: " + ex.getMessage());
                         return;
                     }
                     break;
@@ -2035,7 +2102,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                                 });
                             } catch (Exception ex) {
                                 SwingUtilities.invokeLater(() -> {
-                                    statusBar.setMessage("\u6267\u884C\u5931\u8D25: " + ex.getMessage());
+                                    statusBar.setMessage("执行失败: " + ex.getMessage());
                                     bottomPanel.showError(ex.getMessage());
                                 });
                             } finally {
@@ -2056,9 +2123,9 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                         }
                     }
                 } catch (Exception e) {
-                    log.error("\u5BF9\u8C61\u64CD\u4F5C\u5931\u8D25", e);
+                    log.error("对象操作失败", e);
                     SwingUtilities.invokeLater(() ->
-                        JOptionPane.showMessageDialog(mainFrame, "\u64CD\u4F5C\u5931\u8D25: " + e.getMessage()));
+                        JOptionPane.showMessageDialog(mainFrame, "操作失败: " + e.getMessage()));
                 } finally {
                     if (closeConn && conn != null) {
                         try { conn.close(); } catch (java.sql.SQLException ignored) {}
@@ -2152,7 +2219,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         }
         if (state.formatProfiles != null && !state.formatProfiles.isEmpty()) {
             formatOptions.profilesFromMap(state.formatProfiles);
-            formatOptions.setActiveProfile(state.activeFormatProfile != null ? state.activeFormatProfile : "\u9ED8\u8BA4 (Oracle)");
+            formatOptions.setActiveProfile(state.activeFormatProfile != null ? state.activeFormatProfile : "默认 (Oracle)");
             formatOptions.switchTo(formatOptions.getActiveProfile());
         }
         if (state.connectionDialects != null) {
@@ -2210,7 +2277,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         initTabComponent(idx, editor);
         editorTabs.setSelectedComponent(editor);
         editor.getTextArea().requestFocusInWindow();
-        statusBar.setMessage("\u65B0\u5EFA: " + editor.getTabTitle());
+        statusBar.setMessage("新建: " + editor.getTabTitle());
         installCaretListener(editor);
         saveWorkspace();
     }
@@ -2230,7 +2297,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             for (var ci : connections) {
                 if (ci.getName().equals(connName)) {
                     try { connectionManager.connect(ci); } catch (Exception ex) {
-                        JOptionPane.showMessageDialog(this, "\u8FDE\u63A5\u5931\u8D25: " + ex.getMessage());
+                        JOptionPane.showMessageDialog(this, "连接失败: " + ex.getMessage());
                         return;
                     }
                     break;
@@ -2244,13 +2311,20 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         initTabComponent(idx, viewer);
         editorTabs.setSelectedComponent(viewer);
         viewer.getTextArea().requestFocusInWindow();
-        statusBar.setMessage("\u6253\u5F00: " + tabKey);
+        statusBar.setMessage("打开: " + tabKey);
     }
 
     private void openOrSwitchToFile(String filePath) {
+        String fileName = new File(filePath).getName();
         for (int i = 0; i < editorTabs.getTabCount(); i++) {
             Component comp = editorTabs.getComponentAt(i);
+            if (comp instanceof SourceViewerPanel sv && fileName.equals(sv.getObjectName())) {
+                log.debug("openOrSwitchToFile: switching to existing SourceViewerPanel tab");
+                editorTabs.setSelectedIndex(i);
+                return;
+            }
             if (comp instanceof SqlEditorPanel ep && filePath.equals(ep.getFilePath())) {
+                log.debug("openOrSwitchToFile: switching to existing SqlEditorPanel tab");
                 editorTabs.setSelectedIndex(i);
                 return;
             }
@@ -2258,34 +2332,49 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         try {
             if (!new File(filePath).exists()) return;
             String content = Files.readString(Path.of(filePath));
-            SqlEditorPanel editor = new SqlEditorPanel(connectionManager, new File(filePath).getName());
-            editor.getTextArea().setSyntaxEditingStyle("text/plsql");
-            editor.setText(content);
-            editor.setFilePath(filePath);
-            editor.resetModified();
-            var connections = configManager.loadConnections();
-            editor.setConnections(connections);
-            editor.setOnExecute(() -> executeActiveEditor());
-            editor.setOnAppendExecute(() -> executeAppendEditor());
-            editor.setOnFormat(this::formatSql);
-            editor.setOnStatusMessage(msg -> {
-    bottomPanel.showToast(msg);
-    statusBar.setStatusText(msg);
-});
-editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
-            editor.setOnConnectionChange(() -> bottomPanel.refreshConnTree());
-        showEditorTabs();
-
-
-            editorTabs.addTab(editor.getTabTitle(), editor);
-            int idx = editorTabs.indexOfComponent(editor);
-            initTabComponent(idx, editor);
-            editorTabs.setSelectedComponent(editor);
-            editor.getTextArea().requestFocusInWindow();
-            installCaretListener(editor);
-            saveWorkspace();
+            log.debug("openOrSwitchToFile: {} bytes read from {}", content.length(), filePath);
+            String objType = detectObjectType(content);
+            log.debug("openOrSwitchToFile: detected object type = {}", objType);
+            if (objType != null) {
+                log.debug("openOrSwitchToFile: opening in SourceViewerPanel (type={})", objType);
+                SourceViewerPanel viewer = new SourceViewerPanel(connectionManager, null, null,
+                    fileName, objType, content);
+                showEditorTabs();
+                editorTabs.addTab(viewer.getTabTitle(), viewer);
+                int idx = editorTabs.indexOfComponent(viewer);
+                initTabComponent(idx, viewer);
+                editorTabs.setSelectedComponent(viewer);
+                viewer.getTextArea().requestFocusInWindow();
+                saveWorkspace();
+            } else {
+                log.debug("openOrSwitchToFile: opening in SqlEditorPanel (no object type detected)");
+                SqlEditorPanel editor = new SqlEditorPanel(connectionManager, new File(filePath).getName());
+                editor.getTextArea().setSyntaxEditingStyle("text/plsql");
+                editor.setText(content);
+                editor.setFilePath(filePath);
+                editor.resetModified();
+                var connections = configManager.loadConnections();
+                editor.setConnections(connections);
+                editor.setOnExecute(() -> executeActiveEditor());
+                editor.setOnAppendExecute(() -> executeAppendEditor());
+                editor.setOnFormat(this::formatSql);
+                editor.setOnStatusMessage(msg -> {
+                    bottomPanel.showToast(msg);
+                    statusBar.setStatusText(msg);
+                });
+                editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
+                editor.setOnConnectionChange(() -> bottomPanel.refreshConnTree());
+                showEditorTabs();
+                editorTabs.addTab(editor.getTabTitle(), editor);
+                int idx = editorTabs.indexOfComponent(editor);
+                initTabComponent(idx, editor);
+                editorTabs.setSelectedComponent(editor);
+                editor.getTextArea().requestFocusInWindow();
+                installCaretListener(editor);
+                saveWorkspace();
+            }
         } catch (IOException e) {
-            JOptionPane.showMessageDialog(this, "\u6253\u5F00\u6587\u4EF6\u5931\u8D25:\n" + e.getMessage());
+            JOptionPane.showMessageDialog(this, "打开文件失败:\n" + e.getMessage());
         }
     }
 
@@ -2478,13 +2567,25 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         return new ImageIcon(img);
     }
 
-    private static JButton tb(String text, String tip, java.awt.event.ActionListener action) {
-        JButton btn = new JButton(text);
+    private static JButton tb(String iconName, String fallback, String tip, java.awt.event.ActionListener action) {
+        JButton btn = new JButton();
         btn.setToolTipText(tip);
         btn.setFocusable(false);
         btn.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
         btn.setContentAreaFilled(false);
         btn.addActionListener(action);
+        ImageIcon svgIcon = com.kylin.plsql.ui.component.common.IconUtil.loadButtonIcon(iconName, null);
+        if (svgIcon != null) {
+            btn.setIcon(svgIcon);
+        } else {
+            java.net.URL url = MainFrame.class.getResource("/icons/" + iconName + ".png");
+            if (url != null) {
+                btn.setIcon(new ImageIcon(url));
+            } else {
+                btn.setText(fallback);
+            }
+        }
         return btn;
     }
+
 }

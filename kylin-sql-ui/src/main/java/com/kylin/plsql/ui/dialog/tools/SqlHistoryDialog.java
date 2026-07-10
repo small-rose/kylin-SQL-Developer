@@ -25,7 +25,7 @@ public class SqlHistoryDialog extends BaseToolDialog {
     private List<String> allEntries;
 
     public SqlHistoryDialog(Frame owner, List<String> history, Consumer<String> onSelect) {
-        super(owner, "SQL \u5386\u53F2");
+        super(owner, "SQL 历史");
         this.callback = onSelect;
         this.allEntries = new ArrayList<>(history);
         setSizeRatio(0.7);
@@ -50,7 +50,7 @@ public class SqlHistoryDialog extends BaseToolDialog {
         previewArea.setEditable(false);
         applyPreviewTheme();
 
-        countLabel = new JLabel("\u5171 " + listModel.size() + " \u6761");
+        countLabel = new JLabel("共 " + listModel.size() + " 条");
 
         filterField = new JTextField(30);
         filterField.getDocument().addDocumentListener(new DocumentListener() {
@@ -61,7 +61,7 @@ public class SqlHistoryDialog extends BaseToolDialog {
 
         JPanel northPanel = new JPanel(new BorderLayout(8, 0));
         JPanel filterRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-        filterRow.add(new JLabel("\u641C\u7D22:"));
+        filterRow.add(new JLabel("搜索:"));
         filterRow.add(filterField);
         northPanel.add(filterRow, BorderLayout.WEST);
         northPanel.add(countLabel, BorderLayout.EAST);
@@ -70,12 +70,12 @@ public class SqlHistoryDialog extends BaseToolDialog {
         JScrollPane previewScroll = new JScrollPane(previewArea);
 
         JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
-                wrapTitled("\u5386\u53F2\u8BB0\u5F55", listScroll),
-                wrapTitled("\u9884\u89C8", previewScroll));
+                wrapTitled("历史记录", listScroll),
+                wrapTitled("预览", previewScroll));
         splitPane.setResizeWeight(0.35);
         splitPane.setContinuousLayout(true);
 
-        JButton useBtn = new JButton("\u4F7F\u7528\u9009\u4E2D\u7684 SQL");
+        JButton useBtn = new JButton("使用选中的 SQL");
         useBtn.addActionListener(e -> selectAndClose());
 
         JPanel southPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
@@ -96,7 +96,7 @@ public class SqlHistoryDialog extends BaseToolDialog {
                 listModel.addElement(s);
             }
         }
-        countLabel.setText("\u5171 " + listModel.size() + " \u6761");
+        countLabel.setText("共 " + listModel.size() + " 条");
     }
 
     private void showPreview() {
@@ -110,7 +110,7 @@ public class SqlHistoryDialog extends BaseToolDialog {
             callback.accept(selected);
             dispose();
         } else {
-            ToastManager.show(this, "\u8BF7\u9009\u62E9\u4E00\u6761 SQL");
+            ToastManager.show(this, "请选择一条 SQL");
         }
     }
 

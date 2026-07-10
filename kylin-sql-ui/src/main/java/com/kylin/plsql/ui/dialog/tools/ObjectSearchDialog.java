@@ -57,7 +57,7 @@ public class ObjectSearchDialog extends BaseToolDialog {
         @Override public int getRowCount() { return rows.size(); }
         @Override public int getColumnCount() { return 2; }
         @Override public String getColumnName(int col) {
-            return col == 0 ? "\u5C5E\u6027" : "\u503C";
+            return col == 0 ? "属性" : "值";
         }
         @Override public Object getValueAt(int row, int col) {
             return rows.get(row)[col];
@@ -67,7 +67,7 @@ public class ObjectSearchDialog extends BaseToolDialog {
     public ObjectSearchDialog(Frame owner,
                               Function<String, Connection> connProvider,
                               BiConsumer<String, String> onNavigate) {
-        super(owner, "\u5BF9\u8C61\u641C\u7D22");
+        super(owner, "对象搜索");
         this.connProvider = connProvider;
         this.onNavigate = onNavigate;
         setSizeRatio(0.7);
@@ -76,30 +76,30 @@ public class ObjectSearchDialog extends BaseToolDialog {
         searchField = new JTextField();
         connCombo = new JComboBox<>();
         typeCombo = new JComboBox<>(new String[]{"ALL", "TABLE", "VIEW", "PROCEDURE", "FUNCTION", "PACKAGE"});
-        allSchemaCb = new JCheckBox("\u641C\u7D22\u6240\u6709 Schema");
+        allSchemaCb = new JCheckBox("搜索所有 Schema");
 
-        JButton searchBtn = new JButton("\u641C\u7D22");
+        JButton searchBtn = new JButton("搜索");
         searchBtn.addActionListener(e -> doSearch());
 
         JPanel northPanel = new JPanel(new GridBagLayout());
-        northPanel.setBorder(BorderFactory.createTitledBorder("\u641C\u7D22\u6761\u4EF6"));
+        northPanel.setBorder(BorderFactory.createTitledBorder("搜索条件"));
         GridBagConstraints c = new GridBagConstraints();
         c.fill = GridBagConstraints.HORIZONTAL;
         c.insets = new Insets(3, 5, 3, 5);
 
         c.gridx = 0; c.gridy = 0; c.weightx = 0;
-        northPanel.add(new JLabel("\u5173\u952E\u8BCD:"), c);
+        northPanel.add(new JLabel("关键词:"), c);
         c.gridx = 1; c.weightx = 1; c.gridwidth = 3;
         northPanel.add(searchField, c);
         c.gridx = 4; c.weightx = 0; c.gridwidth = 1;
         northPanel.add(searchBtn, c);
 
         c.gridy = 1; c.gridx = 0; c.weightx = 0;
-        northPanel.add(new JLabel("\u8FDE\u63A5:"), c);
+        northPanel.add(new JLabel("连接:"), c);
         c.gridx = 1; c.weightx = 0.3;
         northPanel.add(connCombo, c);
         c.gridx = 2; c.weightx = 0;
-        northPanel.add(new JLabel("\u7C7B\u578B:"), c);
+        northPanel.add(new JLabel("类型:"), c);
         c.gridx = 3; c.weightx = 0.3;
         northPanel.add(typeCombo, c);
         c.gridx = 4; c.weightx = 0;
@@ -121,7 +121,7 @@ public class ObjectSearchDialog extends BaseToolDialog {
             }
         });
 
-        detailLabel = new JLabel("\u672A\u9009\u4E2D\u5BF9\u8C61");
+        detailLabel = new JLabel("未选中对象");
         detailModel = new DetailTableModel();
         detailTable = new JTable(detailModel);
 
@@ -133,7 +133,7 @@ public class ObjectSearchDialog extends BaseToolDialog {
         rightPanel.add(detailScroll, BorderLayout.CENTER);
 
         JSplitPane splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
-                wrapTitled("\u641C\u7D22\u7ED3\u679C", resultScroll),
+                wrapTitled("搜索结果", resultScroll),
                 rightPanel);
         splitPane.setResizeWeight(0.35);
         splitPane.setContinuousLayout(true);
@@ -158,7 +158,7 @@ public class ObjectSearchDialog extends BaseToolDialog {
 
         resultModel.clear();
         detailModel.clear();
-        detailLabel.setText("\u672A\u9009\u4E2D\u5BF9\u8C61");
+        detailLabel.setText("未选中对象");
 
         SwingWorker<List<SearchResult>, Void> worker = new SwingWorker<>() {
             @Override
@@ -207,11 +207,11 @@ public class ObjectSearchDialog extends BaseToolDialog {
                     for (SearchResult sr : results) resultModel.addElement(sr);
                     if (results.isEmpty()) {
                         ToastManager.show(ObjectSearchDialog.this,
-                                "\u672A\u627E\u5230\u5339\u914D\u5BF9\u8C61");
+                                "未找到匹配对象");
                     }
                 } catch (Exception e) {
                     ToastManager.showError(ObjectSearchDialog.this,
-                            "\u641C\u7D22\u5931\u8D25: " + e.getMessage());
+                            "搜索失败: " + e.getMessage());
                 }
             }
         };
@@ -221,7 +221,7 @@ public class ObjectSearchDialog extends BaseToolDialog {
     private void showDetails() {
         SearchResult sr = resultList.getSelectedValue();
         if (sr == null) {
-            detailLabel.setText("\u672A\u9009\u4E2D\u5BF9\u8C61");
+            detailLabel.setText("未选中对象");
             detailModel.clear();
             return;
         }
@@ -253,7 +253,7 @@ public class ObjectSearchDialog extends BaseToolDialog {
                 }
             }
         } catch (Exception e) {
-            details.add(new String[]{"\u9519\u8BEF", e.getMessage()});
+            details.add(new String[]{"错误", e.getMessage()});
         }
         detailModel.setData(details);
     }

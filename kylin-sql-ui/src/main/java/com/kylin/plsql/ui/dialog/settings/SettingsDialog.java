@@ -90,7 +90,7 @@ public class SettingsDialog extends JDialog {
             setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
             addMouseListener(new java.awt.event.MouseAdapter() {
                 @Override public void mouseClicked(java.awt.event.MouseEvent e) {
-                    Color c = JColorChooser.showDialog(parent, "\u9009\u62E9\u989C\u8272 - " + configKey, color);
+                    Color c = JColorChooser.showDialog(parent, "选择颜色 - " + configKey, color);
                     if (c != null) {
                         color = c;
                         setBackground(c);
@@ -115,7 +115,7 @@ public class SettingsDialog extends JDialog {
         @Override public int getRowCount() { return types.size(); }
         @Override public int getColumnCount() { return 3; }
         @Override public String getColumnName(int col) {
-            return switch (col) { case 0 -> "\u6807\u7B7E"; case 1 -> "\u7C7B\u578B"; case 2 -> "\u6E90"; default -> ""; };
+            return switch (col) { case 0 -> "标签"; case 1 -> "类型"; case 2 -> "源"; default -> ""; };
         }
         @Override public Object getValueAt(int row, int col) {
             var t = types.get(row);
@@ -134,7 +134,7 @@ public class SettingsDialog extends JDialog {
         @Override public int getRowCount() { return cols.size(); }
         @Override public int getColumnCount() { return 2; }
         @Override public String getColumnName(int col) {
-            return col == 0 ? "\u6807\u7B7E" : "SQL \u67E5\u8BE2";
+            return col == 0 ? "标签" : "SQL 查询";
         }
         @Override public Object getValueAt(int row, int col) {
             var c = cols.get(row);
@@ -184,7 +184,7 @@ public class SettingsDialog extends JDialog {
     private String previewSection;
     private boolean manualPreviewSelection;
 
-    private static final String[] FORMAT_UNITS = {"\u79D2", "\u5206", "\u5C0F\u65F6"};
+    private static final String[] FORMAT_UNITS = {"秒", "分", "小时"};
     private static final String[] PREVIEW_SQLS = {
         "SELECT",
         "INSERT",
@@ -273,16 +273,16 @@ public class SettingsDialog extends JDialog {
         "SELECT id, name FROM contractors\n" +
         "ORDER BY name";
     private static final String SAMPLE_COMMENTS =
-        "-- \u67E5\u8BE2\u5458\u5DE5\u4FE1\u606F\n" +
-        "SELECT e.id,  -- \u5458\u5DE5ID\n" +
+        "-- 查询员工信息\n" +
+        "SELECT e.id,  -- 员工ID\n" +
         "       e.name\n" +
         "  FROM employees e\n" +
         " WHERE e.status = 'ACTIVE'\n" +
-        "/* \u6309\u7EC4\u7EC7\u67E5\u8BE2 */\n" +
+        "/* 按组织查询 */\n" +
         "   AND e.dept_id = 10\n" +
         "ORDER BY e.name;\n" +
         "\n" +
-        "-- \u66F4\u65B0\u72B6\u6001\n" +
+        "-- 更新状态\n" +
         "UPDATE employees SET status = 'INACTIVE'\n" +
         " WHERE last_login < SYSDATE - 90;\n";
     private static final String SAMPLE_PLSQL =
@@ -314,7 +314,7 @@ public class SettingsDialog extends JDialog {
     private JButton cancelBtn;
 
     public SettingsDialog(Frame owner, FormatOptions formatOptions, ConfigManager configManager) {
-        super(owner, "\u8BBE\u7F6E", true);
+        super(owner, "设置", true);
         this.formatOptions = formatOptions;
         this.configManager = configManager;
         this.owner = owner;
@@ -379,9 +379,9 @@ public class SettingsDialog extends JDialog {
 
         // Bottom buttons
         JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        saveBtn = new JButton("\u5E94\u7528");
+        saveBtn = new JButton("应用");
         saveBtn.addActionListener(e -> saveSettings());
-        cancelBtn = new JButton("\u53D6\u6D88");
+        cancelBtn = new JButton("取消");
         cancelBtn.addActionListener(e -> dispose());
         btnPanel.add(saveBtn);
         btnPanel.add(cancelBtn);
@@ -416,11 +416,11 @@ public class SettingsDialog extends JDialog {
     // ── Left tree ──
 
     private JTree buildSettingsTree() {
-        DefaultMutableTreeNode root = new DefaultMutableTreeNode("\u8BBE\u7F6E");
-        root.add(new DefaultMutableTreeNode("\u4E3B\u9898\u4E2A\u6027\u5316"));
-        root.add(new DefaultMutableTreeNode("\u81EA\u52A8\u4FDD\u5B58"));
-        root.add(new DefaultMutableTreeNode("\u5143\u6570\u636E\u914D\u7F6E"));
-        root.add(new DefaultMutableTreeNode("SQL \u683C\u5F0F\u5316"));
+        DefaultMutableTreeNode root = new DefaultMutableTreeNode("设置");
+        root.add(new DefaultMutableTreeNode("主题个性化"));
+        root.add(new DefaultMutableTreeNode("自动保存"));
+        root.add(new DefaultMutableTreeNode("元数据配置"));
+        root.add(new DefaultMutableTreeNode("SQL 格式化"));
 
         DefaultTreeModel model = new DefaultTreeModel(root);
         JTree tree = new JTree(model);
@@ -434,10 +434,10 @@ public class SettingsDialog extends JDialog {
     private String getCardName(DefaultMutableTreeNode node) {
         String label = node.getUserObject().toString();
         return switch (label) {
-            case "SQL \u683C\u5F0F\u5316" -> "sqlFormat";
-            case "\u4E3B\u9898\u4E2A\u6027\u5316" -> "theme";
-            case "\u81EA\u52A8\u4FDD\u5B58" -> "autosave";
-            case "\u5143\u6570\u636E\u914D\u7F6E" -> "metadata";
+            case "SQL 格式化" -> "sqlFormat";
+            case "主题个性化" -> "theme";
+            case "自动保存" -> "autosave";
+            case "元数据配置" -> "metadata";
             default -> null;
         };
     }
@@ -449,43 +449,43 @@ public class SettingsDialog extends JDialog {
         p.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
         var colorGroup = new java.util.ArrayList<ColorGroup>();
-        colorGroup.add(new ColorGroup("\u80CC\u666F (Background)")
-            .add("bg.main", "\u4E3B\u80CC\u666F\u989C\u8272")
-            .add("bg.editor", "\u7F16\u8F91\u5668\u80CC\u666F")
-            .add("bg.panel", "\u9762\u677F\u80CC\u666F")
-            .add("bg.toolbar", "\u5DE5\u5177\u680F\u80CC\u666F")
-            .add("bg.output", "\u8F93\u51FA\u7A97\u53E3\u80CC\u666F"));
-        colorGroup.add(new ColorGroup("\u524D\u666F (Foreground)")
-            .add("fg.main", "\u4E3B\u6587\u672C\u989C\u8272")
-            .add("fg.secondary", "\u6B21\u8981\u6587\u672C\u989C\u8272")
-            .add("fg.muted", "\u6697\u6DE1\u6587\u672C\u989C\u8272")
-            .add("fg.title", "\u6807\u9898\u6587\u672C\u989C\u8272")
-            .add("fg.tab.active", "\u6807\u7B7E\u9875\u6D3B\u8DC3\u989C\u8272")
-            .add("fg.tab.inactive", "\u6807\u7B7E\u9875\u975E\u6D3B\u8DC3\u989C\u8272"));
-        colorGroup.add(new ColorGroup("\u9009\u62E9 (Selection)")
-            .add("selection.bg", "\u9009\u4E2D\u80CC\u666F\u989C\u8272")
-            .add("selection.fg", "\u9009\u4E2D\u6587\u672C\u989C\u8272")
-            .add("selection.listBg", "\u5217\u8868\u9009\u4E2D\u80CC\u666F")
-            .add("selection.listFg", "\u5217\u8868\u9009\u4E2D\u6587\u672C"));
-        colorGroup.add(new ColorGroup("\u8FB9\u6846 (Border)")
-            .add("border.default", "\u9ED8\u8BA4\u8FB9\u6846")
-            .add("border.light", "\u6D45\u8272\u8FB9\u6846"));
-        colorGroup.add(new ColorGroup("\u5F3A\u8C03\u8272 (Accent)")
-            .add("accent.green", "\u7EFF\u8272\u5F3A\u8C03")
-            .add("accent.tab", "\u6807\u7B7E\u9875\u5F3A\u8C03"));
-        colorGroup.add(new ColorGroup("\u7F16\u8F91\u5668 (Editor)")
-            .add("editor.caret", "\u5149\u6807\u989C\u8272"));
-        colorGroup.add(new ColorGroup("\u5217\u8868 (List)")
-            .add("list.bg", "\u5217\u8868\u80CC\u666F")
-            .add("list.fg", "\u5217\u8868\u6587\u672C"));
-        colorGroup.add(new ColorGroup("\u6EDA\u52A8 (Scroll)")
-            .add("scroll.bg", "\u6EDA\u52A8\u6761\u80CC\u666F"));
-        colorGroup.add(new ColorGroup("\u6267\u884C\u7ED3\u679C (Execution)")
-            .add("exec.success", "\u6267\u884C\u6210\u529F")
-            .add("exec.fail", "\u6267\u884C\u5931\u8D25")
-            .add("exec.highlight", "\u6267\u884C\u9AD8\u4EAE"));
+        colorGroup.add(new ColorGroup("背景 (Background)")
+            .add("bg.main", "主背景颜色")
+            .add("bg.editor", "编辑器背景")
+            .add("bg.panel", "面板背景")
+            .add("bg.toolbar", "工具栏背景")
+            .add("bg.output", "输出窗口背景"));
+        colorGroup.add(new ColorGroup("前景 (Foreground)")
+            .add("fg.main", "主文本颜色")
+            .add("fg.secondary", "次要文本颜色")
+            .add("fg.muted", "暗淡文本颜色")
+            .add("fg.title", "标题文本颜色")
+            .add("fg.tab.active", "标签页活跃颜色")
+            .add("fg.tab.inactive", "标签页非活跃颜色"));
+        colorGroup.add(new ColorGroup("选择 (Selection)")
+            .add("selection.bg", "选中背景颜色")
+            .add("selection.fg", "选中文本颜色")
+            .add("selection.listBg", "列表选中背景")
+            .add("selection.listFg", "列表选中文本"));
+        colorGroup.add(new ColorGroup("边框 (Border)")
+            .add("border.default", "默认边框")
+            .add("border.light", "浅色边框"));
+        colorGroup.add(new ColorGroup("强调色 (Accent)")
+            .add("accent.green", "绿色强调")
+            .add("accent.tab", "标签页强调"));
+        colorGroup.add(new ColorGroup("编辑器 (Editor)")
+            .add("editor.caret", "光标颜色"));
+        colorGroup.add(new ColorGroup("列表 (List)")
+            .add("list.bg", "列表背景")
+            .add("list.fg", "列表文本"));
+        colorGroup.add(new ColorGroup("滚动 (Scroll)")
+            .add("scroll.bg", "滚动条背景"));
+        colorGroup.add(new ColorGroup("执行结果 (Execution)")
+            .add("exec.success", "执行成功")
+            .add("exec.fail", "执行失败")
+            .add("exec.highlight", "执行高亮"));
 
-        DefaultMutableTreeNode root = new DefaultMutableTreeNode("\u4E3B\u9898\u989C\u8272");
+        DefaultMutableTreeNode root = new DefaultMutableTreeNode("主题颜色");
         for (var g : colorGroup) {
             var gn = new ColorGroupNode(g);
             root.add(gn);
@@ -518,12 +518,12 @@ public class SettingsDialog extends JDialog {
         });
 
         JPanel resetPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 4));
-        JButton resetBtn = new JButton("\u91CD\u7F6E\u9ED8\u8BA4");
-        resetBtn.setToolTipText("\u5C06\u5DF2\u4FEE\u6539\u7684\u989C\u8272\u91CD\u7F6E\u4E3A\u5F53\u524D\u4E3B\u9898\u5BF9\u5E94\u7684\u9ED8\u8BA4\u989C\u8272");
+        JButton resetBtn = new JButton("重置默认");
+        resetBtn.setToolTipText("将已修改的颜色重置为当前主题对应的默认颜色");
         resetBtn.addActionListener(e -> {
             int ret = JOptionPane.showConfirmDialog(this,
-                "\u786E\u5B9A\u8981\u5C06\u6240\u6709\u989C\u8272\u91CD\u7F6E\u4E3A\u5F53\u524D\u4E3B\u9898\u7684\u9ED8\u8BA4\u503C\u5417\uFF1F",
-                "\u91CD\u7F6E\u989C\u8272", JOptionPane.YES_NO_OPTION);
+                "确定要将所有颜色重置为当前主题的默认值吗？",
+                "重置颜色", JOptionPane.YES_NO_OPTION);
             if (ret != JOptionPane.YES_OPTION) return;
             ThemeManager.getInstance().clearOverrides();
             // Rebuild current view
@@ -596,7 +596,7 @@ public class SettingsDialog extends JDialog {
         // Top: Profile toolbar + dialect
         JPanel topBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 2));
 
-        JLabel dialectLbl = new JLabel("\u65B9\u8A00:");
+        JLabel dialectLbl = new JLabel("方言:");
         dialectCombo = new JComboBox<>(new String[]{"Oracle", "MySQL", "PostgreSQL", "OceanBase"});
         dialectCombo.setSelectedItem(workingOptions.getDialect() != null ? workingOptions.getDialect() : "Oracle");
         dialectCombo.addActionListener(e -> {
@@ -615,9 +615,9 @@ public class SettingsDialog extends JDialog {
         topBar.add(profileLbl);
         topBar.add(profileCombo);
 
-        JButton saveProfileBtn = new JButton("\u4FDD\u5B58");
+        JButton saveProfileBtn = new JButton("保存");
         saveProfileBtn.addActionListener(e -> {
-            String name = JOptionPane.showInputDialog(this, "\u8F93\u5165 Profile \u540D\u79F0:");
+            String name = JOptionPane.showInputDialog(this, "输入 Profile 名称:");
             if (name != null && !name.trim().isEmpty()) {
                 name = name.trim();
                 applyCurrentOptionsToWorking(dialectCombo);
@@ -629,7 +629,7 @@ public class SettingsDialog extends JDialog {
         });
         topBar.add(saveProfileBtn);
 
-        JButton deleteProfileBtn = new JButton("\u5220\u9664");
+        JButton deleteProfileBtn = new JButton("删除");
         deleteProfileBtn.addActionListener(e -> {
             String sel = (String) profileCombo.getSelectedItem();
             if (sel != null) {
@@ -696,7 +696,7 @@ public class SettingsDialog extends JDialog {
         previewScroll.setBorder(BorderFactory.createEmptyBorder());
 
         JPanel previewToolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-        previewToolbar.add(new JLabel("\u9884\u89C8 SQL:"));
+        previewToolbar.add(new JLabel("预览 SQL:"));
         previewToolbar.add(previewSqlCombo);
 
         JPanel rightPanel = new JPanel(new BorderLayout());
@@ -720,12 +720,12 @@ public class SettingsDialog extends JDialog {
     }
 
     private void buildFormatTabs() {
-        formatTabs.addTab("\u901A\u7528", scrollWrap(buildGeneralFormatPanel(dialectCombo, profileCombo)));
+        formatTabs.addTab("通用", scrollWrap(buildGeneralFormatPanel(dialectCombo, profileCombo)));
         formatTabs.addTab("DQL", scrollWrap(buildDqlPanel()));
         formatTabs.addTab("DML", scrollWrap(buildDmlPanel()));
         formatTabs.addTab("DDL", scrollWrap(buildDdlPanel()));
         formatTabs.addTab("PL/SQL", scrollWrap(buildPlsqlPanel()));
-        formatTabs.addTab("\u6CE8\u91CA/\u7A7A\u767D", scrollWrap(buildCommentsPanel()));
+        formatTabs.addTab("注释/空白", scrollWrap(buildCommentsPanel()));
     }
 
     private JScrollPane scrollWrap(JPanel panel) {
@@ -805,18 +805,18 @@ public class SettingsDialog extends JDialog {
             int qs = result.getQualityScore();
             int diagCount = result.getDiagnostics().size();
             if (result.isFallback()) {
-                previewStatusLabel.setText("\u26A0 \u683C\u5F0F\u5316\u5931\u8D25\uFF0C\u5DF2\u4FDD\u7559\u539F\u59CB\u4EE3\u7801\uFF08\u8D28\u91CF\u8BC4\u5206 " + qs + "/100\uFF09");
+                previewStatusLabel.setText("⚠ 格式化失败，已保留原始代码（质量评分 " + qs + "/100）");
                 previewStatusLabel.setForeground(new Color(0xD9534F));
             } else if (diagCount > 0) {
-                previewStatusLabel.setText("\u26A0 \u683C\u5F0F\u5316\u5B8C\u6210\uFF0C" + diagCount + " \u4E2A\u95EE\u9898\uFF08\u8D28\u91CF\u8BC4\u5206 " + qs + "/100\uFF09");
+                previewStatusLabel.setText("⚠ 格式化完成，" + diagCount + " 个问题（质量评分 " + qs + "/100）");
                 previewStatusLabel.setForeground(new Color(0xF0AD4E));
             } else {
-                previewStatusLabel.setText("\u2713 \u683C\u5F0F\u5316\u5B8C\u6210\uFF08\u8D28\u91CF\u8BC4\u5206 " + qs + "/100\uFF09");
+                previewStatusLabel.setText("✓ 格式化完成（质量评分 " + qs + "/100）");
                 previewStatusLabel.setForeground(new Color(0x5CB85C));
             }
         } catch (Exception e) {
             previewArea.setText(sql);
-            previewStatusLabel.setText("\u2717 \u683C\u5F0F\u5316\u5F02\u5E38: " + e.getMessage());
+            previewStatusLabel.setText("✗ 格式化异常: " + e.getMessage());
             previewStatusLabel.setForeground(new Color(0xD9534F));
         }
     }
@@ -832,7 +832,7 @@ public class SettingsDialog extends JDialog {
         int row = 0;
 
         c.gridx = 0; c.gridy = row;
-        p.add(new JLabel("\u5173\u952E\u5B57\u5927\u5C0F\u5199:"), c);
+        p.add(new JLabel("关键字大小写:"), c);
         c.gridx = 1; c.weightx = 1;
         JComboBox<String> kcCombo = new JComboBox<>(new String[]{"UPPER", "LOWER", "PRESERVE"});
         kcCombo.setSelectedItem(workingOptions.getKeywordCase().name());
@@ -844,7 +844,7 @@ public class SettingsDialog extends JDialog {
 
         row++;
         c.gridx = 0; c.gridy = row; c.weightx = 0;
-        p.add(new JLabel("\u7F29\u8FDB\u7A7A\u683C\u6570:"), c);
+        p.add(new JLabel("缩进空格数:"), c);
         c.gridx = 1;
         JSpinner indentSpin = new JSpinner(new SpinnerNumberModel(workingOptions.getIndentSize(), 0, 64, 1));
         indentSpin.addChangeListener(e -> {
@@ -855,7 +855,7 @@ public class SettingsDialog extends JDialog {
 
         row++;
         c.gridx = 0; c.gridy = row;
-        p.add(new JLabel("\u6700\u5927\u884C\u5BBD (0=\u4E0D\u9650):"), c);
+        p.add(new JLabel("最大行宽 (0=不限):"), c);
         c.gridx = 1;
         JSpinner widthSpin = new JSpinner(new SpinnerNumberModel(workingOptions.getMaxLineWidth(), 0, 999, 10));
         widthSpin.addChangeListener(e -> {
@@ -866,7 +866,7 @@ public class SettingsDialog extends JDialog {
 
         row++;
         c.gridx = 0; c.gridy = row;
-        p.add(new JLabel("\u6362\u884C\u7B26:"), c);
+        p.add(new JLabel("换行符:"), c);
         c.gridx = 1;
         JComboBox<String> lsCombo = new JComboBox<>(new String[]{"LF", "CRLF"});
         lsCombo.setSelectedItem(workingOptions.getLineEnding());
@@ -878,7 +878,7 @@ public class SettingsDialog extends JDialog {
 
         row++;
         c.gridx = 0; c.gridy = row;
-        p.add(new JLabel("\u9017\u53F7\u4F4D\u7F6E:"), c);
+        p.add(new JLabel("逗号位置:"), c);
         c.gridx = 1;
         JComboBox<String> commaCombo = new JComboBox<>(new String[]{"TRAILING", "LEADING"});
         commaCombo.setSelectedItem(workingOptions.getCommaPosition().name());
@@ -957,60 +957,60 @@ public class SettingsDialog extends JDialog {
         c.weightx = 0;
         int row = 0;
 
-        addSection(p, c, row, "SELECT \u5217"); row++;
-        row = addComboCtrl(p, c, row, "  \u5217\u6A21\u5F0F", workingOptions.getSelectColumnMode().name(),
+        addSection(p, c, row, "SELECT 列"); row++;
+        row = addComboCtrl(p, c, row, "  列模式", workingOptions.getSelectColumnMode().name(),
             new String[]{"ALIGN","COMPACT","ONE_PER_LINE"}, v -> { workingOptions.setSelectColumnMode(SelectColumnMode.valueOf(v)); refreshPreview(); });
-        row = addSpinCtrl(p, c, row, "  COMPACT\u6BCF\u884C\u5217\u4E2A\u6570", workingOptions.getSelectColumnsPerRow(), 0, 20,
+        row = addSpinCtrl(p, c, row, "  COMPACT每行列个数", workingOptions.getSelectColumnsPerRow(), 0, 20,
             v -> { workingOptions.setSelectColumnsPerRow(v); refreshPreview(); });
-        row = addComboCtrl(p, c, row, "  \u9017\u53F7\u4F4D\u7F6E", workingOptions.getCommaPosition().name(),
+        row = addComboCtrl(p, c, row, "  逗号位置", workingOptions.getCommaPosition().name(),
             new String[]{"TRAILING","LEADING"}, v -> { workingOptions.setCommaPosition(CommaPosition.valueOf(v)); refreshPreview(); });
 
         addSection(p, c, row, "FROM/JOIN"); row++;
-        row = addCheckCtrl(p, c, row, "  FROM \u524D\u6362\u884C", workingOptions.isFromClauseNewline(),
+        row = addCheckCtrl(p, c, row, "  FROM 前换行", workingOptions.isFromClauseNewline(),
             v -> { workingOptions.setFromClauseNewline(v); refreshPreview(); });
-        row = addSpinCtrl(p, c, row, "  FROM \u989D\u5916\u7F29\u8FDB", workingOptions.getFromClauseIndent(), 0, 8,
+        row = addSpinCtrl(p, c, row, "  FROM 额外缩进", workingOptions.getFromClauseIndent(), 0, 8,
             v -> { workingOptions.setFromClauseIndent(v); refreshPreview(); });
-        row = addCheckCtrl(p, c, row, "  JOIN \u524D\u6362\u884C", workingOptions.isJoinOnNewline(),
+        row = addCheckCtrl(p, c, row, "  JOIN 前换行", workingOptions.isJoinOnNewline(),
             v -> { workingOptions.setJoinOnNewline(v); refreshPreview(); });
-        row = addCheckCtrl(p, c, row, "  \u5B50\u67E5\u8BE2\u5C55\u5F00\u6837\u5F0F", workingOptions.isSubqueryFromNewline(),
+        row = addCheckCtrl(p, c, row, "  子查询展开样式", workingOptions.isSubqueryFromNewline(),
             v -> { workingOptions.setSubqueryFromNewline(v); refreshPreview(); });
-        row = addCheckCtrl(p, c, row, "  ON \u6761\u4EF6\u5BF9\u9F50", workingOptions.isJoinOnAlign(),
+        row = addCheckCtrl(p, c, row, "  ON 条件对齐", workingOptions.isJoinOnAlign(),
             v -> { workingOptions.setJoinOnAlign(v); refreshPreview(); });
 
         addSection(p, c, row, "WHERE"); row++;
-        row = addComboCtrl(p, c, row, "  AND/OR \u4F4D\u7F6E", workingOptions.getWhereAndPosition().name(),
+        row = addComboCtrl(p, c, row, "  AND/OR 位置", workingOptions.getWhereAndPosition().name(),
             new String[]{"LINE_START","LINE_END"}, v -> { workingOptions.setWhereAndPosition(WhereAndPosition.valueOf(v)); refreshPreview(); });
-        row = addSpinCtrl(p, c, row, "  \u6761\u4EF6\u7F29\u8FDB", workingOptions.getWhereIndentSize(), 0, 8,
+        row = addSpinCtrl(p, c, row, "  条件缩进", workingOptions.getWhereIndentSize(), 0, 8,
             v -> { workingOptions.setWhereIndentSize(v); refreshPreview(); });
-        row = addComboCtrl(p, c, row, "  \u5B50\u67E5\u8BE2\u6837\u5F0F", workingOptions.getWhereSubqueryStyle().name(),
+        row = addComboCtrl(p, c, row, "  子查询样式", workingOptions.getWhereSubqueryStyle().name(),
             new String[]{"INLINE","EXPAND","AUTO"}, v -> { workingOptions.setWhereSubqueryStyle(SubqueryStyle.valueOf(v)); refreshPreview(); });
 
-        addSection(p, c, row, "\u96C6\u5408\u64CD\u4F5C"); row++;
-        row = addCheckCtrl(p, c, row, "  UNION/MINUS \u524D\u6362\u884C", workingOptions.isSetOperatorNewline(),
+        addSection(p, c, row, "集合操作"); row++;
+        row = addCheckCtrl(p, c, row, "  UNION/MINUS 前换行", workingOptions.isSetOperatorNewline(),
             v -> { workingOptions.setSetOperatorNewline(v); refreshPreview(); });
-        row = addCheckCtrl(p, c, row, "  UNION \u4E24\u4FA7\u5BF9\u9F50", workingOptions.isSetOperatorAlign(),
+        row = addCheckCtrl(p, c, row, "  UNION 两侧对齐", workingOptions.isSetOperatorAlign(),
             v -> { workingOptions.setSetOperatorAlign(v); refreshPreview(); });
 
-        addSection(p, c, row, "\u5B50\u67E5\u8BE2"); row++;
-        row = addComboCtrl(p, c, row, "  SELECT \u5217\u4E2D", workingOptions.getSelectListSubqueryStyle().name(),
+        addSection(p, c, row, "子查询"); row++;
+        row = addComboCtrl(p, c, row, "  SELECT 列中", workingOptions.getSelectListSubqueryStyle().name(),
             new String[]{"INLINE","EXPAND","AUTO"}, v -> { workingOptions.setSelectListSubqueryStyle(SubqueryStyle.valueOf(v)); refreshPreview(); });
-        row = addComboCtrl(p, c, row, "  FROM \u4E2D", workingOptions.getFromSubqueryStyle().name(),
+        row = addComboCtrl(p, c, row, "  FROM 中", workingOptions.getFromSubqueryStyle().name(),
             new String[]{"INLINE","EXPAND","AUTO"}, v -> { workingOptions.setFromSubqueryStyle(SubqueryStyle.valueOf(v)); refreshPreview(); });
-        row = addComboCtrl(p, c, row, "  \u901A\u7528\u9ED8\u8BA4", workingOptions.getSubqueryStyle().name(),
+        row = addComboCtrl(p, c, row, "  通用默认", workingOptions.getSubqueryStyle().name(),
             new String[]{"INLINE","EXPAND","AUTO"}, v -> { workingOptions.setSubqueryStyle(SubqueryStyle.valueOf(v)); refreshPreview(); });
-        row = addSpinCtrl(p, c, row, "  \u5C55\u5F00\u9608\u503C", workingOptions.getSubqueryThreshold(), 10, 500,
+        row = addSpinCtrl(p, c, row, "  展开阈值", workingOptions.getSubqueryThreshold(), 10, 500,
             v -> { workingOptions.setSubqueryThreshold(v); refreshPreview(); });
 
-        addSection(p, c, row, "IN \u5217\u8868"); row++;
-        row = addComboCtrl(p, c, row, "  \u5217\u8868\u683C\u5F0F", workingOptions.getInListFormat().name(),
+        addSection(p, c, row, "IN 列表"); row++;
+        row = addComboCtrl(p, c, row, "  列表格式", workingOptions.getInListFormat().name(),
             new String[]{"COMPACT","ONE_PER_LINE"}, v -> { workingOptions.setInListFormat(InListFormat.valueOf(v)); refreshPreview(); });
-        row = addSpinCtrl(p, c, row, "  \u6BCF\u884C\u503C\u6570", workingOptions.getInListColumnsPerRow(), 1, 20,
+        row = addSpinCtrl(p, c, row, "  每行值数", workingOptions.getInListColumnsPerRow(), 1, 20,
             v -> { workingOptions.setInListColumnsPerRow(v); refreshPreview(); });
-        row = addSpinCtrl(p, c, row, "  \u81EA\u52A8\u6362\u884C\u9608\u503C", workingOptions.getInListThreshold(), 3, 100,
+        row = addSpinCtrl(p, c, row, "  自动换行阈值", workingOptions.getInListThreshold(), 3, 100,
             v -> { workingOptions.setInListThreshold(v); refreshPreview(); });
 
         addSection(p, c, row, "CTE (WITH ... AS)"); row++;
-        row = addComboCtrl(p, c, row, "  CTE \u683C\u5F0F", workingOptions.getCteFormat().name(),
+        row = addComboCtrl(p, c, row, "  CTE 格式", workingOptions.getCteFormat().name(),
             new String[]{"COMPACT","ONE_PER_LINE","ALIGN"}, v -> { workingOptions.setCteFormat(CteFormat.valueOf(v)); refreshPreview(); });
 
         applyPanelTheme(p);
@@ -1029,31 +1029,31 @@ public class SettingsDialog extends JDialog {
         int row = 0;
 
         addSection(p, c, row, "INSERT"); row++;
-        row = addComboCtrl(p, c, row, "  \u5217\u683C\u5F0F", workingOptions.getInsertColumnFormat().name(),
+        row = addComboCtrl(p, c, row, "  列格式", workingOptions.getInsertColumnFormat().name(),
             new String[]{"COMPACT","ONE_PER_LINE"}, v -> { previewSection = "INSERT"; workingOptions.setInsertColumnFormat(InsertColumnFormat.valueOf(v)); refreshPreview(); });
-        row = addSpinCtrl(p, c, row, "  \u6BCF\u884C\u5217\u6570", workingOptions.getInsertColumnsPerRow(), 0, 20,
+        row = addSpinCtrl(p, c, row, "  每行列数", workingOptions.getInsertColumnsPerRow(), 0, 20,
             v -> { previewSection = "INSERT"; workingOptions.setInsertColumnsPerRow(v); refreshPreview(); });
-        row = addSpinCtrl(p, c, row, "  \u6BCF\u884C\u503C\u6570", workingOptions.getInsertValuesPerRow(), 0, 20,
+        row = addSpinCtrl(p, c, row, "  每行值数", workingOptions.getInsertValuesPerRow(), 0, 20,
             v -> { previewSection = "INSERT"; workingOptions.setInsertValuesPerRow(v); refreshPreview(); });
-        row = addComboCtrl(p, c, row, "  \u5B50\u67E5\u8BE2\u6837\u5F0F", workingOptions.getInsertSubqueryStyle().name(),
+        row = addComboCtrl(p, c, row, "  子查询样式", workingOptions.getInsertSubqueryStyle().name(),
             new String[]{"INLINE","EXPAND","AUTO"}, v -> { previewSection = "INSERT"; workingOptions.setInsertSubqueryStyle(SubqueryStyle.valueOf(v)); refreshPreview(); });
 
         addSection(p, c, row, "UPDATE"); row++;
-        row = addCheckCtrl(p, c, row, "  SET \u5BF9\u9F50", workingOptions.isUpdateSetAlign(),
+        row = addCheckCtrl(p, c, row, "  SET 对齐", workingOptions.isUpdateSetAlign(),
             v -> { previewSection = "UPDATE"; workingOptions.setUpdateSetAlign(v); refreshPreview(); });
-        row = addSpinCtrl(p, c, row, "  \u6BCF\u884C\u8868\u8FBE\u5F0F\u6570", workingOptions.getUpdateSetColumnsPerRow(), 0, 20,
+        row = addSpinCtrl(p, c, row, "  每行表达式数", workingOptions.getUpdateSetColumnsPerRow(), 0, 20,
             v -> { previewSection = "UPDATE"; workingOptions.setUpdateSetColumnsPerRow(v); refreshPreview(); });
-        row = addComboCtrl(p, c, row, "  \u9017\u53F7\u4F4D\u7F6E", workingOptions.getUpdateSetCommaPosition().name(),
+        row = addComboCtrl(p, c, row, "  逗号位置", workingOptions.getUpdateSetCommaPosition().name(),
             new String[]{"TRAILING","LEADING"}, v -> { previewSection = "UPDATE"; workingOptions.setUpdateSetCommaPosition(CommaPosition.valueOf(v)); refreshPreview(); });
 
         addSection(p, c, row, "DELETE"); row++;
-        row = addCheckCtrl(p, c, row, "  FROM \u524D\u6362\u884C", workingOptions.isDeleteFromNewline(),
+        row = addCheckCtrl(p, c, row, "  FROM 前换行", workingOptions.isDeleteFromNewline(),
             v -> { previewSection = "DELETE"; workingOptions.setDeleteFromNewline(v); refreshPreview(); });
 
         addSection(p, c, row, "MERGE"); row++;
-        row = addCheckCtrl(p, c, row, "  INTO \u524D\u6362\u884C", workingOptions.isMergeIntoNewline(),
+        row = addCheckCtrl(p, c, row, "  INTO 前换行", workingOptions.isMergeIntoNewline(),
             v -> { previewSection = "MERGE"; workingOptions.setMergeIntoNewline(v); refreshPreview(); });
-        row = addCheckCtrl(p, c, row, "  WHEN \u524D\u6362\u884C", workingOptions.isMergeWhenNewline(),
+        row = addCheckCtrl(p, c, row, "  WHEN 前换行", workingOptions.isMergeWhenNewline(),
             v -> { previewSection = "MERGE"; workingOptions.setMergeWhenNewline(v); refreshPreview(); });
 
         applyPanelTheme(p);
@@ -1072,29 +1072,29 @@ public class SettingsDialog extends JDialog {
         int row = 0;
 
         addSection(p, c, row, "CREATE TABLE"); row++;
-        row = addCheckCtrl(p, c, row, "  \u5217\u5B9A\u4E49\u5BF9\u9F50", workingOptions.isColumnDefAlign(),
+        row = addCheckCtrl(p, c, row, "  列定义对齐", workingOptions.isColumnDefAlign(),
             v -> { workingOptions.setColumnDefAlign(v); refreshPreview(); });
-        row = addSpinCtrl(p, c, row, "  \u6BCF\u884C\u5217\u6570", workingOptions.getColumnDefColumnsPerRow(), 0, 20,
+        row = addSpinCtrl(p, c, row, "  每行列数", workingOptions.getColumnDefColumnsPerRow(), 0, 20,
             v -> { workingOptions.setColumnDefColumnsPerRow(v); refreshPreview(); });
-        row = addComboCtrl(p, c, row, "  \u7C7B\u578B\u5927\u5C0F\u5199", workingOptions.getColumnDefTypeCase().name(),
+        row = addComboCtrl(p, c, row, "  类型大小写", workingOptions.getColumnDefTypeCase().name(),
             new String[]{"UPPER","LOWER","PRESERVE"}, v -> { workingOptions.setColumnDefTypeCase(KeywordCase.valueOf(v)); refreshPreview(); });
-        row = addComboCtrl(p, c, row, "  \u7EA6\u675F\u683C\u5F0F", workingOptions.getConstraintFormat().name(),
+        row = addComboCtrl(p, c, row, "  约束格式", workingOptions.getConstraintFormat().name(),
             new String[]{"INLINE","SEPARATE_LINE"}, v -> { workingOptions.setConstraintFormat(ConstraintFormat.valueOf(v)); refreshPreview(); });
-        row = addSpinCtrl(p, c, row, "  \u7EA6\u675F\u6BCF\u884C\u6570", workingOptions.getConstraintColumnsPerRow(), 1, 20,
+        row = addSpinCtrl(p, c, row, "  约束每行数", workingOptions.getConstraintColumnsPerRow(), 1, 20,
             v -> { workingOptions.setConstraintColumnsPerRow(v); refreshPreview(); });
-        row = addComboCtrl(p, c, row, "  \u5B58\u50A8\u5B50\u53E5", workingOptions.getStorageClauseFormat().name(),
+        row = addComboCtrl(p, c, row, "  存储子句", workingOptions.getStorageClauseFormat().name(),
             new String[]{"COMPACT","LINE_BREAK"}, v -> { workingOptions.setStorageClauseFormat(StorageClauseFormat.valueOf(v)); refreshPreview(); });
 
         addSection(p, c, row, "INDEX"); row++;
-        row = addComboCtrl(p, c, row, "  \u7D22\u5F15\u5217\u6A21\u5F0F", workingOptions.getIndexColumnFormat().name(),
+        row = addComboCtrl(p, c, row, "  索引列模式", workingOptions.getIndexColumnFormat().name(),
             new String[]{"COMPACT","ONE_PER_LINE"}, v -> { previewSection = "INDEX"; workingOptions.setIndexColumnFormat(IndexColumnFormat.valueOf(v)); refreshPreview(); });
-        row = addSpinCtrl(p, c, row, "  \u6BCF\u884C\u5217\u6570", workingOptions.getIndexColumnsPerRow(), 1, 20,
+        row = addSpinCtrl(p, c, row, "  每行列数", workingOptions.getIndexColumnsPerRow(), 1, 20,
             v -> { previewSection = "INDEX"; workingOptions.setIndexColumnsPerRow(v); refreshPreview(); });
 
-        addSection(p, c, row, "\u5206\u533A"); row++;
-        row = addComboCtrl(p, c, row, "  \u5206\u533A\u683C\u5F0F", workingOptions.getPartitionFormat().name(),
+        addSection(p, c, row, "分区"); row++;
+        row = addComboCtrl(p, c, row, "  分区格式", workingOptions.getPartitionFormat().name(),
             new String[]{"COMPACT","EXPAND"}, v -> { workingOptions.setPartitionFormat(PartitionFormat.valueOf(v)); refreshPreview(); });
-        row = addSpinCtrl(p, c, row, "  \u6BCF\u884C\u5206\u533A\u6570", workingOptions.getPartitionColumnsPerRow(), 1, 20,
+        row = addSpinCtrl(p, c, row, "  每行分区数", workingOptions.getPartitionColumnsPerRow(), 1, 20,
             v -> { workingOptions.setPartitionColumnsPerRow(v); refreshPreview(); });
 
         applyPanelTheme(p);
@@ -1112,40 +1112,40 @@ public class SettingsDialog extends JDialog {
         c.weightx = 0;
         int row = 0;
 
-        addSection(p, c, row, "\u58F0\u660E/\u53C2\u6570"); row++;
-        row = addCheckCtrl(p, c, row, "  \u58F0\u660E\u5BF9\u9F50 (:=)", workingOptions.isDeclarationAlign(),
+        addSection(p, c, row, "声明/参数"); row++;
+        row = addCheckCtrl(p, c, row, "  声明对齐 (:=)", workingOptions.isDeclarationAlign(),
             v -> { previewSection = "PACKAGE"; workingOptions.setDeclarationAlign(v); refreshPreview(); });
-        row = addComboCtrl(p, c, row, "  \u53C2\u6570\u5217\u8868", workingOptions.getParameterListMode().name(),
+        row = addComboCtrl(p, c, row, "  参数列表", workingOptions.getParameterListMode().name(),
             new String[]{"COMPACT","ONE_PER_LINE"}, v -> { previewSection = "PACKAGE"; workingOptions.setParameterListMode(ParameterListMode.valueOf(v)); refreshPreview(); });
-        row = addSpinCtrl(p, c, row, "  \u6BCF\u884C\u53C2\u6570\u6570", workingOptions.getParameterColumnsPerRow(), 1, 10,
+        row = addSpinCtrl(p, c, row, "  每行参数数", workingOptions.getParameterColumnsPerRow(), 1, 10,
             v -> { previewSection = "PACKAGE"; workingOptions.setParameterColumnsPerRow(v); refreshPreview(); });
-        row = addComboCtrl(p, c, row, "  IN/OUT \u5927\u5C0F\u5199", workingOptions.getParameterDirectionCase().name(),
+        row = addComboCtrl(p, c, row, "  IN/OUT 大小写", workingOptions.getParameterDirectionCase().name(),
             new String[]{"UPPER","LOWER","PRESERVE"}, v -> { previewSection = "PACKAGE"; workingOptions.setParameterDirectionCase(KeywordCase.valueOf(v)); refreshPreview(); });
-        row = addComboCtrl(p, c, row, "  \u7C7B\u578B\u5927\u5C0F\u5199", workingOptions.getParameterTypeCase().name(),
+        row = addComboCtrl(p, c, row, "  类型大小写", workingOptions.getParameterTypeCase().name(),
             new String[]{"UPPER","LOWER","PRESERVE"}, v -> { previewSection = "PACKAGE"; workingOptions.setParameterTypeCase(KeywordCase.valueOf(v)); refreshPreview(); });
-        row = addCheckCtrl(p, c, row, "  INTO \u53D8\u91CF\u5BF9\u9F50", workingOptions.isIntoVariableAlign(),
+        row = addCheckCtrl(p, c, row, "  INTO 变量对齐", workingOptions.isIntoVariableAlign(),
             v -> { previewSection = "PACKAGE"; workingOptions.setIntoVariableAlign(v); refreshPreview(); });
 
-        addSection(p, c, row, "\u63A7\u5236\u7ED3\u6784"); row++;
-        row = addCheckCtrl(p, c, row, "  THEN \u6362\u884C", workingOptions.isThenOnNewLine(),
+        addSection(p, c, row, "控制结构"); row++;
+        row = addCheckCtrl(p, c, row, "  THEN 换行", workingOptions.isThenOnNewLine(),
             v -> { previewSection = "PL/SQL BLOCK"; workingOptions.setThenOnNewLine(v); refreshPreview(); });
-        row = addCheckCtrl(p, c, row, "  LOOP \u6362\u884C", workingOptions.isLoopOnNewLine(),
+        row = addCheckCtrl(p, c, row, "  LOOP 换行", workingOptions.isLoopOnNewLine(),
             v -> { previewSection = "PL/SQL BLOCK"; workingOptions.setLoopOnNewLine(v); refreshPreview(); });
-        row = addCheckCtrl(p, c, row, "  ELSE \u72EC\u7ACB\u884C", workingOptions.isElseOnNewLine(),
+        row = addCheckCtrl(p, c, row, "  ELSE 独立行", workingOptions.isElseOnNewLine(),
             v -> { previewSection = "PL/SQL BLOCK"; workingOptions.setElseOnNewLine(v); refreshPreview(); });
         row = addComboCtrl(p, c, row, "  EXCEPTION", workingOptions.getExceptionAlign().name(),
             new String[]{"INDENT","OUTDENT"}, v -> { previewSection = "PL/SQL BLOCK"; workingOptions.setExceptionAlign(ExceptionAlign.valueOf(v)); refreshPreview(); });
-        row = addCheckCtrl(p, c, row, "  END \u5BF9\u9F50", workingOptions.isEndAlign(),
+        row = addCheckCtrl(p, c, row, "  END 对齐", workingOptions.isEndAlign(),
             v -> { previewSection = "PL/SQL BLOCK"; workingOptions.setEndAlign(v); refreshPreview(); });
-        row = addSpinCtrl(p, c, row, "  \u7F29\u8FDB\u7A7A\u683C\u6570", workingOptions.getPlsqlIndentSize(), 0, 64,
+        row = addSpinCtrl(p, c, row, "  缩进空格数", workingOptions.getPlsqlIndentSize(), 0, 64,
             v -> { workingOptions.setPlsqlIndentSize(v); previewSection = "PL/SQL BLOCK"; refreshPreview(); });
         row = addComboCtrl(p, c, row, "  FOR LOOP", workingOptions.getForLoopFormat().name(),
             new String[]{"COMPACT","EXPAND"}, v -> { previewSection = "PL/SQL BLOCK"; workingOptions.setForLoopFormat(ForLoopFormat.valueOf(v)); refreshPreview(); });
         row = addComboCtrl(p, c, row, "  CASE", workingOptions.getCaseExpressionFormat().name(),
             new String[]{"COMPACT","EXPAND"}, v -> { previewSection = "PL/SQL BLOCK"; workingOptions.setCaseExpressionFormat(CaseExpressionFormat.valueOf(v)); refreshPreview(); });
 
-        addSection(p, c, row, "\u62EC\u53F7\u95F4\u8DDD"); row++;
-        row = addComboCtrl(p, c, row, "  \u62EC\u53F7\u5185\u7A7A\u683C", workingOptions.getParenthesisSpacing().name(),
+        addSection(p, c, row, "括号间距"); row++;
+        row = addComboCtrl(p, c, row, "  括号内空格", workingOptions.getParenthesisSpacing().name(),
             new String[]{"NONE","INSIDE","BOTH"}, v -> { previewSection = "PL/SQL BLOCK"; workingOptions.setParenthesisSpacing(ParenthesisSpacing.valueOf(v)); refreshPreview(); });
 
         applyPanelTheme(p);
@@ -1163,18 +1163,18 @@ public class SettingsDialog extends JDialog {
         c.weightx = 0;
         int row = 0;
 
-        addSection(p, c, row, "\u6CE8\u91CA"); row++;
-        row = addCheckCtrl(p, c, row, "  \u4FDD\u7559\u6CE8\u91CA", workingOptions.isCommentPreserve(),
+        addSection(p, c, row, "注释"); row++;
+        row = addCheckCtrl(p, c, row, "  保留注释", workingOptions.isCommentPreserve(),
             v -> { previewSection = "COMMENTS"; workingOptions.setCommentPreserve(v); refreshPreview(); });
-        row = addCheckCtrl(p, c, row, "  \u6CE8\u91CA\u7F29\u8FDB", workingOptions.isCommentIndent(),
+        row = addCheckCtrl(p, c, row, "  注释缩进", workingOptions.isCommentIndent(),
             v -> { previewSection = "COMMENTS"; workingOptions.setCommentIndent(v ? CommentIndent.CODE_LEVEL : CommentIndent.BLOCK_LEVEL); refreshPreview(); });
 
-        addSection(p, c, row, "\u7A7A\u767D"); row++;
-        row = addComboCtrl(p, c, row, "  \u7A7A\u884C\u5904\u7406", workingOptions.getBlankLineHandling().name(),
+        addSection(p, c, row, "空白"); row++;
+        row = addComboCtrl(p, c, row, "  空行处理", workingOptions.getBlankLineHandling().name(),
             new String[]{"PRESERVE","COLLAPSE","STRIP"}, v -> { previewSection = "COMMENTS"; workingOptions.setBlankLineHandling(BlankLineHandling.valueOf(v)); refreshPreview(); });
-        row = addCheckCtrl(p, c, row, "  \u884C\u5C3E\u7A7A\u683C\u6E05\u7406", workingOptions.isTrailingWhitespaceTrim(),
+        row = addCheckCtrl(p, c, row, "  行尾空格清理", workingOptions.isTrailingWhitespaceTrim(),
             v -> { previewSection = "COMMENTS"; workingOptions.setTrailingWhitespaceTrim(v); refreshPreview(); });
-        row = addCheckCtrl(p, c, row, "  \u5757\u524D\u7A7A\u884C", workingOptions.isBlankLineBeforeBlock(),
+        row = addCheckCtrl(p, c, row, "  块前空行", workingOptions.isBlankLineBeforeBlock(),
             v -> { previewSection = "COMMENTS"; workingOptions.setBlankLineBeforeBlock(v); refreshPreview(); });
 
         applyPanelTheme(p);
@@ -1194,7 +1194,7 @@ public class SettingsDialog extends JDialog {
         c.insets = new Insets(4, 6, 4, 6);
         c.gridx = 0; c.weightx = 0;
 
-        JLabel header = new JLabel("\u81EA\u52A8\u4FDD\u5B58\u8BBE\u7F6E");
+        JLabel header = new JLabel("自动保存设置");
         header.setFont(header.getFont().deriveFont(Font.BOLD, 14f));
         GridBagConstraints hc = new GridBagConstraints();
         hc.gridx = 0; hc.gridy = 0; hc.gridwidth = 3; hc.weightx = 1;
@@ -1203,7 +1203,7 @@ public class SettingsDialog extends JDialog {
 
         int row = 1;
         c.gridy = row; c.gridwidth = 1;
-        grid.add(new JLabel("\u81EA\u52A8\u4FDD\u5B58\u95F4\u9694:"), c);
+        grid.add(new JLabel("自动保存间隔:"), c);
         c.gridx = 1; c.weightx = 1;
         int interval = 30;
         try { interval = Integer.parseInt(configManager.getPreference("autosave.interval", "30")); } catch (Exception ignored) {}
@@ -1217,13 +1217,13 @@ public class SettingsDialog extends JDialog {
 
         row++;
         c.gridy = row; c.gridx = 0; c.weightx = 0;
-        grid.add(new JLabel("\u81EA\u52A8\u4FDD\u5B58\u8DEF\u5F84:"), c);
+        grid.add(new JLabel("自动保存路径:"), c);
         c.gridx = 1; c.weightx = 1;
         var pathField = new JTextField(configManager.getPreference("autosave.path",
             configManager.getConfigPath().resolve("auto-save").toAbsolutePath().toString()));
         grid.add(pathField, c);
         c.gridx = 2; c.weightx = 0;
-        var browseBtn = new JButton("\u6D4F\u89C8...");
+        var browseBtn = new JButton("浏览...");
         browseBtn.addActionListener(e -> {
             JFileChooser chooser = new JFileChooser();
             chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
@@ -1260,11 +1260,11 @@ public class SettingsDialog extends JDialog {
         });
 
         var typeBtnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-        var addTypeBtn = new JButton("+ \u7C7B\u578B");
+        var addTypeBtn = new JButton("+ 类型");
         addTypeBtn.addActionListener(e -> {
             if (metadataTree.getLastSelectedPathComponent() instanceof MetadataNode mn) {
                 var td = new TypeDef();
-                td.setLabel("\u65B0\u7C7B\u578B");
+                td.setLabel("新类型");
                 td.setTypeCode("NEW_TYPE");
                 td.setQueryType("SQL");
                 td.setExpandable(false);
@@ -1273,7 +1273,7 @@ public class SettingsDialog extends JDialog {
                 saveMetadataConfig();
             }
         });
-        var delTypeBtn = new JButton("- \u5220\u9664");
+        var delTypeBtn = new JButton("- 删除");
         delTypeBtn.addActionListener(e -> {
             int sel = typeTable.getSelectedRow();
             if (sel >= 0) {
@@ -1289,20 +1289,20 @@ public class SettingsDialog extends JDialog {
         sqlArea.setFont(new Font("Monospaced", Font.PLAIN, 12));
         sqlArea.setLineWrap(true);
         var sqlScroll = new JScrollPane(sqlArea);
-        sqlScroll.setBorder(BorderFactory.createTitledBorder("SQL \u67E5\u8BE2 (\u9009\u4E2D\u540E\u7F16\u8F91)"));
+        sqlScroll.setBorder(BorderFactory.createTitledBorder("SQL 查询 (选中后编辑)"));
 
         sqlEditPanel = new JPanel(new BorderLayout());
         sqlEditPanel.add(sqlScroll, BorderLayout.CENTER);
-        var saveSqlBtn = new JButton("\u4FDD\u5B58 SQL");
+        var saveSqlBtn = new JButton("保存 SQL");
         saveSqlBtn.addActionListener(e -> saveCurrentSql());
-        var existingBtn = new JButton("\u5305\u542B\u73B0\u6709");
+        var existingBtn = new JButton("包含现有");
         existingBtn.addActionListener(e -> {
             int sel = typeTable.getSelectedRow();
             if (sel >= 0) {
                 var td = typeTableModel.types.get(sel);
                 if ("FIXED_LIST".equals(td.getQueryType())) {
                     String vals = String.join("\n", td.getFixedValues());
-                    sqlArea.setText("# FIXED_LIST \u7C7B\u578B\uFF0C\u4E0D\u9700\u8981 SQL\uFF0C\u56FA\u5B9A\u503C:\n" + vals);
+                    sqlArea.setText("# FIXED_LIST 类型，不需要 SQL，固定值:\n" + vals);
                 }
             }
         });
@@ -1312,16 +1312,16 @@ public class SettingsDialog extends JDialog {
         columnTable = new JTable(columnModel);
 
         var colBtnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-        var addColBtn = new JButton("+ \u81EA\u5B9A\u4E49");
+        var addColBtn = new JButton("+ 自定义");
         addColBtn.addActionListener(e -> {
             int sel = typeTable.getSelectedRow();
             if (sel >= 0) {
-                columnModel.cols.add(new DbMetadataConfig.CustomColumn("\u65B0\u5217", "SELECT ? FROM ... WHERE owner = ?"));
+                columnModel.cols.add(new DbMetadataConfig.CustomColumn("新列", "SELECT ? FROM ... WHERE owner = ?"));
                 columnModel.fireTableRowsInserted(columnModel.cols.size() - 1, columnModel.cols.size() - 1);
                 saveMetadataConfig();
             }
         });
-        var delColBtn = new JButton("- \u5220\u9664");
+        var delColBtn = new JButton("- 删除");
         delColBtn.addActionListener(e -> {
             int sel = columnTable.getSelectedRow();
             if (sel >= 0) {
@@ -1333,7 +1333,7 @@ public class SettingsDialog extends JDialog {
         colBtnPanel.add(addColBtn);
         colBtnPanel.add(delColBtn);
 
-        helpLabel = new JLabel("\u81EA\u5B9A\u4E49\u5217\u5728\u5BF9\u5E94\u7C7B\u578B\u7684\u8282\u70B9\u4E0A\u663E\u793A\u989D\u5916\u4FE1\u606F\uFF0C\u72B6\u6001\u680F\u3001\u5FEB\u901F\u63D0\u793A\u7B49\uFF1BSQL \u4E2D\u7684 ? \u4F1A\u88AB\u5F53\u524D Schema \u548C\u5BF9\u8C61\u540D\u66FF\u6362\u3002");
+        helpLabel = new JLabel("自定义列在对应类型的节点上显示额外信息，状态栏、快速提示等；SQL 中的 ? 会被当前 Schema 和对象名替换。");
         helpLabel.setFont(UIManager.getFont("Label.font"));
         helpLabel.setForeground(ThemeManager.getInstance().resolve("fg.muted"));
 
@@ -1367,7 +1367,7 @@ public class SettingsDialog extends JDialog {
     }
 
     private DefaultMutableTreeNode buildMetadataTree() {
-        DefaultMutableTreeNode root = new DefaultMutableTreeNode("\u6570\u636E\u5E93\u7C7B\u578B");
+        DefaultMutableTreeNode root = new DefaultMutableTreeNode("数据库类型");
         for (var cfg : metadataConfigs) {
             root.add(new MetadataNode(cfg));
         }
@@ -1392,7 +1392,7 @@ public class SettingsDialog extends JDialog {
         }
         var td = typeTableModel.types.get(sel);
         if ("FIXED_LIST".equals(td.getQueryType())) {
-            sqlArea.setText("# FIXED_LIST \u7C7B\u578B\uFF0C\u4E0D\u9700\u8981 SQL\uFF0C\u56FA\u5B9A\u503C:\n"
+            sqlArea.setText("# FIXED_LIST 类型，不需要 SQL，固定值:\n"
                 + String.join("\n", td.getFixedValues()));
             sqlArea.setEditable(false);
         } else {
@@ -1435,7 +1435,7 @@ public class SettingsDialog extends JDialog {
         if (owner instanceof MainFrame) {
             ((MainFrame) owner).reapplyTheme();
         }
-        JOptionPane.showMessageDialog(this, "\u8BBE\u7F6E\u5DF2\u4FDD\u5B58");
+        JOptionPane.showMessageDialog(this, "设置已保存");
         dispose();
     }
 

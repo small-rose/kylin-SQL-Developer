@@ -28,7 +28,7 @@ public class ConnectionDialog extends JDialog {
     }
 
     public ConnectionDialog(Frame owner, ConfigManager configManager, ConnectionManager connectionManager, String selectConnName) {
-        super(owner, "\u7BA1\u7406\u8FDE\u63A5", true);
+        super(owner, "管理连接", true);
         this.configManager = configManager;
         this.connectionManager = connectionManager;
 
@@ -52,13 +52,13 @@ public class ConnectionDialog extends JDialog {
         setLayout(new BorderLayout());
 
         JPanel leftPanel = new JPanel(new BorderLayout());
-        leftPanel.setBorder(BorderFactory.createTitledBorder("\u5DF2\u4FDD\u5B58\u7684\u8FDE\u63A5"));
+        leftPanel.setBorder(BorderFactory.createTitledBorder("已保存的连接"));
         leftPanel.setPreferredSize(new Dimension(220, 0));
 
-        JButton addBtn = new JButton("+ \u65B0\u5EFA");
+        JButton addBtn = new JButton("+ 新建");
         addBtn.addActionListener(e -> newConnection());
 
-        JButton delBtn = new JButton("\u5220\u9664");
+        JButton delBtn = new JButton("删除");
         delBtn.addActionListener(e -> deleteConnection());
 
         JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
@@ -70,24 +70,24 @@ public class ConnectionDialog extends JDialog {
         add(leftPanel, BorderLayout.WEST);
 
         JPanel formPanel = new JPanel(new GridBagLayout());
-        formPanel.setBorder(BorderFactory.createTitledBorder("\u8FDE\u63A5\u4FE1\u606F"));
+        formPanel.setBorder(BorderFactory.createTitledBorder("连接信息"));
         GridBagConstraints c = new GridBagConstraints();
         c.fill = GridBagConstraints.HORIZONTAL;
         c.insets = new Insets(3, 5, 3, 5);
         int row = 0;
 
         c.gridx = 0; c.gridy = row; c.gridwidth = 1; c.weightx = 0;
-        formPanel.add(new JLabel("\u8FDE\u63A5\u540D\u79F0:"), c);
+        formPanel.add(new JLabel("连接名称:"), c);
         c.gridx = 1; c.weightx = 1;
         nameField = new JTextField(20);
         formPanel.add(nameField, c);
 
         row++;
         c.gridx = 0; c.gridy = row; c.weightx = 0;
-        dbTypeLabel = new JLabel("\u6570\u636E\u5E93\u7C7B\u578B:");
+        dbTypeLabel = new JLabel("数据库类型:");
         formPanel.add(dbTypeLabel, c);
         c.gridx = 1;
-        dbTypeCombo = new JComboBox<>(new String[]{"oceanbase (OceanBase \u539F\u751F\u9A71\u52A8)", "postgresql (PG \u517C\u5BB9\u9A71\u52A8)", "oracle"});
+        dbTypeCombo = new JComboBox<>(new String[]{"oceanbase (OceanBase 原生驱动)", "postgresql (PG 兼容驱动)", "oracle"});
         dbTypeCombo.addActionListener(e -> {
             if (connList.getSelectedValue() == null) {
                 portField.setText(dbTypeCombo.getSelectedIndex() == 2 ? "1521" :
@@ -98,7 +98,7 @@ public class ConnectionDialog extends JDialog {
 
         row++;
         c.gridx = 0; c.gridy = row; c.gridwidth = 2;
-        useUrlCheck = new JCheckBox("\u4F7F\u7528 JDBC URL");
+        useUrlCheck = new JCheckBox("使用 JDBC URL");
         useUrlCheck.addActionListener(e -> toggleUrlMode());
         formPanel.add(useUrlCheck, c);
 
@@ -107,12 +107,12 @@ public class ConnectionDialog extends JDialog {
         formPanel.add(new JLabel("JDBC URL:"), c);
         c.gridx = 1; c.weightx = 1;
         urlField = new JTextField();
-        urlField.setToolTipText("\u4F8B\u5982: jdbc:oracle:thin:@host:1521/service");
+        urlField.setToolTipText("例如: jdbc:oracle:thin:@host:1521/service");
         formPanel.add(urlField, c);
 
         row++;
         c.gridx = 0; c.gridy = row; c.weightx = 0;
-        hostLabel = new JLabel("\u4E3B\u673A:");
+        hostLabel = new JLabel("主机:");
         formPanel.add(hostLabel, c);
         c.gridx = 1; c.weightx = 1;
         hostField = new JTextField("127.0.0.1");
@@ -120,7 +120,7 @@ public class ConnectionDialog extends JDialog {
 
         row++;
         c.gridx = 0; c.gridy = row; c.weightx = 0;
-        portLabel = new JLabel("\u7AEF\u53E3:");
+        portLabel = new JLabel("端口:");
         formPanel.add(portLabel, c);
         c.gridx = 1; c.weightx = 1;
         portField = new JTextField("2881");
@@ -128,7 +128,7 @@ public class ConnectionDialog extends JDialog {
 
         row++;
         c.gridx = 0; c.gridy = row; c.weightx = 0;
-        serviceLabel = new JLabel("\u670D\u52A1\u540D/\u6570\u636E\u5E93:");
+        serviceLabel = new JLabel("服务名/数据库:");
         formPanel.add(serviceLabel, c);
         c.gridx = 1; c.weightx = 1;
         serviceField = new JTextField("oceanbase");
@@ -136,14 +136,14 @@ public class ConnectionDialog extends JDialog {
 
         row++;
         c.gridx = 0; c.gridy = row; c.weightx = 0;
-        formPanel.add(new JLabel("\u7528\u6237\u540D:"), c);
+        formPanel.add(new JLabel("用户名:"), c);
         c.gridx = 1; c.weightx = 1;
         userField = new JTextField();
         formPanel.add(userField, c);
 
         row++;
         c.gridx = 0; c.gridy = row; c.weightx = 0;
-        formPanel.add(new JLabel("\u5BC6\u7801:"), c);
+        formPanel.add(new JLabel("密码:"), c);
         c.gridx = 1; c.weightx = 1;
         passwordField = new JPasswordField();
         formPanel.add(passwordField, c);
@@ -157,21 +157,21 @@ public class ConnectionDialog extends JDialog {
 
         row++;
         c.gridx = 0; c.gridy = row; c.weightx = 0;
-        formPanel.add(new JLabel("\u67E5\u8BE2\u8D85\u65F6(\u79D2):"), c);
+        formPanel.add(new JLabel("查询超时(秒):"), c);
         c.gridx = 1; c.weightx = 1;
         timeoutField = new JTextField("0");
-        timeoutField.setToolTipText("SQL/\u5B58\u8FC7\u6267\u884C\u8D85\u65F6\u79D2\u6570\uFF0C0 \u8868\u793A\u4E0D\u9650\u65F6");
+        timeoutField.setToolTipText("SQL/存过执行超时秒数，0 表示不限时");
         formPanel.add(timeoutField, c);
 
         toggleUrlMode();
 
         row++;
         JPanel actionPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
-        JButton testBtn = new JButton("\u6D4B\u8BD5\u8FDE\u63A5");
+        JButton testBtn = new JButton("测试连接");
         testBtn.addActionListener(e -> testConnection());
-        JButton saveBtn = new JButton("\u4FDD\u5B58");
+        JButton saveBtn = new JButton("保存");
         saveBtn.addActionListener(e -> saveConnection());
-        JButton closeBtn = new JButton("\u5173\u95ED");
+        JButton closeBtn = new JButton("关闭");
         closeBtn.addActionListener(e -> dispose());
         actionPanel.add(testBtn);
         actionPanel.add(saveBtn);
@@ -295,7 +295,7 @@ public class ConnectionDialog extends JDialog {
         configManager.saveConnections(all);
         loadConnections();
         savedConnName = ci.getName();
-        JOptionPane.showMessageDialog(this, "\u8FDE\u63A5\u5DF2\u4FDD\u5B58");
+        JOptionPane.showMessageDialog(this, "连接已保存");
         editing = null;
     }
 
@@ -303,8 +303,8 @@ public class ConnectionDialog extends JDialog {
         ConnectionInfo ci = connList.getSelectedValue();
         if (ci == null) return;
         int confirm = JOptionPane.showConfirmDialog(this,
-            "\u786E\u8BA4\u5220\u9664\u8FDE\u63A5 '" + ci.getName() + "'?",
-            "\u786E\u8BA4", JOptionPane.YES_NO_OPTION);
+            "确认删除连接 '" + ci.getName() + "'?",
+            "确认", JOptionPane.YES_NO_OPTION);
         if (confirm != JOptionPane.YES_OPTION) return;
         List<ConnectionInfo> all = configManager.loadConnections();
         all.remove(ci);
@@ -336,12 +336,12 @@ public class ConnectionDialog extends JDialog {
         try {
             boolean ok = connectionManager.testConnection(ci);
             if (ok) {
-                JOptionPane.showMessageDialog(this, "\u8FDE\u63A5\u6210\u529F\uFF01");
+                JOptionPane.showMessageDialog(this, "连接成功！");
             } else {
-                JOptionPane.showMessageDialog(this, "\u8FDE\u63A5\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u53C2\u6570");
+                JOptionPane.showMessageDialog(this, "连接失败，请检查参数");
             }
         } catch (Exception e) {
-            JOptionPane.showMessageDialog(this, "\u8FDE\u63A5\u5931\u8D25: " + e.getMessage());
+            JOptionPane.showMessageDialog(this, "连接失败: " + e.getMessage());
         } finally {
             setCursor(Cursor.getDefaultCursor());
         }

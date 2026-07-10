@@ -41,12 +41,12 @@ public class StatusBar extends JPanel {
         super(new BorderLayout());
         setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, Color.LIGHT_GRAY));
 
-        dotLabel = new JLabel("\u25CF");
+        dotLabel = new JLabel("●");
         dotLabel.setFont(dotLabel.getFont().deriveFont(14f));
         dotLabel.setForeground(new Color(0x5CB85C));
         dotLabel.setBorder(new EmptyBorder(2, 8, 2, 2));
 
-        connLabel = new JLabel("\u5C31\u7EEA");
+        connLabel = new JLabel("就绪");
         connLabel.setBorder(new EmptyBorder(2, 0, 2, 4));
         connLabel.setFont(connLabel.getFont().deriveFont(11f));
 
@@ -69,7 +69,7 @@ public class StatusBar extends JPanel {
 
         posLabel = clickableSection("", this::showNavigateDialog);
         encodingLabel = clickableSection("UTF-8", this::showEncodingPopup);
-        lockLabel = clickableSection("\uD83D\uDD13", e -> toggleLock());
+        lockLabel = clickableSection("🔓", e -> toggleLock());
         typeLabel = section("SQL");
         memoryBar = new MemoryBar();
 
@@ -130,7 +130,7 @@ public class StatusBar extends JPanel {
     }
 
     private static JLabel sep() {
-        JLabel l = new JLabel("\u2502");
+        JLabel l = new JLabel("│");
         l.setFont(l.getFont().deriveFont(10f));
         l.setBorder(new EmptyBorder(2, 1, 2, 1));
         return l;
@@ -186,7 +186,7 @@ public class StatusBar extends JPanel {
     }
 
     public void setLocked(boolean locked) {
-        lockLabel.setText(locked ? "\uD83D\uDD12" : "\uD83D\uDD13");
+        lockLabel.setText(locked ? "🔒" : "🔓");
         lockLabel.setForeground(locked ? new Color(0xD9534F) : new Color(0x5CB85C));
     }
 
@@ -206,7 +206,7 @@ public class StatusBar extends JPanel {
 
     private void showNavigateDialog(java.awt.event.ActionEvent e) {
         Window owner = SwingUtilities.getWindowAncestor(this);
-        JDialog dlg = new JDialog(owner, "\u8DF3\u8F6C\u5230\u884C", ModalityType.APPLICATION_MODAL);
+        JDialog dlg = new JDialog(owner, "跳转到行", ModalityType.APPLICATION_MODAL);
         dlg.setLayout(new GridBagLayout());
         GridBagConstraints g = new GridBagConstraints();
 
@@ -218,9 +218,9 @@ public class StatusBar extends JPanel {
         g.insets = new Insets(8, 10, 4, 10);
         g.anchor = GridBagConstraints.WEST;
 
-        JLabel lineLabel = new JLabel("\u884C:");
+        JLabel lineLabel = new JLabel("行:");
         lineLabel.setForeground(fg);
-        JLabel colLabel = new JLabel("\u5217:");
+        JLabel colLabel = new JLabel("列:");
         colLabel.setForeground(fg);
 
         SpinnerNumberModel lineModel = new SpinnerNumberModel(currentLine, 1, Integer.MAX_VALUE, 1);
@@ -240,7 +240,7 @@ public class StatusBar extends JPanel {
         g.gridx = 1;
         dlg.add(colSpinner, g);
 
-        JButton okBtn = new JButton("\u8DF3\u8F6C");
+        JButton okBtn = new JButton("跳转");
         okBtn.setBackground(tm.resolve("accent.green"));
         okBtn.setForeground(Color.WHITE);
         okBtn.setOpaque(true);
@@ -254,7 +254,7 @@ public class StatusBar extends JPanel {
             dlg.dispose();
         });
 
-        JButton cancelBtn = new JButton("\u53D6\u6D88");
+        JButton cancelBtn = new JButton("取消");
         cancelBtn.addActionListener(ev -> dlg.dispose());
 
         JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 0));
@@ -325,7 +325,7 @@ public class StatusBar extends JPanel {
 
     private void toggleLock() {
         locked = !locked;
-        lockLabel.setText(locked ? "\uD83D\uDD12" : "\uD83D\uDD13");
+        lockLabel.setText(locked ? "🔒" : "🔓");
         lockLabel.setForeground(locked ? new Color(0xD9534F) : new Color(0x5CB85C));
         if (onLockToggle != null) onLockToggle.accept(locked);
     }

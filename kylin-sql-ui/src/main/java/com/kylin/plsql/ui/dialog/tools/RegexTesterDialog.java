@@ -27,21 +27,21 @@ public class RegexTesterDialog extends BaseToolDialog {
     private final JTable groupTable;
 
     private static final String[][] FAVORITES = {
-        {"\u90AE\u7BB1", "^[\\w.-]+@[\\w.-]+\\.\\w{2,}$"},
-        {"\u624B\u673A\u53F7", "^1[3-9]\\d{9}$"},
+        {"邮箱", "^[\\w.-]+@[\\w.-]+\\.\\w{2,}$"},
+        {"手机号", "^1[3-9]\\d{9}$"},
         {"URL", "^https?://[\\w.-]+(/\\S*)?$"},
-        {"IP \u5730\u5740", "^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$"},
-        {"\u5339\u914D\u4E2D\u6587", "[\\u4e00-\\u9fa5]+"},
-        {"\u8EAB\u4EFD\u8BC1\u53F7", "^\\d{17}[\\dXx]$"},
-        {"\u65E5\u671F (YYYY-MM-DD)", "^\\d{4}-\\d{2}-\\d{2}$"},
-        {"\u65F6\u95F4 (HH:MM:SS)", "^\\d{2}:\\d{2}:\\d{2}$"},
-        {"\u90AE\u7F16", "^\\d{6}$"},
-        {"HTML \u6807\u7B7E", "<[^>]+>"},
-        {"\u7A7A\u767D\u884C", "^\\s*$"},
-        {"\u989C\u8272\u5341\u516D\u8FDB\u5236", "^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$"},
-        {"\u7528\u6237\u540D", "^\\w{3,20}$"},
-        {"\u6587\u4EF6\u6269\u5C55\u540D", "\\.\\w+$"},
-        {"\u6570\u5B57", "^-?\\d+(\\.\\d+)?$"},
+        {"IP 地址", "^\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$"},
+        {"匹配中文", "[\u4e00-\u9fa5]+"},
+        {"身份证号", "^\\d{17}[\\dXx]$"},
+        {"日期 (YYYY-MM-DD)", "^\\d{4}-\\d{2}-\\d{2}$"},
+        {"时间 (HH:MM:SS)", "^\\d{2}:\\d{2}:\\d{2}$"},
+        {"邮编", "^\\d{6}$"},
+        {"HTML 标签", "<[^>]+>"},
+        {"空白行", "^\\s*$"},
+        {"颜色十六进制", "^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$"},
+        {"用户名", "^\\w{3,20}$"},
+        {"文件扩展名", "\\.\\w+$"},
+        {"数字", "^-?\\d+(\\.\\d+)?$"},
     };
 
     static class GroupTableModel extends AbstractTableModel {
@@ -66,7 +66,7 @@ public class RegexTesterDialog extends BaseToolDialog {
         @Override public int getColumnCount() { return 2; }
 
         @Override public String getColumnName(int col) {
-            return col == 0 ? "\u7EC4\u53F7" : "\u503C";
+            return col == 0 ? "组号" : "值";
         }
 
         @Override public Object getValueAt(int row, int col) {
@@ -75,7 +75,7 @@ public class RegexTesterDialog extends BaseToolDialog {
     }
 
     public RegexTesterDialog(Frame owner) {
-        super(owner, "\u6B63\u5219\u6D4B\u8BD5\u5668");
+        super(owner, "正则测试器");
         setSizeRatio(0.7);
         centerOnOwner();
 
@@ -91,11 +91,11 @@ public class RegexTesterDialog extends BaseToolDialog {
         replaceResultArea.setFont(monoFont());
         replaceResultArea.setEditable(false);
 
-        caseCb = new JCheckBox("\u5FFD\u7565\u5927\u5C0F\u5199");
-        multilineCb = new JCheckBox("\u591A\u884C\u6A21\u5F0F");
-        dotallCb = new JCheckBox("DOTALL \u6A21\u5F0F");
+        caseCb = new JCheckBox("忽略大小写");
+        multilineCb = new JCheckBox("多行模式");
+        dotallCb = new JCheckBox("DOTALL 模式");
 
-        JButton testBtn = new JButton("\u6D4B\u8BD5");
+        JButton testBtn = new JButton("测试");
         testBtn.addActionListener(e -> runTest());
 
         groupModel = new GroupTableModel();
@@ -106,7 +106,7 @@ public class RegexTesterDialog extends BaseToolDialog {
         c.fill = GridBagConstraints.HORIZONTAL;
         c.insets = new Insets(3, 5, 3, 5);
         c.gridx = 0; c.gridy = 0; c.gridwidth = 7; c.weightx = 1;
-        northPanel.add(new JLabel("\u6B63\u5219\u8868\u8FBE\u5F0F:"), c);
+        northPanel.add(new JLabel("正则表达式:"), c);
         c.gridx = 0; c.gridy = 1; c.gridwidth = 6; c.weightx = 1;
         northPanel.add(regexField, c);
         c.gridx = 6; c.gridy = 1; c.gridwidth = 1; c.weightx = 0;
@@ -131,26 +131,26 @@ public class RegexTesterDialog extends BaseToolDialog {
         matchSplit.setResizeWeight(0.7);
         matchSplit.setContinuousLayout(true);
         matchPanel.add(matchSplit, BorderLayout.CENTER);
-        modeTabs.addTab("\u5339\u914D", matchPanel);
+        modeTabs.addTab("匹配", matchPanel);
 
         JPanel replacePanel = new JPanel(new BorderLayout(4, 4));
         JPanel replaceTop = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
-        replaceTop.add(new JLabel("\u66FF\u6362\u4E3A:"));
+        replaceTop.add(new JLabel("替换为:"));
         replaceTop.add(replaceField);
-        JButton replaceAllBtn = new JButton("\u66FF\u6362\u5168\u90E8");
+        JButton replaceAllBtn = new JButton("替换全部");
         replaceAllBtn.addActionListener(e -> runReplace());
         replaceTop.add(replaceAllBtn);
         replacePanel.add(replaceTop, BorderLayout.NORTH);
         replacePanel.add(new JScrollPane(replaceResultArea), BorderLayout.CENTER);
-        modeTabs.addTab("\u66FF\u6362", replacePanel);
+        modeTabs.addTab("替换", replacePanel);
 
         JPanel centerInner = new JPanel(new BorderLayout());
-        centerInner.add(wrapTitled("\u6D4B\u8BD5\u6587\u672C", testScroll), BorderLayout.NORTH);
+        centerInner.add(wrapTitled("测试文本", testScroll), BorderLayout.NORTH);
         centerInner.add(modeTabs, BorderLayout.CENTER);
 
         JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
                 centerInner,
-                wrapTitled("\u5E38\u7528\u6B63\u5219", buildFavoritesPanel()));
+                wrapTitled("常用正则", buildFavoritesPanel()));
         mainSplit.setResizeWeight(0.75);
         mainSplit.setContinuousLayout(true);
 
@@ -162,7 +162,7 @@ public class RegexTesterDialog extends BaseToolDialog {
 
     private JComponent buildFavoritesPanel() {
         for (String[] fav : FAVORITES) {
-            favoriteModel.addElement(fav[0] + "  \u2014  " + fav[1]);
+            favoriteModel.addElement(fav[0] + "  —  " + fav[1]);
         }
         favoriteList.addMouseListener(new java.awt.event.MouseAdapter() {
             @Override public void mouseClicked(java.awt.event.MouseEvent e) {
@@ -192,7 +192,7 @@ public class RegexTesterDialog extends BaseToolDialog {
 
             while (m.find()) {
                 count++;
-                sb.append("\u5339\u914D #").append(count).append(": [")
+                sb.append("匹配 #").append(count).append(": [")
                         .append(m.start()).append("-").append(m.end()).append("] ")
                         .append(m.group()).append("\n");
                 for (int i = 0; i <= m.groupCount(); i++) {
@@ -200,13 +200,13 @@ public class RegexTesterDialog extends BaseToolDialog {
                 }
             }
             if (count == 0) {
-                sb.append("\u672A\u627E\u5230\u5339\u914D");
+                sb.append("未找到匹配");
             } else {
-                sb.append("\n\u5171 ").append(count).append(" \u5904\u5339\u914D");
+                sb.append("\n共 ").append(count).append(" 处匹配");
             }
             resultArea.setText(sb.toString());
         } catch (Exception ex) {
-            resultArea.setText("\u6B63\u5219\u9519\u8BEF: " + ex.getMessage());
+            resultArea.setText("正则错误: " + ex.getMessage());
         }
     }
 
@@ -226,7 +226,7 @@ public class RegexTesterDialog extends BaseToolDialog {
             String result = p.matcher(text).replaceAll(replacement);
             replaceResultArea.setText(result);
         } catch (Exception ex) {
-            replaceResultArea.setText("\u66FF\u6362\u9519\u8BEF: " + ex.getMessage());
+            replaceResultArea.setText("替换错误: " + ex.getMessage());
         }
     }
 

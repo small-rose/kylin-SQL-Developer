@@ -33,7 +33,7 @@ public class DataGeneratorDialog extends BaseToolDialog {
     private final Function<String, Connection> connProvider;
 
     public DataGeneratorDialog(Frame owner, Function<String, Connection> connProvider) {
-        super(owner, "\u6570\u636E\u751F\u6210\u5668");
+        super(owner, "数据生成器");
         this.connProvider = connProvider;
         setSizeRatio(0.7);
         centerOnOwner();
@@ -59,20 +59,20 @@ public class DataGeneratorDialog extends BaseToolDialog {
         outputArea.setSyntaxEditingStyle("text/plsql");
         outputArea.setEditable(false);
 
-        JButton loadColBtn = new JButton("\u52A0\u8F7D\u5217");
+        JButton loadColBtn = new JButton("加载列");
         loadColBtn.addActionListener(e -> loadColumns());
 
-        JButton genBtn = new JButton("\u751F\u6210\u6570\u636E");
+        JButton genBtn = new JButton("生成数据");
         genBtn.addActionListener(e -> generate());
 
         JPanel northPanel = new JPanel(new GridBagLayout());
-        northPanel.setBorder(BorderFactory.createTitledBorder("\u6570\u636E\u6E90"));
+        northPanel.setBorder(BorderFactory.createTitledBorder("数据源"));
         GridBagConstraints c = new GridBagConstraints();
         c.fill = GridBagConstraints.HORIZONTAL;
         c.insets = new Insets(3, 5, 3, 5);
 
         c.gridx = 0; c.gridy = 0; c.weightx = 0;
-        northPanel.add(new JLabel("\u8FDE\u63A5:"), c);
+        northPanel.add(new JLabel("连接:"), c);
         c.gridx = 1; c.weightx = 0.3;
         northPanel.add(connCombo, c);
         c.gridx = 2; c.weightx = 0;
@@ -80,15 +80,15 @@ public class DataGeneratorDialog extends BaseToolDialog {
         c.gridx = 3; c.weightx = 0.3;
         northPanel.add(schemaCombo, c);
         c.gridx = 4; c.weightx = 0;
-        northPanel.add(new JLabel("\u8868:"), c);
+        northPanel.add(new JLabel("表:"), c);
         c.gridx = 5; c.weightx = 0.3;
         northPanel.add(tableCombo, c);
         c.gridx = 6; c.weightx = 0;
-        northPanel.add(new JLabel("\u884C\u6570:"), c);
+        northPanel.add(new JLabel("行数:"), c);
         c.gridx = 7; c.weightx = 0.1;
         northPanel.add(rowCountSpinner, c);
         c.gridx = 8; c.weightx = 0;
-        northPanel.add(new JLabel("\u65B9\u8A00:"), c);
+        northPanel.add(new JLabel("方言:"), c);
         c.gridx = 9; c.weightx = 0.2;
         northPanel.add(dialectCombo, c);
 
@@ -103,12 +103,12 @@ public class DataGeneratorDialog extends BaseToolDialog {
         JScrollPane outputScroll = new JScrollPane(outputArea);
 
         splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
-                wrapTitled("\u5217\u5B9A\u4E49", colScroll),
-                wrapTitled("\u6570\u636E\u9884\u89C8", outputScroll));
+                wrapTitled("列定义", colScroll),
+                wrapTitled("数据预览", outputScroll));
         splitPane.setResizeWeight(0.35);
         splitPane.setContinuousLayout(true);
 
-        layoutToggleBtn = new JToggleButton("\u21D4 \u5782\u76F4\u5E03\u5C40");
+        layoutToggleBtn = new JToggleButton("⇔ 垂直布局");
         layoutToggleBtn.addActionListener(e -> toggleLayout());
 
         JPanel southPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
@@ -140,7 +140,7 @@ public class DataGeneratorDialog extends BaseToolDialog {
             }
             for (String s : schemas) schemaCombo.addItem(s);
         } catch (Exception e) {
-            ToastManager.showError(this, "\u52A0\u8F7D Schema \u5931\u8D25: " + e.getMessage());
+            ToastManager.showError(this, "加载 Schema 失败: " + e.getMessage());
         }
     }
 
@@ -156,7 +156,7 @@ public class DataGeneratorDialog extends BaseToolDialog {
                 while (rs.next()) tableCombo.addItem(rs.getString("TABLE_NAME"));
             }
         } catch (Exception e) {
-            ToastManager.showError(this, "\u52A0\u8F7D\u8868\u5931\u8D25: " + e.getMessage());
+            ToastManager.showError(this, "加载表失败: " + e.getMessage());
         }
     }
 
@@ -178,14 +178,14 @@ public class DataGeneratorDialog extends BaseToolDialog {
                 }
             }
         } catch (Exception e) {
-            ToastManager.showError(this, "\u52A0\u8F7D\u5217\u5931\u8D25: " + e.getMessage());
+            ToastManager.showError(this, "加载列失败: " + e.getMessage());
         }
         colModel.fireTableDataChanged();
     }
 
     private void generate() {
         if (columns.isEmpty()) {
-            ToastManager.show(this, "\u8BF7\u5148\u52A0\u8F7D\u5217");
+            ToastManager.show(this, "请先加载列");
             return;
         }
         int count = (Integer) rowCountSpinner.getValue();
@@ -199,8 +199,8 @@ public class DataGeneratorDialog extends BaseToolDialog {
                 String table = (String) tableCombo.getSelectedItem();
                 if (table == null) table = "TEST_DATA";
 
-                sb.append("-- ").append("\u751F\u6210 ").append(count).append(" \u884C\u6D4B\u8BD5\u6570\u636E");
-                sb.append(", ").append("\u65B9\u8A00: ").append(dialect).append("\n\n");
+                sb.append("-- ").append("生成 ").append(count).append(" 行测试数据");
+                sb.append(", ").append("方言: ").append(dialect).append("\n\n");
 
                 Random rnd = new Random();
                 for (int row = 0; row < count; row++) {
@@ -226,7 +226,7 @@ public class DataGeneratorDialog extends BaseToolDialog {
                     outputArea.setText(get());
                 } catch (Exception e) {
                     ToastManager.showError(DataGeneratorDialog.this,
-                            "\u751F\u6210\u5931\u8D25: " + e.getMessage());
+                            "生成失败: " + e.getMessage());
                 }
             }
         };
@@ -273,7 +273,7 @@ public class DataGeneratorDialog extends BaseToolDialog {
             } else if ("PostgreSQL".equals(dialect)) {
                 return "'\\x" + hex.toLowerCase() + "'::bytea";
             } else {
-                return "NULL /* BLOB \u4E0D\u652F\u6301\u76F4\u63A5 INSERT */";
+                return "NULL /* BLOB 不支持直接 INSERT */";
             }
         }
         if (type.contains("BOOL")) {
@@ -344,7 +344,7 @@ public class DataGeneratorDialog extends BaseToolDialog {
         splitPane.setOrientation(horizontal
                 ? JSplitPane.VERTICAL_SPLIT
                 : JSplitPane.HORIZONTAL_SPLIT);
-        layoutToggleBtn.setText(horizontal ? "\u21D5 \u6C34\u5E73\u5E03\u5C40" : "\u21D4 \u5782\u76F4\u5E03\u5C40");
+        layoutToggleBtn.setText(horizontal ? "⇕ 水平布局" : "⇔ 垂直布局");
     }
 
     static class ColumnDef {
@@ -373,9 +373,9 @@ public class DataGeneratorDialog extends BaseToolDialog {
 
         @Override public String getColumnName(int col) {
             switch (col) {
-                case 0: return "\u5217\u540D";
-                case 1: return "\u7C7B\u578B";
-                case 2: return "\u751F\u6210\u89C4\u5219";
+                case 0: return "列名";
+                case 1: return "类型";
+                case 2: return "生成规则";
                 default: return "";
             }
         }

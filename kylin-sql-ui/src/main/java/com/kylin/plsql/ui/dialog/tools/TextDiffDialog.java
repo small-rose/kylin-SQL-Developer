@@ -38,7 +38,7 @@ public class TextDiffDialog extends BaseToolDialog {
     }
 
     public TextDiffDialog(Frame owner) {
-        super(owner, "\u6587\u672C\u6BD4\u8F83");
+        super(owner, "文本比较");
         setSizeRatio(0.7);
         centerOnOwner();
 
@@ -58,15 +58,15 @@ public class TextDiffDialog extends BaseToolDialog {
         unifiedPane.setFont(monoFont());
         unifiedPane.setEditable(false);
 
-        ignoreWsCb = new JCheckBox("\u5FFD\u7565\u7A7A\u767D");
+        ignoreWsCb = new JCheckBox("忽略空白");
 
         statsLabel = new JLabel(" ");
 
-        JButton openLeftBtn = new JButton("\u6253\u5F00\u5DE6\u4FA7\u6587\u4EF6");
+        JButton openLeftBtn = new JButton("打开左侧文件");
         openLeftBtn.addActionListener(e -> loadFile(leftArea));
-        JButton openRightBtn = new JButton("\u6253\u5F00\u53F3\u4FA7\u6587\u4EF6");
+        JButton openRightBtn = new JButton("打开右侧文件");
         openRightBtn.addActionListener(e -> loadFile(rightArea));
-        JButton diffBtn = new JButton("\u6BD4\u8F83");
+        JButton diffBtn = new JButton("比较");
         diffBtn.addActionListener(e -> runDiff());
 
         JPanel northPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
@@ -79,8 +79,8 @@ public class TextDiffDialog extends BaseToolDialog {
         JScrollPane rightScroll = new JScrollPane(rightArea);
 
         JSplitPane inputSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
-                wrapTitled("\u5DE6\u4FA7\u6587\u672C", leftScroll),
-                wrapTitled("\u53F3\u4FA7\u6587\u672C", rightScroll));
+                wrapTitled("左侧文本", leftScroll),
+                wrapTitled("右侧文本", rightScroll));
         inputSplit.setResizeWeight(0.5);
         inputSplit.setContinuousLayout(true);
 
@@ -92,10 +92,10 @@ public class TextDiffDialog extends BaseToolDialog {
                 sideLeftScroll, sideRightScroll);
         sideBySideSplit.setResizeWeight(0.5);
         sideBySideSplit.setContinuousLayout(true);
-        viewTabs.addTab("\u5BF9\u7167\u89C6\u56FE", sideBySideSplit);
+        viewTabs.addTab("对照视图", sideBySideSplit);
 
         JScrollPane unifiedScroll = new JScrollPane(unifiedPane);
-        viewTabs.addTab("\u7EDF\u4E00\u89C6\u56FE", unifiedScroll);
+        viewTabs.addTab("统一视图", unifiedScroll);
 
         JPanel resultPanel = new JPanel(new BorderLayout());
         resultPanel.add(statsLabel, BorderLayout.NORTH);
@@ -128,7 +128,7 @@ public class TextDiffDialog extends BaseToolDialog {
                 case MODIFY: mods++; break;
             }
         }
-        statsLabel.setText("\u5DEE\u5F02: +" + adds + " -" + dels + " ~" + mods);
+        statsLabel.setText("差异: +" + adds + " -" + dels + " ~" + mods);
 
         renderSideBySide(diffs);
         renderUnified(diffs);
@@ -278,7 +278,7 @@ public class TextDiffDialog extends BaseToolDialog {
 
     private void loadFile(JTextArea target) {
         JFileChooser chooser = new JFileChooser();
-        chooser.setFileFilter(new FileNameExtensionFilter("\u6587\u672C\u6587\u4EF6 (*.sql, *.txt, *.java, *.xml)",
+        chooser.setFileFilter(new FileNameExtensionFilter("文本文件 (*.sql, *.txt, *.java, *.xml)",
                 "sql", "txt", "java", "xml", "properties", "md"));
         if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
             File file = chooser.getSelectedFile();
@@ -291,7 +291,7 @@ public class TextDiffDialog extends BaseToolDialog {
                 target.setText(sb.toString());
             } catch (Exception ex) {
                 com.kylin.plsql.ui.component.common.ToastManager.showError(this,
-                        "\u6253\u5F00\u6587\u4EF6\u5931\u8D25: " + ex.getMessage());
+                        "打开文件失败: " + ex.getMessage());
             }
         }
     }

@@ -1,5 +1,6 @@
 package com.kylin.plsql.ui.component.bottom;
 
+import com.kylin.plsql.ui.component.common.IconUtil;
 import com.kylin.plsql.core.config.ThemeManager;
 import com.kylin.plsql.core.db.SqlExecutor;
 import org.slf4j.Logger;
@@ -114,7 +115,7 @@ public class ResultPanel extends JPanel {
         resultTabs = new JTabbedPane();
         resultTabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT);
         applyTabTheme();
-        resultTabs.addTab("\u6D88\u606F", msgScroll);
+        resultTabs.addTab("消息", msgScroll);
         installResultTabContextMenu();
         add(resultTabs, BorderLayout.CENTER);
     }
@@ -261,10 +262,10 @@ public class ResultPanel extends JPanel {
         tb.setFloatable(false);
         tb.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, theme.resolve("border.light")));
 
-        JButton prevBtn = makeTbBtn("\u25C0", "\u4E0A\u4E00\u9875");
+        JButton prevBtn = makeTbBtn("◀", "上一页");
         prevBtn.addActionListener(e -> { if (d.currentPage > 0) { d.currentPage--; d.expandedCells.clear(); d.model.fireTableDataChanged(); updatePageInfo(d); }});
 
-        JComboBox<String> psc = new JComboBox<>(new String[]{"25", "50", "100", "500", "\u5168\u90E8"});
+        JComboBox<String> psc = new JComboBox<>(new String[]{"25", "50", "100", "500", "全部"});
         psc.setSelectedItem("100");
         psc.setFont(new Font("Dialog", Font.PLAIN, 12));
         psc.setPreferredSize(new Dimension(55, 22));
@@ -272,23 +273,23 @@ public class ResultPanel extends JPanel {
         psc.addActionListener(e -> {
             if (psc.getSelectedItem() == null) return;
             String v = (String) psc.getSelectedItem();
-            d.pageSize = "\u5168\u90E8".equals(v) ? Integer.MAX_VALUE : Integer.parseInt(v);
+            d.pageSize = "全部".equals(v) ? Integer.MAX_VALUE : Integer.parseInt(v);
             d.currentPage = 0;
             d.expandedCells.clear();
             d.model.fireTableDataChanged();
             updatePageInfo(d);
         });
 
-        JButton nextBtn = makeTbBtn("\u25B6", "\u4E0B\u4E00\u9875");
+        JButton nextBtn = makeTbBtn("▶", "下一页");
         nextBtn.addActionListener(e -> { if (d.currentPage < d.getTotalPages() - 1) { d.currentPage++; d.expandedCells.clear(); d.model.fireTableDataChanged(); updatePageInfo(d); }});
 
-        JButton refreshBtn = makeTbBtn("\u21BB", "\u5237\u65B0\u7ED3\u679C\u96C6");
+        JButton refreshBtn = makeTbBtn("↻", "刷新结果集");
         refreshBtn.addActionListener(e -> { d.currentPage = 0; d.expandedCells.clear(); d.model.fireTableDataChanged(); updatePageInfo(d); });
 
-        JButton stopBtn = makeTbBtn("\u25A0", "\u505C\u6B62\u67E5\u8BE2");
-        stopBtn.addActionListener(e -> appendMessage("\u67E5\u8BE2\u5DF2\u53D6\u6D88"));
+        JButton stopBtn = makeTbBtn("■", "停止查询");
+        stopBtn.addActionListener(e -> appendMessage("查询已取消"));
 
-        JButton pinBtn = makeTbBtn("\uD83D\uDCCC", "\u56FA\u5B9A\u6807\u7B7E\u4E0D\u88AB\u66FF\u6362");
+        JButton pinBtn = makeTbBtn("📌", "固定标签不被替换");
         pinBtn.addActionListener(e -> {
             d.pinned = !d.pinned;
             pinBtn.setForeground(d.pinned ? theme.resolve("accent.green") : theme.resolve("fg.main"));
@@ -407,7 +408,7 @@ public class ResultPanel extends JPanel {
         int from = d.getOffset() + 1;
         int to = Math.min(d.getOffset() + d.pageSize, total);
         if (d.pageInfoLabel != null) {
-            d.pageInfoLabel.setText(from + " - " + to + " / \u5171 " + total + " \u884C");
+            d.pageInfoLabel.setText(from + " - " + to + " / 共 " + total + " 行");
         }
         if (d.table != null) d.table.repaint();
     }
@@ -482,36 +483,43 @@ public class ResultPanel extends JPanel {
         JPopupMenu menu = new JPopupMenu();
         boolean pinned = d.pinned;
 
-        JMenuItem closeItem = new JMenuItem("\u5173\u95ED");
+        JMenuItem closeItem = new JMenuItem("关闭");
+        closeItem.setIcon(IconUtil.menuIcon("x"));
         closeItem.setEnabled(!pinned);
         closeItem.addActionListener(e -> closeResultTab(tabIndex));
         menu.add(closeItem);
 
-        JMenuItem closeOthersItem = new JMenuItem("\u5173\u95ED\u5176\u4ED6");
+        JMenuItem closeOthersItem = new JMenuItem("关闭其他");
+        closeOthersItem.setIcon(IconUtil.menuIcon("x"));
         closeOthersItem.addActionListener(e -> closeOtherResultTabs(tabIndex));
         menu.add(closeOthersItem);
 
-        JMenuItem closeAllItem = new JMenuItem("\u5173\u95ED\u5168\u90E8");
+        JMenuItem closeAllItem = new JMenuItem("关闭全部");
+        closeAllItem.setIcon(IconUtil.menuIcon("x"));
         closeAllItem.addActionListener(e -> closeAllResultTabs());
         menu.add(closeAllItem);
 
-        JMenuItem closeLeftItem = new JMenuItem("\u5173\u95ED\u5DE6\u4FA7\u6807\u7B7E");
+        JMenuItem closeLeftItem = new JMenuItem("关闭左侧标签");
+        closeLeftItem.setIcon(IconUtil.menuIcon("x"));
         closeLeftItem.addActionListener(e -> closeLeftResultTabs(tabIndex));
         menu.add(closeLeftItem);
 
-        JMenuItem closeRightItem = new JMenuItem("\u5173\u95ED\u53F3\u4FA7\u6807\u7B7E");
+        JMenuItem closeRightItem = new JMenuItem("关闭右侧标签");
+        closeRightItem.setIcon(IconUtil.menuIcon("x"));
         closeRightItem.addActionListener(e -> closeRightResultTabs(tabIndex));
         menu.add(closeRightItem);
 
         menu.addSeparator();
 
-        JMenuItem pinItem = new JMenuItem(pinned ? "\u53D6\u6D88\u56FA\u5B9A" : "\u56FA\u5B9A\u6807\u7B7E");
+        JMenuItem pinItem = new JMenuItem(pinned ? "取消固定" : "固定标签");
+        pinItem.setIcon(IconUtil.menuIcon(pinned ? "pin-off" : "pin"));
         pinItem.addActionListener(e -> toggleResultPin(tabIndex));
         menu.add(pinItem);
 
         menu.addSeparator();
 
-        JMenuItem refreshItem = new JMenuItem("\u5237\u65B0\u7ED3\u679C");
+        JMenuItem refreshItem = new JMenuItem("刷新结果");
+        refreshItem.setIcon(IconUtil.menuIcon("refresh"));
         refreshItem.addActionListener(e -> {
             if (refreshExecutor != null && d.sql != null && !d.sql.isBlank()) {
                 refreshExecutor.accept(d.connName, d.sql);
@@ -584,7 +592,7 @@ public class ResultPanel extends JPanel {
     }
 
     private static JButton makeResultCloseBtn() {
-        JButton btn = new JButton("\u00D7") {
+        JButton btn = new JButton("×") {
             @Override
             protected void paintComponent(Graphics g) {
                 Graphics2D g2 = (Graphics2D) g.create();
@@ -683,7 +691,7 @@ public class ResultPanel extends JPanel {
                             if (dot >= 0) name = name.substring(dot + 1);
                             Toolkit.getDefaultToolkit().getSystemClipboard()
                                 .setContents(new StringSelection(name), null);
-                            showToast("\u5DF2\u590D\u5236: " + name);
+                            showToast("已复制: " + name);
                         }
                     }
                 }
@@ -764,7 +772,7 @@ public class ResultPanel extends JPanel {
         if (dot >= 0) name = name.substring(dot + 1);
         name = name.replace("\"", "").replace("`", "").replace("'", "");
         if (name.isEmpty()) return null;
-        if (name.length() > 20) name = name.substring(0, 20) + "\u2026";
+        if (name.length() > 20) name = name.substring(0, 20) + "…";
         return name;
     }
 
@@ -799,7 +807,7 @@ public class ResultPanel extends JPanel {
     }
 
     public void showError(String message) {
-        messageArea.setText("\u9519\u8BEF:\n" + message);
+        messageArea.setText("错误:\n" + message);
         resultTabs.setSelectedIndex(0);
         messageArea.setCaretPosition(0);
     }

@@ -70,21 +70,21 @@ public class SqlEditorPanel extends JPanel {
 
         toolBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
 
-        JButton execBtn = flatBtn("\u25B6", "\u6267\u884C (F8)", e -> { if (onExecute != null) onExecute.run(); });
+        JButton execBtn = flatBtn("execute", "执行", "执行 (F8)", e -> { if (onExecute != null) onExecute.run(); });
         execBtn.setForeground(new Color(0x5CB85C));
         styleBtn(execBtn);
         toolBar.add(execBtn);
 
-        JButton appendExecBtn = flatBtn("\u23E9", "\u8FFD\u52A0\u6267\u884C (F9)", e -> { if (onAppendExecute != null) onAppendExecute.run(); });
+        JButton appendExecBtn = flatBtn("append", "追加", "追加执行 (F9)", e -> { if (onAppendExecute != null) onAppendExecute.run(); });
         appendExecBtn.setForeground(new Color(0x3D8B3D));
         styleBtn(appendExecBtn);
         toolBar.add(appendExecBtn);
 
-        JButton historyBtn = flatBtn("\uD83D\uDCCB", "\u6267\u884C\u5386\u53F2", e -> { if (onHistoryRequest != null) onHistoryRequest.run(); });
+        JButton historyBtn = flatBtn("history", "历史", "执行历史", e -> { if (onHistoryRequest != null) onHistoryRequest.run(); });
         styleBtn(historyBtn);
         toolBar.add(historyBtn);
 
-        toolBar.add(new JLabel(" \u8FDE\u63A5:"));
+        toolBar.add(new JLabel(" 连接:"));
 
         connCombo = new JComboBox<>();
         connCombo.setPreferredSize(new Dimension(200, 26));
@@ -114,13 +114,13 @@ public class SqlEditorPanel extends JPanel {
         });
         toolBar.add(autoTxBtn);
 
-        commitBtn = flatBtn("\u2713", "\u63D0\u4EA4 (Commit)", e -> doCommit());
+        commitBtn = flatBtn("commit", "提交", "提交 (Commit)", e -> doCommit());
         commitBtn.setForeground(new Color(0x5CB85C));
         styleBtn(commitBtn);
         commitBtn.setEnabled(false);
         toolBar.add(commitBtn);
 
-        rollbackBtn = flatBtn("\u21A9", "\u56DE\u6EDA (Rollback)", e -> doRollback());
+        rollbackBtn = flatBtn("rollback", "回滚", "回滚 (Rollback)", e -> doRollback());
         rollbackBtn.setForeground(new Color(0xD9534F));
         styleBtn(rollbackBtn);
         rollbackBtn.setEnabled(false);
@@ -183,7 +183,8 @@ public class SqlEditorPanel extends JPanel {
             popup = new JPopupMenu();
         }
         popup.addSeparator();
-        JMenuItem fmtItem = new JMenuItem("\u683C\u5F0F\u5316");
+        JMenuItem fmtItem = new JMenuItem("格式化");
+        fmtItem.setIcon(com.kylin.plsql.ui.component.common.IconUtil.menuIcon("format"));
         fmtItem.addActionListener(e -> {
             if (onFormat != null) onFormat.run();
         });
@@ -244,10 +245,10 @@ public class SqlEditorPanel extends JPanel {
         if (connectionName == null) return;
         try {
             connectionManager.commit(connectionName);
-            if (onStatusMessage != null) onStatusMessage.accept("\u63D0\u4EA4\u6210\u529F");
+            if (onStatusMessage != null) onStatusMessage.accept("提交成功");
         } catch (Exception ex) {
             log.error("commit failed", ex);
-            if (onStatusMessage != null) onStatusMessage.accept("\u63D0\u4EA4\u5931\u8D25: " + ex.getMessage());
+            if (onStatusMessage != null) onStatusMessage.accept("提交失败: " + ex.getMessage());
         }
     }
 
@@ -255,10 +256,10 @@ public class SqlEditorPanel extends JPanel {
         if (connectionName == null) return;
         try {
             connectionManager.rollback(connectionName);
-            if (onStatusMessage != null) onStatusMessage.accept("\u56DE\u6EDA\u6210\u529F");
+            if (onStatusMessage != null) onStatusMessage.accept("回滚成功");
         } catch (Exception ex) {
             log.error("rollback failed", ex);
-            if (onStatusMessage != null) onStatusMessage.accept("\u56DE\u6EDA\u5931\u8D25: " + ex.getMessage());
+            if (onStatusMessage != null) onStatusMessage.accept("回滚失败: " + ex.getMessage());
         }
     }
 
@@ -681,12 +682,23 @@ public class SqlEditorPanel extends JPanel {
         }
     }
 
-    private static JButton flatBtn(String text, String tip, java.awt.event.ActionListener action) {
-        JButton btn = new JButton(text);
+    private static JButton flatBtn(String iconName, String fallback, String tip, java.awt.event.ActionListener action) {
+        JButton btn = new JButton();
         if (tip != null) btn.setToolTipText(tip);
         btn.setFocusable(false);
         btn.setContentAreaFilled(false);
         if (action != null) btn.addActionListener(action);
+        ImageIcon svgIcon = com.kylin.plsql.ui.component.common.IconUtil.loadButtonIcon(iconName, null);
+        if (svgIcon != null) {
+            btn.setIcon(svgIcon);
+        } else {
+            java.net.URL url = SqlEditorPanel.class.getResource("/icons/" + iconName + ".png");
+            if (url != null) {
+                btn.setIcon(new ImageIcon(url));
+            } else {
+                btn.setText(fallback);
+            }
+        }
         return btn;
     }
 

@@ -47,6 +47,22 @@
             <artifactId>logback-classic</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.manticore-projects.jsqlformatter</groupId>
+            <artifactId>jsqlformatter</artifactId>
+            <version>5.3.9</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.github.jsqlparser</groupId>
+                    <artifactId>jsqlparser</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>com.manticore-projects.jsqlformatter</groupId>
+            <artifactId>jsqlparser</artifactId>
+            <version>5.3.218</version>
+        </dependency>
+        <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
         </dependency>

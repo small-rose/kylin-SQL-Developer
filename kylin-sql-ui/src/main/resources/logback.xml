@@ -19,6 +19,8 @@
         </encoder>
     </appender>
 
+    <logger name="com.kylin.plsql.ui.MainFrame" level="DEBUG" />
+
     <root level="INFO">
         <appender-ref ref="FILE" />
         <appender-ref ref="STDOUT" />

@@ -3,8 +3,8 @@ package com.kylin.plsql.ui.dialog.tools;
 import com.kylin.plsql.ui.dialog.common.BaseToolDialog;
 
 import com.kylin.plsql.core.format.FormatOptions;
-import com.kylin.plsql.core.format.plsql.PlSqlFormatter;
-import com.kylin.plsql.core.format.plsql.model.FormatResult;
+import com.kylin.plsql.core.format.EngineManager;
+import com.kylin.plsql.core.format.SqlFormatterEngine;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rsyntaxtextarea.Theme;
@@ -20,9 +20,10 @@ public class SqlFormatDialog extends BaseToolDialog {
     private final FormatOptions formatOptions;
     private final JSplitPane splitPane;
     private final JToggleButton layoutToggleBtn;
+    private final JComboBox<SqlFormatterEngine> engineCombo;
 
     public SqlFormatDialog(Frame owner, FormatOptions formatOptions) {
-        super(owner, "SQL \u683C\u5F0F\u5316");
+        super(owner, "SQL 格式化");
         this.formatOptions = formatOptions;
         setSizeRatio(0.7);
         centerOnOwner();
@@ -41,15 +42,36 @@ public class SqlFormatDialog extends BaseToolDialog {
         JScrollPane outputScroll = new JScrollPane(outputArea);
 
         splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
-                wrapTitled("\u8F93\u5165 SQL", inputScroll),
-                wrapTitled("\u683C\u5F0F\u5316\u7ED3\u679C", outputScroll));
+                wrapTitled("输入 SQL", inputScroll),
+                wrapTitled("格式化结果", outputScroll));
         splitPane.setResizeWeight(0.5);
         splitPane.setContinuousLayout(true);
 
-        layoutToggleBtn = new JToggleButton("\u21D4 \u5782\u76F4\u5E03\u5C40");
+        layoutToggleBtn = new JToggleButton("⇔ 垂直布局");
         layoutToggleBtn.addActionListener(e -> toggleLayout());
 
-        JButton formatBtn = new JButton("\u683C\u5F0F\u5316 (Ctrl+Enter)");
+        engineCombo = new JComboBox<>();
+        for (SqlFormatterEngine e : EngineManager.getEngines()) {
+            engineCombo.addItem(e);
+        }
+        engineCombo.setSelectedItem(EngineManager.getCurrent());
+        engineCombo.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value,
+                    int index, boolean isSelected, boolean cellHasFocus) {
+                Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof SqlFormatterEngine e) {
+                    setText(e.getDisplayName());
+                }
+                return c;
+            }
+        });
+        engineCombo.addActionListener(e -> {
+            EngineManager.setCurrent(engineCombo.getSelectedIndex());
+        });
+        engineCombo.setToolTipText("选择格式化引擎");
+
+        JButton formatBtn = new JButton("格式化 (Ctrl+Enter)");
         formatBtn.addActionListener(e -> doFormat());
         InputMap im = formatBtn.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
         ActionMap am = formatBtn.getActionMap();
@@ -59,6 +81,8 @@ public class SqlFormatDialog extends BaseToolDialog {
         });
 
         JPanel southPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 4));
+        southPanel.add(new JLabel("引擎:"));
+        southPanel.add(engineCombo);
         southPanel.add(layoutToggleBtn);
         southPanel.add(formatBtn);
 
@@ -71,8 +95,12 @@ public class SqlFormatDialog extends BaseToolDialog {
     private void doFormat() {
         String input = inputArea.getText();
         if (input == null || input.trim().isEmpty()) return;
-        FormatResult result = PlSqlFormatter.format(input, formatOptions);
-        outputArea.setText(result.getEffectiveText());
+        try {
+            String result = EngineManager.format(input);
+            outputArea.setText(result);
+        } catch (Exception ex) {
+            outputArea.setText("格式化失败: " + ex.getMessage());
+        }
     }
 
     private void applyOutputTheme() {
@@ -106,6 +134,6 @@ public class SqlFormatDialog extends BaseToolDialog {
         splitPane.setOrientation(horizontal
                 ? JSplitPane.VERTICAL_SPLIT
                 : JSplitPane.HORIZONTAL_SPLIT);
-        layoutToggleBtn.setText(horizontal ? "\u21D5 \u6C34\u5E73\u5E03\u5C40" : "\u21D4 \u5782\u76F4\u5E03\u5C40");
+        layoutToggleBtn.setText(horizontal ? "⇕ 水平布局" : "⇔ 垂直布局");
     }
 }

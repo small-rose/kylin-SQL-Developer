@@ -19,7 +19,7 @@ public class SqlToolsDialog extends BaseToolDialog {
     private final JLabel descLabel;
 
     public SqlToolsDialog(Frame owner) {
-        super(owner, "SQL \u5DE5\u5177");
+        super(owner, "SQL 工具");
         setSizeRatio(0.7);
         centerOnOwner();
 
@@ -39,25 +39,25 @@ public class SqlToolsDialog extends BaseToolDialog {
                 (JSplitPane) inClausePanel.getComponent(0)
         };
 
-        tabbedPane.addTab("\u5B57\u7B26\u8F6C\u4E49", escapePanel);
-        tabbedPane.addTab("IN \u5B50\u53E5\u8F6C\u6362", inClausePanel);
+        tabbedPane.addTab("字符转义", escapePanel);
+        tabbedPane.addTab("IN 子句转换", inClausePanel);
         tabbedPane.addChangeListener(e -> updateDesc());
 
-        layoutToggleBtn = new JToggleButton("\u21D4 \u5782\u76F4\u5E03\u5C40");
+        layoutToggleBtn = new JToggleButton("⇔ 垂直布局");
         layoutToggleBtn.addActionListener(e -> toggleLayout());
 
         descLabel = new JLabel();
         updateDesc();
 
-        JButton escapeBtn = new JButton("SQL \u8F6C\u4E49");
+        JButton escapeBtn = new JButton("SQL 转义");
         escapeBtn.addActionListener(e -> outputArea.setText(escapeSql(inputArea.getText())));
-        JButton unescapeBtn = new JButton("SQL \u53CD\u8F6C\u4E49");
+        JButton unescapeBtn = new JButton("SQL 反转义");
         unescapeBtn.addActionListener(e -> outputArea.setText(unescapeSql(inputArea.getText())));
-        JCheckBox quoteCb = new JCheckBox("\u5E26\u5F15\u53F7");
+        JCheckBox quoteCb = new JCheckBox("带引号");
         quoteCb.setSelected(true);
-        JButton toInBtn = new JButton("> IN \u5B50\u53E5");
+        JButton toInBtn = new JButton("> IN 子句");
         toInBtn.addActionListener(e -> outputArea.setText(toInClause(inputArea.getText(), quoteCb.isSelected())));
-        JButton fromInBtn = new JButton("< \u8FD8\u539F");
+        JButton fromInBtn = new JButton("< 还原");
         fromInBtn.addActionListener(e -> outputArea.setText(fromInClause(inputArea.getText())));
 
         JPanel southPanel = new JPanel(new BorderLayout(4, 0));
@@ -79,9 +79,9 @@ public class SqlToolsDialog extends BaseToolDialog {
 
     private JPanel buildEscapePanel() {
         JScrollPane inputScroll = new JScrollPane(inputArea);
-        inputScroll.setBorder(BorderFactory.createTitledBorder("\u8F93\u5165"));
+        inputScroll.setBorder(BorderFactory.createTitledBorder("输入"));
         JScrollPane outputScroll = new JScrollPane(outputArea);
-        outputScroll.setBorder(BorderFactory.createTitledBorder("\u7ED3\u679C"));
+        outputScroll.setBorder(BorderFactory.createTitledBorder("结果"));
 
         JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
                 inputScroll, outputScroll);
@@ -95,9 +95,9 @@ public class SqlToolsDialog extends BaseToolDialog {
 
     private JPanel buildInClausePanel() {
         JScrollPane inputScroll = new JScrollPane(inputArea);
-        inputScroll.setBorder(BorderFactory.createTitledBorder("\u8F93\u5165"));
+        inputScroll.setBorder(BorderFactory.createTitledBorder("输入"));
         JScrollPane outputScroll = new JScrollPane(outputArea);
-        outputScroll.setBorder(BorderFactory.createTitledBorder("\u7ED3\u679C"));
+        outputScroll.setBorder(BorderFactory.createTitledBorder("结果"));
 
         JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
                 inputScroll, outputScroll);
@@ -112,9 +112,9 @@ public class SqlToolsDialog extends BaseToolDialog {
     private void updateDesc() {
         int idx = tabbedPane.getSelectedIndex();
         if (idx == 0) {
-            descLabel.setText("\u529F\u80FD\u8BF4\u660E\uFF1ASQL \u5B57\u7B26\u4E2D\u7684\u5355\u5F15\u53F7\u8F6C\u4E49\u4E0E\u53CD\u8F6C\u4E49");
+            descLabel.setText("功能说明：SQL 字符中的单引号转义与反转义");
         } else {
-            descLabel.setText("\u529F\u80FD\u8BF4\u660E\uFF1A\u591A\u884C\u503C\u4E0E IN \u5B50\u53E5\u683C\u5F0F\u4E92\u76F8\u8F6C\u6362");
+            descLabel.setText("功能说明：多行值与 IN 子句格式互相转换");
         }
     }
 
@@ -125,7 +125,7 @@ public class SqlToolsDialog extends BaseToolDialog {
         split.setOrientation(horizontal
                 ? JSplitPane.VERTICAL_SPLIT
                 : JSplitPane.HORIZONTAL_SPLIT);
-        layoutToggleBtn.setText(horizontal ? "\u21D5 \u6C34\u5E73\u5E03\u5C40" : "\u21D4 \u5782\u76F4\u5E03\u5C40");
+        layoutToggleBtn.setText(horizontal ? "⇕ 水平布局" : "⇔ 垂直布局");
     }
 
     @Override

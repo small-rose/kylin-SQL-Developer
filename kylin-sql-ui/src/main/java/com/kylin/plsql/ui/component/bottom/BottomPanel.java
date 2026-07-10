@@ -1,5 +1,6 @@
 package com.kylin.plsql.ui.component.bottom;
 
+import com.kylin.plsql.ui.component.common.IconUtil;
 import com.kylin.plsql.core.config.ThemeManager;
 import com.kylin.plsql.core.db.SqlExecutor;
 
@@ -105,25 +106,25 @@ public class BottomPanel extends JPanel {
                 Object uo = node.getUserObject();
                 JPopupMenu menu = new JPopupMenu();
                 if (node.isRoot()) {
-                    addItem(menu, "\u5237\u65B0", () -> { if (onRefresh != null) onRefresh.run(); });
+                    addItem(menu, "刷新", "refresh", () -> { if (onRefresh != null) onRefresh.run(); });
                     menu.addSeparator();
-                    addItem(menu, "\u5C55\u5F00\u5168\u90E8", () -> expandAllNodes());
-                    addItem(menu, "\u6298\u53E0\u5168\u90E8", () -> collapseAllNodes());
+                    addItem(menu, "展开全部", "skip-forward", () -> expandAllNodes());
+                    addItem(menu, "折叠全部", null, () -> collapseAllNodes());
                 } else if (uo instanceof String connName) {
-                    addItem(menu, "\u65B0\u5EFA SQL \u67E5\u8BE2", () -> { if (onNewQuery != null) onNewQuery.accept(connName); });
-                    addItem(menu, "\u5173\u95ED\u6240\u6709\u6807\u7B7E", () -> { if (onCloseAllTabs != null) onCloseAllTabs.accept(connName); });
+                    addItem(menu, "新建 SQL 查询", "new", () -> { if (onNewQuery != null) onNewQuery.accept(connName); });
+                    addItem(menu, "关闭所有标签", "x", () -> { if (onCloseAllTabs != null) onCloseAllTabs.accept(connName); });
                 } else if (uo instanceof TabInfo ti) {
                     if (ti.open) {
-                        addItem(menu, "\u4FDD\u5B58", () -> { if (onSaveTab != null) onSaveTab.accept(ti); });
-                        addItem(menu, "\u5173\u95ED", () -> { if (onCloseTab != null) onCloseTab.accept(ti); });
+                        addItem(menu, "保存", "save", () -> { if (onSaveTab != null) onSaveTab.accept(ti); });
+                        addItem(menu, "关闭", "x", () -> { if (onCloseTab != null) onCloseTab.accept(ti); });
                     } else {
-                        addItem(menu, "\u6253\u5F00", () -> { if (onOpenClosedTab != null) onOpenClosedTab.accept(ti); });
+                        addItem(menu, "打开", "open", () -> { if (onOpenClosedTab != null) onOpenClosedTab.accept(ti); });
                     }
                     menu.addSeparator();
-                    addItem(menu, "\u6253\u5F00\u5230\u65B0\u7684\u6807\u7B7E\u9875", () -> { if (onOpenInNewTab != null) onOpenInNewTab.accept(ti); });
-                    addItem(menu, "\u5220\u9664\u8BB0\u5F55", () -> { if (onDeleteRecord != null) onDeleteRecord.accept(ti); });
+                    addItem(menu, "打开到新的标签页", "open", () -> { if (onOpenInNewTab != null) onOpenInNewTab.accept(ti); });
+                    addItem(menu, "删除记录", "trash", () -> { if (onDeleteRecord != null) onDeleteRecord.accept(ti); });
                     menu.addSeparator();
-                    addItem(menu, "\u91CD\u65B0\u6253\u5F00\u5DF2\u5173\u95ED\u6807\u7B7E\u9875", () -> { if (onReopenClosedTab != null) onReopenClosedTab.run(); });
+                    addItem(menu, "重新打开已关闭标签页", "refresh-ccw", () -> { if (onReopenClosedTab != null) onReopenClosedTab.run(); });
                 }
                 menu.show(connTree, e.getX(), e.getY());
             }
@@ -406,8 +407,9 @@ public class BottomPanel extends JPanel {
     public String getConnectionDialect(String connName) { return connectionDialects.get(connName); }
     public void setConnectionDialect(String connName, String dialect) { connectionDialects.put(connName, dialect); }
 
-    private static void addItem(JPopupMenu menu, String text, Runnable action) {
+    private static void addItem(JPopupMenu menu, String text, String icon, Runnable action) {
         JMenuItem item = new JMenuItem(text);
+        if (icon != null) item.setIcon(IconUtil.menuIcon(icon));
         item.addActionListener(e -> action.run());
         menu.add(item);
     }

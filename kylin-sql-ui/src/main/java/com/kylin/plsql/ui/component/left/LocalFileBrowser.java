@@ -1,5 +1,6 @@
 package com.kylin.plsql.ui.component.left;
 
+import com.kylin.plsql.ui.component.common.IconUtil;
 import com.kylin.plsql.core.config.ThemeManager;
 
 import javax.swing.*;
@@ -138,21 +139,21 @@ public class LocalFileBrowser extends JPanel {
         tb.setFloatable(false);
         tb.setBackground(theme.resolve("bg.main"));
 
-        JButton openBtn = makeToolBtn(ICON_FOLDER_OPEN, "\u6253\u5F00\u6587\u4EF6\u5939", e -> openFolder());
+        JButton openBtn = makeToolBtn(ICON_FOLDER_OPEN, "打开文件夹", e -> openFolder());
         tb.add(openBtn);
 
         tb.add(Box.createHorizontalGlue());
         tb.addSeparator();
 
-        JButton expandBtn = makeToolBtn(ICON_EXPAND, "\u5C55\u5F00\u5168\u90E8", e -> expandAll());
+        JButton expandBtn = makeToolBtn(ICON_EXPAND, "展开全部", e -> expandAll());
         tb.add(expandBtn);
 
-        JButton collapseBtn = makeToolBtn(ICON_COLLAPSE, "\u6298\u53E0\u5168\u90E8", e -> collapseAll());
+        JButton collapseBtn = makeToolBtn(ICON_COLLAPSE, "折叠全部", e -> collapseAll());
         tb.add(collapseBtn);
 
         add(tb, BorderLayout.NORTH);
 
-        root = new DefaultMutableTreeNode("\u672C\u5730\u6587\u4EF6");
+        root = new DefaultMutableTreeNode("本地文件");
         treeModel = new DefaultTreeModel(root);
         tree = new JTree(treeModel);
         tree.setRootVisible(false);
@@ -315,45 +316,53 @@ public class LocalFileBrowser extends JPanel {
             DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
             Object uo = node.getUserObject();
             if (uo instanceof DirEntry de) {
-                JMenuItem refreshItem = new JMenuItem("\u5237\u65B0");
+                JMenuItem refreshItem = new JMenuItem("刷新");
+                refreshItem.setIcon(IconUtil.menuIcon("refresh"));
                 refreshItem.addActionListener(ev -> refreshDirNode(de));
                 menu.add(refreshItem);
 
-                JMenuItem removeItem = new JMenuItem("\u79FB\u9664");
+                JMenuItem removeItem = new JMenuItem("移除");
+                removeItem.setIcon(IconUtil.menuIcon("x"));
                 removeItem.addActionListener(ev -> {
                     if (de.isRoot) removeRootFolder(de);
                 });
                 if (de.isRoot) menu.add(removeItem);
             } else if (uo instanceof File file && file.isFile()) {
-                JMenuItem openItem = new JMenuItem("\u6253\u5F00");
+                JMenuItem openItem = new JMenuItem("打开");
+                openItem.setIcon(IconUtil.menuIcon("open"));
                 openItem.addActionListener(ev -> doOpenFile(file));
                 menu.add(openItem);
 
-                JMenuItem revealItem = new JMenuItem("\u6253\u5F00\u6587\u4EF6\u6240\u5728\u4F4D\u7F6E");
+                JMenuItem revealItem = new JMenuItem("打开文件所在位置");
+                revealItem.setIcon(IconUtil.menuIcon("locate"));
                 revealItem.addActionListener(ev -> revealInExplorer(file));
                 menu.add(revealItem);
 
-                JMenuItem copyPathItem = new JMenuItem("\u590D\u5236\u8DEF\u5F84");
+                JMenuItem copyPathItem = new JMenuItem("复制路径");
+                copyPathItem.setIcon(IconUtil.menuIcon("copy"));
                 copyPathItem.addActionListener(ev ->
                     TK.getSystemClipboard().setContents(new StringSelection(file.getAbsolutePath()), null));
                 menu.add(copyPathItem);
             }
         } else {
-            JMenuItem refreshAllItem = new JMenuItem("\u5237\u65B0\u5168\u90E8");
+            JMenuItem refreshAllItem = new JMenuItem("刷新全部");
+            refreshAllItem.setIcon(IconUtil.menuIcon("refresh"));
             refreshAllItem.addActionListener(ev -> refreshAll());
             menu.add(refreshAllItem);
 
-            JMenuItem expandAllItem = new JMenuItem("\u5C55\u5F00\u5168\u90E8");
+            JMenuItem expandAllItem = new JMenuItem("展开全部");
+            expandAllItem.setIcon(IconUtil.menuIcon("skip-forward"));
             expandAllItem.addActionListener(ev -> expandAll());
             menu.add(expandAllItem);
 
-            JMenuItem collapseAllItem = new JMenuItem("\u6298\u53E0\u5168\u90E8");
+            JMenuItem collapseAllItem = new JMenuItem("折叠全部");
             collapseAllItem.addActionListener(ev -> collapseAll());
             menu.add(collapseAllItem);
 
             menu.addSeparator();
 
-            JMenuItem openFolderItem = new JMenuItem("\u6253\u5F00\u65B0\u6587\u4EF6\u5939");
+            JMenuItem openFolderItem = new JMenuItem("打开新文件夹");
+            openFolderItem.setIcon(IconUtil.menuIcon("open"));
             openFolderItem.addActionListener(ev -> openFolder());
             menu.add(openFolderItem);
         }
@@ -377,11 +386,11 @@ public class LocalFileBrowser extends JPanel {
     private void openFolder() {
         JFileChooser chooser = new JFileChooser();
         chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-        chooser.setDialogTitle("\u9009\u62E9\u6587\u4EF6\u5939");
+        chooser.setDialogTitle("选择文件夹");
         if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
             String path = chooser.getSelectedFile().getAbsolutePath();
             if (hasRootFolder(path)) {
-                showHint("\u8BE5\u6587\u4EF6\u5939\u5DF2\u5B58\u5728");
+                showHint("该文件夹已存在");
                 return;
             }
             addRootFolder(path);
