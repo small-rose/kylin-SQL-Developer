@@ -1,7 +1,7 @@
 package com.kylin.plsql.ui.component.center;
 
 import java.awt.*;
-import java.sql.Connection;
+import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -10,17 +10,23 @@ import java.util.regex.Pattern;
 import javax.swing.*;
 import javax.swing.border.Border;
 
+import com.kylin.plsql.core.cache.MetadataCache;
+import com.kylin.plsql.core.config.ConfigManager;
 import com.kylin.plsql.core.config.ThemeManager;
 import com.kylin.plsql.core.db.ConnectionManager;
 import com.kylin.plsql.core.db.SqlExecutor;
-
+import com.kylin.plsql.ui.component.common.PlSqlCompletionProvider;
+import org.fife.ui.autocomplete.AutoCompletion;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rsyntaxtextarea.Theme;
 import org.fife.ui.rtextarea.RTextScrollPane;
 
 /** Database source code viewer with method navigation and spec/body tabs. */
 public class SourceViewerPanel extends JPanel {
+    private static final Logger log = LoggerFactory.getLogger(SourceViewerPanel.class);
     private final ThemeManager theme = ThemeManager.getInstance();
     private final RSyntaxTextArea textArea;
     private final ConnectionManager connectionManager;
@@ -312,6 +318,21 @@ public class SourceViewerPanel extends JPanel {
         } else {
             loadSource();
         }
+
+        PlSqlCompletionProvider provider = new PlSqlCompletionProvider(this::getConnName, this::getSchema);
+        provider.setColumnLoader((schemaName, table) -> loadColumns(schemaName, table));
+        AutoCompletion ac = new AutoCompletion(provider);
+        ac.setAutoActivationEnabled(true);
+        ac.setAutoCompleteEnabled(true);
+        int delay = readAutocompleteDelay();
+        ac.setAutoActivationDelay(delay);
+        ac.install(textArea);
+        log.info("AutoCompletion installed on SourceViewerPanel, delay={}ms, provider={}, editable={}", delay, provider.getClass().getSimpleName(), textArea.isEditable());
+    }
+
+    private static int readAutocompleteDelay() {
+        try { return Integer.parseInt(ConfigManager.getInstance().getPreference("autocomplete.delay", "300"));
+        } catch (Exception e) { return 300; }
     }
 
     public void applyTheme() {
@@ -554,6 +575,43 @@ public class SourceViewerPanel extends JPanel {
     public String getSchema() { return schema; }
     public String getObjectName() { return objectName; }
     public String getObjectType() { return objectType; }
+
+    /** Load columns on demand (for auto-completion when cache miss). */
+    private void loadColumns(String schemaName, String table) {
+        if (connName == null) return;
+        MetadataCache cache = MetadataCache.getInstance();
+        try {
+            String dbProduct = cache.getDbProduct(connName);
+            String sql;
+            if (dbProduct != null && (dbProduct.contains("mysql") || dbProduct.contains("mariadb"))) {
+                sql = "SELECT column_name, data_type, character_maximum_length, column_comment FROM information_schema.columns WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position";
+            } else if (dbProduct != null && (dbProduct.contains("postgresql") || dbProduct.contains("edb"))) {
+                sql = "SELECT column_name, data_type, character_maximum_length, column_comment FROM information_schema.columns WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position";
+            } else {
+                sql = "SELECT c.column_name, c.data_type, c.data_length, cc.comments FROM all_tab_columns c LEFT JOIN all_col_comments cc ON cc.owner=c.owner AND cc.table_name=c.table_name AND cc.column_name=c.column_name WHERE c.owner = ? AND c.table_name = ? ORDER BY c.column_id";
+            }
+            if (!connectionManager.isConnected(connName)) return;
+            try (Connection conn = connectionManager.getConnection(connName);
+                 PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, schemaName);
+                ps.setString(2, table);
+                List<MetadataCache.CachedColumn> cols = new ArrayList<>();
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        MetadataCache.CachedColumn cc = new MetadataCache.CachedColumn();
+                        cc.name = rs.getString(1);
+                        cc.type = rs.getString(2);
+                        cc.size = rs.getInt(3);
+                        cc.comment = rs.getString(4);
+                        if (cc.name != null) cols.add(cc);
+                    }
+                }
+                cache.putColumns(connName, schemaName, table, cols);
+            }
+        } catch (Exception e) {
+            log.warn("loadColumns {} {} failed: {}", schemaName, table, e.getMessage());
+        }
+    }
 
     private static JButton flatBtn(String iconName, String fallback, java.awt.event.ActionListener action) {
         JButton btn = new JButton();

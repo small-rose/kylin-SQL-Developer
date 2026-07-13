@@ -47,7 +47,7 @@ public class DataGeneratorDialog extends BaseToolDialog {
         tableCombo = new JComboBox<>();
         tableCombo.addActionListener(e -> { if (tableCombo.getItemCount() > 0) loadColumns(); });
 
-        rowCountSpinner = new JSpinner(new SpinnerNumberModel(100, 1, 10000, 10));
+        rowCountSpinner = new JSpinner(new SpinnerNumberModel(10, 1, 10000, 10));
 
         dialectCombo = new JComboBox<>(new String[]{"Oracle", "MySQL", "PostgreSQL", "ANSI SQL"});
 
@@ -124,31 +124,91 @@ public class DataGeneratorDialog extends BaseToolDialog {
     public void populateConnections(List<String> connNames) {
         connCombo.removeAllItems();
         for (String name : connNames) connCombo.addItem(name);
-        if (!connNames.isEmpty()) loadSchemas();
+        if (!connNames.isEmpty()) {
+            String connName = connNames.get(0);
+            loadAllMetadata(connName);
+        }
+    }
+
+    private void loadAllMetadata(String connName) {
+        connCombo.setEnabled(false);
+        schemaCombo.setEnabled(false);
+        tableCombo.setEnabled(false);
+        new SwingWorker<LoadResult, Void>() {
+            @Override
+            protected LoadResult doInBackground() {
+                LoadResult r = new LoadResult();
+                try (Connection conn = connProvider.apply(connName)) {
+                    if (conn == null) return r;
+                    DatabaseMetaData meta = conn.getMetaData();
+                    try (ResultSet rs = meta.getSchemas()) {
+                        while (rs.next()) r.schemas.add(rs.getString("TABLE_SCHEM"));
+                    }
+                    if (!r.schemas.isEmpty()) {
+                        String firstSchema = r.schemas.get(0);
+                        try (ResultSet rs = meta.getTables(null, firstSchema, "%", new String[]{"TABLE", "VIEW"})) {
+                            while (rs.next()) r.tables.add(rs.getString("TABLE_NAME"));
+                        }
+                        if (!r.tables.isEmpty()) {
+                            try (ResultSet rs = meta.getColumns(null, firstSchema, r.tables.get(0), "%")) {
+                                while (rs.next()) {
+                                    String colName = rs.getString("COLUMN_NAME");
+                                    String colType = rs.getString("TYPE_NAME");
+                                    r.columns.add(new ColumnDef(colName, colType, inferRule(colType)));
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    r.error = "加载元数据失败: " + e.getMessage();
+                }
+                return r;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    LoadResult r = get();
+                    if (r.error != null) {
+                        ToastManager.showError(DataGeneratorDialog.this, r.error);
+                        return;
+                    }
+                    for (String s : r.schemas) schemaCombo.addItem(s);
+                    for (String t : r.tables) tableCombo.addItem(t);
+                    columns.clear();
+                    columns.addAll(r.columns);
+                    colModel.setData(columns);
+                } catch (Exception e) {
+                    ToastManager.showError(DataGeneratorDialog.this, "加载失败: " + e.getMessage());
+                } finally {
+                    connCombo.setEnabled(true);
+                    schemaCombo.setEnabled(true);
+                    tableCombo.setEnabled(true);
+                }
+            }
+        }.execute();
     }
 
     private void loadSchemas() {
-        schemaCombo.removeAllItems();
         String connName = (String) connCombo.getSelectedItem();
         if (connName == null) return;
+        schemaCombo.removeAllItems();
         try (Connection conn = connProvider.apply(connName)) {
             if (conn == null) return;
             DatabaseMetaData meta = conn.getMetaData();
-            Set<String> schemas = new LinkedHashSet<>();
             try (ResultSet rs = meta.getSchemas()) {
-                while (rs.next()) schemas.add(rs.getString("TABLE_SCHEM"));
+                while (rs.next()) schemaCombo.addItem(rs.getString("TABLE_SCHEM"));
             }
-            for (String s : schemas) schemaCombo.addItem(s);
         } catch (Exception e) {
             ToastManager.showError(this, "加载 Schema 失败: " + e.getMessage());
         }
     }
 
     private void loadTables() {
-        tableCombo.removeAllItems();
         String connName = (String) connCombo.getSelectedItem();
         String schema = (String) schemaCombo.getSelectedItem();
         if (connName == null || schema == null) return;
+        tableCombo.removeAllItems();
         try (Connection conn = connProvider.apply(connName)) {
             if (conn == null) return;
             DatabaseMetaData meta = conn.getMetaData();
@@ -161,11 +221,11 @@ public class DataGeneratorDialog extends BaseToolDialog {
     }
 
     private void loadColumns() {
-        columns.clear();
         String connName = (String) connCombo.getSelectedItem();
         String schema = (String) schemaCombo.getSelectedItem();
         String table = (String) tableCombo.getSelectedItem();
         if (connName == null || schema == null || table == null) return;
+        columns.clear();
         try (Connection conn = connProvider.apply(connName)) {
             if (conn == null) return;
             DatabaseMetaData meta = conn.getMetaData();
@@ -180,7 +240,7 @@ public class DataGeneratorDialog extends BaseToolDialog {
         } catch (Exception e) {
             ToastManager.showError(this, "加载列失败: " + e.getMessage());
         }
-        colModel.fireTableDataChanged();
+        colModel.setData(columns);
     }
 
     private void generate() {
@@ -345,6 +405,13 @@ public class DataGeneratorDialog extends BaseToolDialog {
                 ? JSplitPane.VERTICAL_SPLIT
                 : JSplitPane.HORIZONTAL_SPLIT);
         layoutToggleBtn.setText(horizontal ? "⇕ 水平布局" : "⇔ 垂直布局");
+    }
+
+    private static class LoadResult {
+        final List<String> schemas = new ArrayList<>();
+        final List<String> tables = new ArrayList<>();
+        final List<ColumnDef> columns = new ArrayList<>();
+        String error;
     }
 
     static class ColumnDef {

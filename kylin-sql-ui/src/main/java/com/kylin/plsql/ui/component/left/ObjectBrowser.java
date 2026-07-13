@@ -134,8 +134,24 @@ public class ObjectBrowser extends JPanel {
     private static class ColumnInfo {
         final String name;
         final String dataType;
-        ColumnInfo(String name, String dataType) { this.name = name; this.dataType = dataType; }
-        @Override public String toString() { return name + " : " + dataType; }
+        final String sizeStr;
+        final String comment;
+        ColumnInfo(String name, String dataType, String sizeStr, String comment) {
+            this.name = name; this.dataType = dataType; this.sizeStr = sizeStr; this.comment = comment;
+        }
+        @Override public String toString() {
+            return name;
+        }
+        String toDisplayHtml(String nameColor, String grayColor) {
+            String suffix = dataType;
+            if (sizeStr != null) suffix += "(" + sizeStr + ")";
+            return "<html><span style='color:" + nameColor + "'>" + esc(name) + "</span>"
+                + " <span style='color:" + grayColor + "'>" + esc(suffix) + "</span></html>";
+        }
+        private static String esc(String s) {
+            if (s == null) return "";
+            return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+        }
     }
     // ── Icons ──
 
@@ -148,7 +164,7 @@ public class ObjectBrowser extends JPanel {
     private static final Icon ICON_FUNC   = makeIcon("F",  new Color(0xD9534F));
     private static final Icon ICON_PROC   = makeIcon("P",  new Color(0xD9534F));
     private static final Icon ICON_PKG    = makeIcon("K",  new Color(0xA0522D));
-    private static final Icon ICON_COLUMN = makeIcon("C",  new Color(0x888888));
+    private static final Icon ICON_COLUMN = makeIcon("C",  new Color(0x059775));
 
     private static Icon makeIcon(String text, Color bg) {
         BufferedImage img = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
@@ -189,6 +205,10 @@ public class ObjectBrowser extends JPanel {
         g.drawString(text, x, y);
         g.dispose();
         return new ImageIcon(img);
+    }
+
+    private static String colorHex(Color c) {
+        return String.format("#%06x", c.getRGB() & 0xFFFFFF);
     }
 
     private static Icon iconForTypeLabel(String label) {
@@ -274,7 +294,18 @@ public class ObjectBrowser extends JPanel {
                 if (level == 2) ic = ICON_SCHEMA;
                 else if (level == 3) ic = iconForTypeLabel(node.getUserObject().toString());
                 else if (level == 4) { String tl = getNodeLabel(node, 3); ic = iconForTypeLabel(tl); }
-                else if (level == 5) ic = ICON_COLUMN;
+                else if (level == 5) {
+                    ic = ICON_COLUMN;
+                    Object uo = node.getUserObject();
+                    if (uo instanceof ColumnInfo ci) {
+                        String nc = colorHex(sel ? getTextSelectionColor() : getTextNonSelectionColor());
+                        String gc = sel ? nc : "888888";
+                        label.setText(ci.toDisplayHtml(nc, gc));
+                        if (ci.comment != null && !ci.comment.isEmpty()) {
+                            label.setToolTipText(ci.comment);
+                        }
+                    }
+                }
                 if (ic != null) label.setIcon(ic);
                 return label;
             }
@@ -283,8 +314,10 @@ public class ObjectBrowser extends JPanel {
         tree.addTreeSelectionListener(e -> {
             DefaultMutableTreeNode node = (DefaultMutableTreeNode) tree.getLastSelectedPathComponent();
             if (node == null || node.isRoot()) return;
-            if (node.getLevel() == 4 || node.getLevel() == 5) {
+            if (node.getLevel() == 4) {
                 copyToClipboard(node.getUserObject().toString());
+            } else if (node.getLevel() == 5 && node.getUserObject() instanceof ColumnInfo ci) {
+                copyToClipboard(ci.name);
             }
         });
 
@@ -308,10 +341,12 @@ public class ObjectBrowser extends JPanel {
                         try { Thread.sleep(50); } catch (InterruptedException ignored) {}
                     }
                 }
-                // Level 4: table node - lazy load columns
-                if (node.getLevel() == 4 && node.getChildCount() == 0) {
-                    String typeLabel = getNodeLabel(node, 3);
-                    if ("表".equals(typeLabel)) {
+                // Level 4: expandable object node - lazy load columns
+                if (node.getLevel() == 4 && node.getChildCount() == 1) {
+                    DefaultMutableTreeNode first = (DefaultMutableTreeNode) node.getChildAt(0);
+                    if ("".equals(first.getUserObject())) {
+                        String typeLabel = getNodeLabel(node, 3);
+                        if ("表".equals(typeLabel)) {
                         SwingWorker<Void, Void> worker = new SwingWorker<>() {
                             @Override
                             protected Void doInBackground() {
@@ -324,6 +359,7 @@ public class ObjectBrowser extends JPanel {
                     }
                 }
             }
+            } // treeWillExpand
             @Override
             public void treeWillCollapse(javax.swing.event.TreeExpansionEvent e) {}
         });
@@ -447,11 +483,14 @@ public class ObjectBrowser extends JPanel {
         String tableName = tblNode.getUserObject().toString();
         MetadataCache cache = MetadataCache.getInstance();
 
+        tblNode.removeAllChildren();
+
         // ── Try cache first ──
         List<MetadataCache.CachedColumn> cached = cache.getColumns(connName, schema, tableName);
         if (cached != null) {
             for (var cc : cached) {
-                tblNode.add(new DefaultMutableTreeNode(new ColumnInfo(cc.name, cc.type)));
+                String sz = cc.size > 0 ? String.valueOf(cc.size) : "";
+                tblNode.add(new DefaultMutableTreeNode(new ColumnInfo(cc.name, cc.type, sz, cc.comment)));
             }
             treeModel.reload(tblNode);
             return;
@@ -461,11 +500,11 @@ public class ObjectBrowser extends JPanel {
         String dbProduct = getConnDbProduct(tblNode);
         String sql;
         if (dbProduct != null && (dbProduct.contains("mysql") || dbProduct.contains("mariadb"))) {
-            sql = "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position";
+            sql = "SELECT column_name, data_type, character_maximum_length, column_comment FROM information_schema.columns WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position";
         } else if (dbProduct != null && (dbProduct.contains("postgresql") || dbProduct.contains("edb"))) {
-            sql = "SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position";
+            sql = "SELECT column_name, data_type, character_maximum_length, column_comment FROM information_schema.columns WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position";
         } else {
-            sql = "SELECT column_name, data_type FROM all_tab_columns WHERE owner = ? AND table_name = ? ORDER BY column_id";
+            sql = "SELECT c.column_name, c.data_type, c.data_length, cc.comments FROM all_tab_columns c LEFT JOIN all_col_comments cc ON cc.owner=c.owner AND cc.table_name=c.table_name AND cc.column_name=c.column_name WHERE c.owner = ? AND c.table_name = ? ORDER BY c.column_id";
         }
 
         try (Connection conn = cm.getConnection(connName);
@@ -477,12 +516,17 @@ public class ObjectBrowser extends JPanel {
                 while (rs.next()) {
                     String colName = rs.getString(1);
                     String dataType = rs.getString(2);
+                    String sizeStr = rs.getString(3);
+                    String comment = rs.getString(4);
                     if (colName != null) {
                         String dt = dataType != null ? dataType : "";
-                        tblNode.add(new DefaultMutableTreeNode(new ColumnInfo(colName, dt)));
+                        String sz = sizeStr != null ? sizeStr : "";
+                        tblNode.add(new DefaultMutableTreeNode(new ColumnInfo(colName, dt, sz, comment)));
                         MetadataCache.CachedColumn cc = new MetadataCache.CachedColumn();
                         cc.name = colName;
                         cc.type = dt;
+                        try { cc.size = Integer.parseInt(sz); } catch (NumberFormatException ignored) {}
+                        cc.comment = comment;
                         cols.add(cc);
                     }
                 }
@@ -769,11 +813,16 @@ public class ObjectBrowser extends JPanel {
     private void initHiddenSchemas(ConnHolder h, java.util.List<String> all) {
         String cn = h.info.getName();
         String defaultSchema = h.info.getSchema();
-        java.util.Set<String> hidden = new java.util.HashSet<>(all);
-        if (defaultSchema != null && !defaultSchema.isEmpty() && all.contains(defaultSchema)) {
-            hidden.remove(defaultSchema);
-        } else {
-            hidden.clear();
+        java.util.Set<String> hidden = new java.util.HashSet<>();
+        if (defaultSchema != null && !defaultSchema.isEmpty()) {
+            String matched = null;
+            for (String s : all) {
+                if (s.equalsIgnoreCase(defaultSchema)) { matched = s; break; }
+            }
+            if (matched != null) {
+                hidden.addAll(all);
+                hidden.remove(matched);
+            }
         }
         connHiddenSchemas.put(cn, hidden);
     }
@@ -799,6 +848,7 @@ public class ObjectBrowser extends JPanel {
                 treeModel.reload(connNode);
             } else {
                 rebuildConnectionNode(connNode);
+                ensureTableCommentsLoaded(name, dbProduct, schemas, h.info);
             }
             return;
         }
@@ -835,6 +885,7 @@ public class ObjectBrowser extends JPanel {
                         List<String> objects = queryObjects(conn, ot, schema);
                         cache.putObjects(name, schema, ot.typeCode, objects);
                     }
+                    loadTableComments(conn, name, dbProduct, schema);
                 }
                 rebuildConnectionNode(connNode);
             } else {
@@ -845,6 +896,66 @@ public class ObjectBrowser extends JPanel {
             log.error("加载连接 '{}' 失败", name, e);
             connNode.add(new DefaultMutableTreeNode("加载失败: " + e.getMessage()));
             treeModel.reload(connNode);
+        }
+    }
+
+    /** Bulk-load table/view comments into cache for a single schema. */
+    private void loadTableComments(Connection conn, String connName, String dbProduct, String schema) {
+        MetadataCache cache = MetadataCache.getInstance();
+        boolean isOracleLike = dbProduct.contains("oracle") || dbProduct.contains("oceanbase");
+        String sql;
+        if (isOracleLike) {
+            sql = "SELECT table_name, comments FROM all_tab_comments WHERE owner = ?";
+        } else if (dbProduct.contains("mysql") || dbProduct.contains("mariadb")) {
+            sql = "SELECT table_name, table_comment FROM information_schema.tables WHERE table_schema = ?";
+        } else {
+            sql = "SELECT tablename, obj_description((schemaname||'.'||tablename)::regclass, 'pg_class') FROM pg_catalog.pg_tables WHERE schemaname = ?" +
+                  " UNION SELECT viewname, obj_description((schemaname||'.'||viewname)::regclass, 'pg_class') FROM pg_catalog.pg_views WHERE schemaname = ?";
+        }
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, schema);
+            if (!isOracleLike && !dbProduct.contains("mysql") && !dbProduct.contains("mariadb")) {
+                ps.setString(2, schema);
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String name = rs.getString(1);
+                    String comment = rs.getString(2);
+                    if (name != null && comment != null && !comment.isEmpty()) {
+                        cache.putTableComment(connName, schema, name, comment);
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            log.debug("loadTableComments {} {} failed: {}", connName, schema, e.getMessage());
+        }
+    }
+
+    /** If table comments are missing from cache for any TABLE/VIEW, connect and load them. */
+    private void ensureTableCommentsLoaded(String connName, String dbProduct, List<String> schemas, ConnectionInfo connInfo) {
+        MetadataCache cache = MetadataCache.getInstance();
+        boolean needsLoad = false;
+        outer:
+        for (String schema : schemas) {
+            var byType = cache.getObjectNamesByType(connName, schema);
+            if (byType == null) continue;
+            List<String> tables = byType.get("TABLE");
+            if (tables != null && !tables.isEmpty()
+                && cache.getTableComment(connName, schema, tables.get(0)) == null) {
+                needsLoad = true;
+                break outer;
+            }
+        }
+        if (!needsLoad) return;
+        try {
+            if (!cm.isConnected(connName)) cm.connect(connInfo);
+            try (Connection conn = cm.getConnection(connName)) {
+                for (String schema : schemas) {
+                    loadTableComments(conn, connName, dbProduct, schema);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("ensureTableCommentsLoaded failed: {}", e.getMessage());
         }
     }
 
@@ -872,7 +983,11 @@ public class ObjectBrowser extends JPanel {
                 if (objs != null && !objs.isEmpty()) {
                     DefaultMutableTreeNode catNode = new DefaultMutableTreeNode(ot.label);
                     schemaNode.add(catNode);
-                    for (String obj : objs) catNode.add(new DefaultMutableTreeNode(obj));
+                    for (String obj : objs) {
+                        DefaultMutableTreeNode objNode = new DefaultMutableTreeNode(obj);
+                        if (ot.expandable) objNode.add(new DefaultMutableTreeNode(""));
+                        catNode.add(objNode);
+                    }
                 }
             }
         }
@@ -1080,9 +1195,8 @@ public class ObjectBrowser extends JPanel {
                 menu.addSeparator();
                 menu.add(menuItem("展开包 (过程/函数)", "skip-forward", () -> expandPackage(connName, schema, objName)));
             }
-        } else if (level == 5) {
-            // Column node: copy name
-            menu.add(menuItem("复制列名", "copy", () -> copyToClipboard(node.getUserObject().toString())));
+        } else if (level == 5 && node.getUserObject() instanceof ColumnInfo colInfo) {
+            menu.add(menuItem("复制列名", "copy", () -> copyToClipboard(colInfo.name)));
         }
 
         if (menu.getComponentCount() > 0) menu.show(tree, e.getX(), e.getY());

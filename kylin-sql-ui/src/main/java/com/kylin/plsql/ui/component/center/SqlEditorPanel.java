@@ -1,11 +1,15 @@
 package com.kylin.plsql.ui.component.center;
 
 import com.kylin.plsql.core.cache.MetadataCache;
+import com.kylin.plsql.core.config.ConfigManager;
 import com.kylin.plsql.core.db.ConnectionInfo;
 import com.kylin.plsql.core.db.ConnectionManager;
+import com.kylin.plsql.ui.component.common.PlSqlCompletionProvider;
+import org.fife.ui.autocomplete.AutoCompletion;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.fife.ui.rsyntaxtextarea.Theme;
+import org.fife.ui.rsyntaxtextarea.Token;
 import org.fife.ui.rtextarea.RTextScrollPane;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,6 +22,7 @@ import javax.swing.text.*;
 import java.awt.*;
 import java.io.File;
 import java.io.InputStream;
+import java.sql.*;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -50,8 +55,6 @@ public class SqlEditorPanel extends JPanel {
     private Color hoverBg;
     private Runnable onHistoryRequest;
 
-    private Object segmentPainterTag;
-    private final DynamicSegmentPainter segmentPainter = new DynamicSegmentPainter();
     private final RTextScrollPane scrollPane;
     private final SearchReplacePanel searchPanel = new SearchReplacePanel();
     private final JPanel toolBar;
@@ -60,8 +63,6 @@ public class SqlEditorPanel extends JPanel {
     private int lastExecLine = -1;
     private boolean lastExecSuccess;
     private List<int[]> cachedSegments = java.util.Collections.emptyList();
-    private int[] segmentBoxCacheKey;
-    private java.awt.Rectangle segmentBoxCache;
 
     public SqlEditorPanel(ConnectionManager cm, String tabName) {
         this.connectionManager = cm;
@@ -192,17 +193,61 @@ public class SqlEditorPanel extends JPanel {
         textArea.setComponentPopupMenu(popup);
 
         textArea.getDocument().addDocumentListener(new DocumentListener() {
-            @Override public void insertUpdate(DocumentEvent e) { markModified(); rebuildSegments(); installSegmentPainter(); updateSegmentBar(); repaint(); }
-            @Override public void removeUpdate(DocumentEvent e) { markModified(); rebuildSegments(); installSegmentPainter(); updateSegmentBar(); repaint(); }
-            @Override public void changedUpdate(DocumentEvent e) { markModified(); rebuildSegments(); installSegmentPainter(); updateSegmentBar(); repaint(); }
+            @Override public void insertUpdate(DocumentEvent e) { markModified(); rebuildSegments(); updateSegmentBar(); repaint(); }
+            @Override public void removeUpdate(DocumentEvent e) { markModified(); rebuildSegments(); updateSegmentBar(); repaint(); }
+            @Override public void changedUpdate(DocumentEvent e) { markModified(); rebuildSegments(); updateSegmentBar(); repaint(); }
         });
 
         textArea.addCaretListener(e -> {
-            if (segmentPainterTag == null) installSegmentPainter();
             updateSegmentBar();
             repaint();
         });
-        installSegmentPainter();
+
+        PlSqlCompletionProvider provider = new PlSqlCompletionProvider(this::getConnectionName, this::getSchema);
+        provider.setColumnLoader((schema, table) -> loadColumns(schema, table));
+        final AutoCompletion ac = new AutoCompletion(provider);
+        ac.setAutoActivationEnabled(true);
+        ac.setAutoCompleteEnabled(true);
+        int delay = readAutocompleteDelay();
+        ac.setAutoActivationDelay(delay);
+        ac.install(textArea);
+        log.info("AutoCompletion installed on SqlEditorPanel, delay={}ms, provider={}", delay, provider.getClass().getSimpleName());
+
+        textArea.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            @Override public void insertUpdate(javax.swing.event.DocumentEvent e) {
+                if (e.getLength() != 1) return;
+                if (isInsideComment(textArea)) return;
+                char c;
+                try { c = e.getDocument().getText(e.getOffset(), 1).charAt(0); }
+                catch (Exception ex) { return; }
+                if (c == '.') {
+                    javax.swing.SwingUtilities.invokeLater(() -> ac.doCompletion());
+                }
+            }
+            @Override public void removeUpdate(javax.swing.event.DocumentEvent e) {}
+            @Override public void changedUpdate(javax.swing.event.DocumentEvent e) {}
+        });
+    }
+
+    /** Check if the caret is inside a comment token. */
+    private static boolean isInsideComment(RSyntaxTextArea textArea) {
+        try {
+            int caret = textArea.getCaretPosition();
+            int line = textArea.getLineOfOffset(caret);
+            Token t = textArea.getTokenListForLine(line);
+            while (t != null && t.isPaintable()) {
+                if (t.containsPosition(caret)) {
+                    return t.isComment();
+                }
+                t = t.getNextToken();
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
+    private static int readAutocompleteDelay() {
+        try { return Integer.parseInt(ConfigManager.getInstance().getPreference("autocomplete.delay", "300"));
+        } catch (Exception e) { return 300; }
     }
 
     private void markModified() {
@@ -478,7 +523,6 @@ public class SqlEditorPanel extends JPanel {
     private void rebuildSegments() {
         String text = textArea.getText();
         cachedSegments = new ArrayList<>();
-        segmentBoxCacheKey = null;
         if (text == null || text.isEmpty()) return;
         int segStart = 0;
         boolean hasContent = false;
@@ -500,91 +544,6 @@ public class SqlEditorPanel extends JPanel {
             int s = segStart;
             while (s < text.length() && Character.isWhitespace(text.charAt(s))) s++;
             cachedSegments.add(new int[]{s, text.length()});
-        }
-    }
-
-    private void installSegmentPainter() {
-        if (segmentPainterTag != null) {
-            textArea.getHighlighter().removeHighlight(segmentPainterTag);
-            segmentPainterTag = null;
-        }
-        int len = textArea.getDocument().getLength();
-        if (len > 0) {
-            try {
-                segmentPainterTag = textArea.getHighlighter().addHighlight(0, len, segmentPainter);
-            } catch (BadLocationException ignored) {}
-        }
-    }
-
-    private class DynamicSegmentPainter extends DefaultHighlighter.DefaultHighlightPainter {
-        private final com.kylin.plsql.core.config.ThemeManager thm = com.kylin.plsql.core.config.ThemeManager.getInstance();
-        DynamicSegmentPainter() { super(new Color(0, true)); }
-        @Override
-        public Shape paintLayer(Graphics g, int offs0, int offs1, Shape bounds, JTextComponent c, View view) {
-            if (textArea.getSelectedText() != null && !textArea.getSelectedText().isBlank()) return bounds;
-            int[] seg = findCurrentSegment();
-            if (seg == null) return bounds;
-            if (offs1 <= seg[0] || offs0 >= seg[1]) return bounds;
-            java.awt.Rectangle lineRect = bounds instanceof java.awt.Rectangle r2 ? r2 : bounds.getBounds();
-            Graphics2D g2 = (Graphics2D)g.create();
-            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            java.awt.Rectangle box = getSegmentBox(seg);
-            if (box == null) { g2.dispose(); return bounds; }
-            int hlY = Math.max(lineRect.y, box.y);
-            int hlBottom = Math.min(lineRect.y + lineRect.height, box.y + box.height);
-            if (hlY >= hlBottom) { g2.dispose(); return bounds; }
-            g2.setColor(thm.resolve("exec.highlight"));
-            g2.fillRect(box.x, hlY, box.width, hlBottom - hlY);
-            boolean isFirst = offs0 <= seg[0] && offs1 > seg[0];
-            boolean isLast = offs0 < seg[1] && offs1 >= seg[1];
-            g2.setColor(thm.resolve("accent.tab"));
-            g2.setStroke(new java.awt.BasicStroke(0.5f));
-            // Left edge
-            g2.drawLine(box.x, hlY, box.x, hlBottom);
-            // Right edge at widest position
-            g2.drawLine(box.x + box.width, hlY, box.x + box.width, hlBottom);
-            // Top edge
-            if (isFirst) g2.drawLine(box.x, box.y, box.x + box.width, box.y);
-            // Bottom edge
-            if (isLast) g2.drawLine(box.x, box.y + box.height, box.x + box.width, box.y + box.height);
-            g2.dispose();
-            return bounds;
-        }
-    }
-
-    private java.awt.Rectangle getSegmentBox(int[] seg) {
-        if (segmentBoxCacheKey != null && segmentBoxCacheKey[0] == seg[0] && segmentBoxCacheKey[1] == seg[1]) {
-            return segmentBoxCache;
-        }
-        segmentBoxCacheKey = seg;
-        segmentBoxCache = computeSegmentBox(seg);
-        return segmentBoxCache;
-    }
-
-    private java.awt.Rectangle computeSegmentBox(int[] seg) {
-        try {
-            int segEnd = Math.min(seg[1], textArea.getDocument().getLength());
-            if (segEnd <= seg[0]) return null;
-            int startLine = textArea.getLineOfOffset(seg[0]);
-            int endLine = textArea.getLineOfOffset(segEnd - 1);
-            java.awt.Rectangle firstRect = textArea.modelToView(textArea.getLineStartOffset(startLine));
-            if (firstRect == null) return null;
-            int rightX = 0;
-            for (int line = startLine; line <= endLine; line++) {
-                int lineStart = textArea.getLineStartOffset(line);
-                int lineEnd = Math.min(textArea.getLineEndOffset(line), segEnd);
-                if (lineEnd > lineStart) {
-                    java.awt.Rectangle r = textArea.modelToView(lineEnd - 1);
-                    if (r != null) rightX = Math.max(rightX, r.x + r.width);
-                }
-            }
-            if (rightX <= 0) rightX = firstRect.x + 1;
-            int lastPos = Math.max(segEnd - 1, textArea.getLineStartOffset(endLine));
-            java.awt.Rectangle lastRect = textArea.modelToView(lastPos);
-            if (lastRect == null) return null;
-            return new java.awt.Rectangle(firstRect.x - 1, firstRect.y, rightX - firstRect.x + 1, (lastRect.y + lastRect.height) - firstRect.y);
-        } catch (Exception e) {
-            return null;
         }
     }
 
@@ -679,6 +638,49 @@ public class SqlEditorPanel extends JPanel {
             gutter.setLineNumberFont(new Font("Monospaced", Font.PLAIN, 14));
             gutter.setBackground(theme.resolve("bg.editor"));
             gutter.setLineNumberColor(theme.resolve("fg.secondary"));
+        }
+    }
+
+    /** Load columns on demand (for auto-completion when cache miss). */
+    private void loadColumns(String schema, String table) {
+        if (connectionName == null) return;
+        MetadataCache cache = MetadataCache.getInstance();
+        try {
+            String dbProduct = cache.getDbProduct(connectionName);
+            String sql;
+            if (dbProduct != null && (dbProduct.contains("mysql") || dbProduct.contains("mariadb"))) {
+                sql = "SELECT column_name, data_type, character_maximum_length, column_comment FROM information_schema.columns WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position";
+            } else if (dbProduct != null && (dbProduct.contains("postgresql") || dbProduct.contains("edb"))) {
+                sql = "SELECT column_name, data_type, character_maximum_length, column_comment FROM information_schema.columns WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position";
+            } else {
+                sql = "SELECT c.column_name, c.data_type, c.data_length, cc.comments FROM all_tab_columns c LEFT JOIN all_col_comments cc ON cc.owner=c.owner AND cc.table_name=c.table_name AND cc.column_name=c.column_name WHERE c.owner = ? AND c.table_name = ? ORDER BY c.column_id";
+            }
+            if (!connectionManager.isConnected(connectionName)) {
+                for (Map.Entry<String, ConnectionInfo> e : connDisplayMap.entrySet()) {
+                    if (connectionName.equals(e.getValue().getName())) {
+                        connectionManager.connect(e.getValue()); break;
+                    }
+                }
+            }
+            try (Connection conn = connectionManager.getConnection(connectionName);
+                 PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, schema);
+                ps.setString(2, table);
+                List<MetadataCache.CachedColumn> cols = new ArrayList<>();
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        MetadataCache.CachedColumn cc = new MetadataCache.CachedColumn();
+                        cc.name = rs.getString(1);
+                        cc.type = rs.getString(2);
+                        cc.size = rs.getInt(3);
+                        cc.comment = rs.getString(4);
+                        if (cc.name != null) cols.add(cc);
+                    }
+                }
+                cache.putColumns(connectionName, schema, table, cols);
+            }
+        } catch (Exception e) {
+            log.warn("loadColumns {} {} failed: {}", schema, table, e.getMessage());
         }
     }
 

@@ -672,6 +672,7 @@ public class ResultPanel extends JPanel {
             d.label = label;
             d.sql = sql;
             d.connName = connName;
+            d.columns = result.columns;
             d.allRows = result.rows;
             d.pageSize = 100;
             d.currentPage = 0;
