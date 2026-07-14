@@ -28,12 +28,16 @@ check_java "$APP_HOME/jre/bin/java"
 # 2. JAVA_HOME
 [ -n "$JAVA_HOME" ] && check_java "$JAVA_HOME/bin/java"
 
-# 3. PATH (all matches, pick highest version)
-if command -v java &>/dev/null; then
-    while IFS= read -r jpath; do
-        check_java "$jpath"
-    done < <(which -a java 2>/dev/null || command -v java 2>/dev/null)
-fi
+# 3. Walk PATH manually to find all java executables
+IFS=:
+for dir in $PATH; do
+    [ -z "$dir" ] && continue
+    [ -x "$dir/java" ] || continue
+    # resolve symlinks so we don't count the same version twice
+    resolved="$dir/java"
+    check_java "$resolved"
+done
+unset IFS
 
 if [ -z "$BEST_JAVA" ]; then
     echo "[ERROR] Java not found. Install JDK 17+ or set JAVA_HOME." >&2
