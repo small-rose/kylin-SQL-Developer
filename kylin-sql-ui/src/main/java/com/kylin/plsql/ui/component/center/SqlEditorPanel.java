@@ -401,6 +401,20 @@ public class SqlEditorPanel extends JPanel {
     public String getText() { return textArea.getText(); }
     public void setText(String text) { textArea.setText(text); }
 
+    /** Return the first fully visible line index (0-based). */
+    public int getScrollLine() {
+        try {
+            JViewport vp = (JViewport) SwingUtilities.getAncestorOfClass(JViewport.class, textArea);
+            if (vp == null) return 0;
+            Rectangle r = vp.getViewRect();
+            return textArea.getLineOfOffset(textArea.viewToModel(new Point(r.x, r.y)));
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    public int getCaretPosition() { return textArea.getCaretPosition(); }
+
     public String getSelectedText() {
         String sel = textArea.getSelectedText();
         return (sel != null && !sel.isBlank()) ? sel : null;
@@ -472,9 +486,9 @@ public class SqlEditorPanel extends JPanel {
     public void setFilePath(String filePath) { this.filePath = filePath; }
 
     public boolean isModified() { return modified; }
+    public void setModified(boolean m) { modified = m; }
     public void resetModified() {
         modified = false;
-        if (onModifiedChange != null) onModifiedChange.run();
     }
 
     public void setOnModifiedChange(Runnable r) { this.onModifiedChange = r; }
@@ -668,7 +682,12 @@ public class SqlEditorPanel extends JPanel {
             if (!connectionManager.isConnected(connectionName)) {
                 for (Map.Entry<String, ConnectionInfo> e : connDisplayMap.entrySet()) {
                     if (connectionName.equals(e.getValue().getName())) {
-                        connectionManager.connect(e.getValue()); break;
+                        try {
+                            connectionManager.connect(e.getValue());
+                        } catch (SQLException ex) {
+                            log.warn("自动补全连接失败: {}", ex.getMessage());
+                        }
+                        break;
                     }
                 }
             }

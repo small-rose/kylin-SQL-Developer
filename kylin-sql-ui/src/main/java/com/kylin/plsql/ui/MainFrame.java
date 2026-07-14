@@ -236,6 +236,14 @@ public class MainFrame extends JFrame {
                 t.setRepeats(false);
                 t.start();
             }
+            @Override
+            public void onSyncError(String connName, String message) {
+                statusBar.hideSyncProgress();
+                statusBar.setMessage(connName + " 刷新失败: " + message);
+                JOptionPane.showMessageDialog(MainFrame.this,
+                    "连接 '" + connName + "' 失败:\n" + message,
+                    "连接失败", JOptionPane.ERROR_MESSAGE);
+            }
         });
         objectBrowser.setConfigManager(configManager);
 
@@ -1815,7 +1823,12 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                     statusBar.setMessage(connName + " 元数据同步完成");
                     loadSavedConnections();
                 } catch (Exception e) {
-                    statusBar.setMessage("元数据同步失败: " + e.getMessage());
+                    Throwable cause = e.getCause() != null ? e.getCause() : e;
+                    String msg = cause.getMessage();
+                    statusBar.setMessage("元数据同步失败: " + msg);
+                    JOptionPane.showMessageDialog(MainFrame.this,
+                        "连接 '" + connName + "' 失败:\n" + msg,
+                        "连接失败", JOptionPane.ERROR_MESSAGE);
                 }
                 javax.swing.Timer t = new javax.swing.Timer(4000, ev -> statusBar.hideSyncProgress());
                 t.setRepeats(false);
@@ -2369,6 +2382,9 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                     ts.type = "console";
                     ts.content = editor.getTextArea().getText();
                 }
+                ts.caretPosition = editor.getCaretPosition();
+                ts.scrollLine = editor.getScrollLine();
+                ts.autoTx = editor.isAutoCommit();
             } else if (comp instanceof SourceViewerPanel sv) {
                 ts.type = "sourceviewer";
                 ts.tabName = editorTabs.getTitleAt(i);
@@ -2376,6 +2392,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                 ts.schema = sv.getSchema();
                 ts.objectName = sv.getObjectName();
                 ts.objectType = sv.getObjectType();
+                ts.showingBody = sv.isShowingBody();
             } else {
                 continue;
             }
@@ -2384,6 +2401,12 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         state.formatProfiles = formatOptions.profilesToMap();
         state.activeFormatProfile = formatOptions.getActiveProfile();
         state.connectionDialects = bottomPanel.getConnectionDialects();
+        // 保存对象浏览器展开状态
+        state.treeExpandedPaths = objectBrowser.saveExpandedPaths();
+        // 保存隐藏 schema 过滤
+        state.hiddenSchemas = objectBrowser.getHiddenSchemas();
+        // 保存 SQL 执行历史
+        state.sqlHistory = sqlHistory.snapshot();
         configManager.saveWorkspace(state);
         bottomPanel.refreshConnTree();
     }
@@ -2394,6 +2417,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         for (TabState ts : state.tabs) {
             if ("sourceviewer".equals(ts.type)) {
                 openSourceObject(ts.connName, ts.schema, ts.objectType, ts.objectName);
+                // SourceViewer 需要在加载完成后切 spec/body
                 continue;
             }
             SqlEditorPanel editor = new SqlEditorPanel(connectionManager, ts.tabName);
@@ -2404,6 +2428,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             editor.setConnections(connections);
             if (ts.connName != null) editor.setConnectionName(ts.connName);
             if (ts.schema != null) editor.setSchema(ts.schema);
+            editor.setAutoCommit(ts.autoTx);
         editor.setOnExecute(() -> executeActiveEditor());
         editor.setOnAppendExecute(() -> executeAppendEditor());
         editor.setOnFormat(this::formatSql);
@@ -2411,22 +2436,57 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
     bottomPanel.showToast(msg);
     statusBar.setStatusText(msg);
 });
-editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
+        editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         editor.setOnConnectionChange(() -> bottomPanel.refreshConnTree());
-            editor.getTextArea().setCaretPosition(0);
+            int caretPos = ts.caretPosition;
+            int scrollLine = ts.scrollLine;
             editorTabs.addTab(ts.tabName != null ? ts.tabName : editor.getTabTitle(), editor);
             int idx = editorTabs.indexOfComponent(editor);
             initTabComponent(idx, editor);
             installCaretListener(editor);
+            // 延迟到布局完成后恢复光标和滚动位置
+            int finalIdx = idx;
+            javax.swing.SwingUtilities.invokeLater(() -> {
+                try {
+                    if (caretPos >= 0 && caretPos <= editor.getTextArea().getDocument().getLength()) {
+                        editor.getTextArea().setCaretPosition(caretPos);
+                    }
+                    if (scrollLine > 0) {
+                        int lineOff = editor.getTextArea().getLineStartOffset(
+                            Math.min(scrollLine, editor.getTextArea().getLineCount() - 1));
+                        editor.getTextArea().scrollRectToVisible(
+                            editor.getTextArea().modelToView(lineOff));
+                    }
+                } catch (Exception ignored) {}
+                // 恢复匹配的标签后激活相应标签
+                if (finalIdx == state.lastActiveIndex) {
+                    editorTabs.setSelectedIndex(finalIdx);
+                }
+            });
         }
+        // 恢复格式化配置
         if (state.formatProfiles != null && !state.formatProfiles.isEmpty()) {
             formatOptions.profilesFromMap(state.formatProfiles);
             formatOptions.setActiveProfile(state.activeFormatProfile != null ? state.activeFormatProfile : "默认 (Oracle)");
             formatOptions.switchTo(formatOptions.getActiveProfile());
         }
+        // 恢复连接→方言
         if (state.connectionDialects != null) {
             bottomPanel.setConnectionDialects(state.connectionDialects);
         }
+        // 恢复对象浏览器展开状态
+        if (state.treeExpandedPaths != null) {
+            objectBrowser.restoreExpandedPaths(state.treeExpandedPaths);
+        }
+        // 恢复隐藏 schema 过滤
+        if (state.hiddenSchemas != null) {
+            objectBrowser.setHiddenSchemas(state.hiddenSchemas);
+        }
+        // 恢复 SQL 执行历史
+        if (state.sqlHistory != null) {
+            sqlHistory.loadFrom(state.sqlHistory);
+        }
+        // 恢复上次活跃标签（作为后备）
         int idx = state.lastActiveIndex;
         if (idx >= 0 && idx < editorTabs.getTabCount()) {
             editorTabs.setSelectedIndex(idx);

@@ -30,6 +30,12 @@ public class ConfigManager {
         public String tabName;    // console label
         public String objectName; // for sourceviewer tabs
         public String objectType; // for sourceviewer tabs
+        // ── per-tab detail state ──
+        public int caretPosition;
+        public int scrollLine;
+        public boolean autoTx;       // auto-commit mode
+        public boolean modified;     // dirty flag
+        public boolean showingBody;  // sourceviewer spec vs body
     }
 
     public static class WorkspaceState {
@@ -40,6 +46,10 @@ public class ConfigManager {
         public Map<String, Map<String, String>> formatProfiles = new LinkedHashMap<>();
         public String activeFormatProfile = "Oracle";
         public Map<String, String> connectionDialects = new HashMap<>();
+        // ── global state ──
+        public java.util.List<String> treeExpandedPaths;      // flat list of expanded tree path strings
+        public Map<String, List<String>> hiddenSchemas;        // connName → hidden schema names
+        public java.util.List<String> sqlHistory;              // SQL execution history
     }
 
     public static class SavedFileRecord {
@@ -50,6 +60,7 @@ public class ConfigManager {
     }
 
     private static final String SAVED_FILES_FILE = "saved_files.json";
+    private static final String SQL_HISTORY_FILE = "sql_history.json";
 
     private static ConfigManager instance;
 
@@ -290,6 +301,32 @@ public class ConfigManager {
         }
         metadataConfigs = DbMetadataConfig.createDefaults();
         return metadataConfigs;
+    }
+
+    // ── SQL 执行历史 ──
+
+    public void saveSqlHistory(List<String> history) {
+        if (history == null) return;
+        File file = configPath.resolve(SQL_HISTORY_FILE).toFile();
+        try (Writer w = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8)) {
+            gson.toJson(history, w);
+        } catch (IOException e) {
+            log.warn("保存 SQL 历史失败", e);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    public List<String> loadSqlHistory() {
+        File file = configPath.resolve(SQL_HISTORY_FILE).toFile();
+        if (!file.exists()) return new ArrayList<>();
+        try (Reader r = new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8)) {
+            Type type = new TypeToken<List<String>>() {}.getType();
+            List<String> list = gson.fromJson(r, type);
+            return list != null ? list : new ArrayList<>();
+        } catch (IOException e) {
+            log.warn("加载 SQL 历史失败", e);
+            return new ArrayList<>();
+        }
     }
 
     public void saveMetadataConfigs(List<DbMetadataConfig> configs) {

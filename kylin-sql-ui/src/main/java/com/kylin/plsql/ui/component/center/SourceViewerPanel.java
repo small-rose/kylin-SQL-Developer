@@ -622,6 +622,8 @@ public class SourceViewerPanel extends JPanel {
     public String getSchema() { return schema; }
     public String getObjectName() { return objectName; }
     public String getObjectType() { return objectType; }
+    public boolean isShowingBody() { return showingBody; }
+    public boolean isEditable() { return editable; }
 
     /** Load columns on demand (for auto-completion when cache miss). */
     private void loadColumns(String schemaName, String table) {

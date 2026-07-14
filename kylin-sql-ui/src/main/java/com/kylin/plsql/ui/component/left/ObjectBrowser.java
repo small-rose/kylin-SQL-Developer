@@ -37,6 +37,7 @@ public class ObjectBrowser extends JPanel {
         void onOpenSourceObject(String connName, String schema, String objectType, String objectName);
         void onSyncProgress(String connName, int percent);
         void onSyncComplete(String connName);
+        void onSyncError(String connName, String message);
     }
 
     // ── Fields ──
@@ -694,16 +695,11 @@ public class ObjectBrowser extends JPanel {
 
         new SwingWorker<Void, Integer>() {
             @Override
-            protected Void doInBackground() {
+            protected Void doInBackground() throws Exception {
                 publish(0);
                 MetadataCache.getInstance().clearConnection(cname);
                 if (!cm.isConnected(cname)) {
-                    try {
-                        cm.connect(h.info);
-                    } catch (Exception e) {
-                        log.warn("自动连接 '{}' 失败: {}", cname, e.getMessage());
-                        return null;
-                    }
+                    cm.connect(h.info);
                 }
                 try (Connection conn = cm.getConnection(cname)) {
                     String dbProduct = conn.getMetaData().getDatabaseProductName().toLowerCase();
@@ -737,8 +733,6 @@ public class ObjectBrowser extends JPanel {
                             }
                         }
                     }
-                } catch (Exception e) {
-                    log.error("刷新连接 '{}' 失败", cname, e);
                 }
                 publish(100);
                 return null;
@@ -756,19 +750,25 @@ public class ObjectBrowser extends JPanel {
                     get();
                     if (MetadataCache.getInstance().hasMetadata(cname)) {
                         loadConnection(finalConnNode);
+                        if (MetadataCache.getInstance().hasMetadata(cname)) {
+                            callback.onSyncComplete(cname);
+                        }
                     } else {
-                        finalConnNode.removeAllChildren();
-                        finalConnNode.add(new DefaultMutableTreeNode("刷新失败"));
-                        treeModel.reload(finalConnNode);
+                        showRefreshError("刷新失败：未获取到元数据");
                     }
                 } catch (Exception e) {
-                    finalConnNode.removeAllChildren();
-                    finalConnNode.add(new DefaultMutableTreeNode("刷新失败: " + e.getMessage()));
-                    treeModel.reload(finalConnNode);
+                    Throwable cause = e.getCause() != null ? e.getCause() : e;
+                    showRefreshError(cause.getMessage());
                 } finally {
                     refreshBtn.setEnabled(true);
-                    callback.onSyncComplete(cname);
                 }
+            }
+
+            private void showRefreshError(String msg) {
+                finalConnNode.removeAllChildren();
+                finalConnNode.add(new DefaultMutableTreeNode("连接失败: " + msg));
+                treeModel.reload(finalConnNode);
+                callback.onSyncError(cname, msg);
             }
         }.execute();
     }
@@ -902,6 +902,7 @@ public class ObjectBrowser extends JPanel {
                 log.warn("自动连接 '{}' 失败: {}", name, e.getMessage());
                 connNode.add(new DefaultMutableTreeNode("连接失败: " + e.getMessage()));
                 treeModel.reload(connNode);
+                callback.onSyncError(name, e.getMessage());
                 return;
             }
         }
@@ -937,6 +938,7 @@ public class ObjectBrowser extends JPanel {
             log.error("加载连接 '{}' 失败", name, e);
             connNode.add(new DefaultMutableTreeNode("加载失败: " + e.getMessage()));
             treeModel.reload(connNode);
+            callback.onSyncError(name, e.getMessage());
         }
     }
 
@@ -1303,5 +1305,90 @@ public class ObjectBrowser extends JPanel {
             }
         }
         callback.onOpenConnections();
+    }
+
+    // ── Tree expansion state persistence ──
+
+    /** Collect all expanded node paths as portable strings: "connName/schema/[category/]object". */
+    public java.util.List<String> saveExpandedPaths() {
+        java.util.List<String> paths = new java.util.ArrayList<>();
+        collectExpanded(root, new StringBuilder(), paths);
+        return paths;
+    }
+
+    private void collectExpanded(DefaultMutableTreeNode node, StringBuilder prefix, java.util.List<String> out) {
+        String label;
+        Object userObj = node.getUserObject();
+        if (userObj instanceof ConnHolder) {
+            label = ((ConnHolder) userObj).info.getName();
+        } else {
+            label = userObj != null ? userObj.toString() : "";
+        }
+        int len = prefix.length();
+        if (len > 0) prefix.append('/');
+        prefix.append(label);
+        TreePath path = new TreePath(node.getPath());
+        if (len > 0 && tree.isExpanded(path)) {
+            out.add(prefix.toString());
+        }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            collectExpanded((DefaultMutableTreeNode) node.getChildAt(i), prefix, out);
+        }
+        prefix.setLength(len);
+    }
+
+    /** Restore expanded state from a previously saved path list. */
+    public void restoreExpandedPaths(java.util.List<String> saved) {
+        if (saved == null || saved.isEmpty()) return;
+        for (String pathStr : saved) {
+            String[] parts = pathStr.split("/", -1);
+            DefaultMutableTreeNode node = root;
+            boolean found = true;
+            for (String part : parts) {
+                if (part.isEmpty()) continue;
+                DefaultMutableTreeNode child = findChildByLabel(node, part);
+                if (child == null) { found = false; break; }
+                node = child;
+            }
+            if (found) {
+                tree.expandPath(new TreePath(node.getPath()));
+            }
+        }
+    }
+
+    private static DefaultMutableTreeNode findChildByLabel(DefaultMutableTreeNode parent, String label) {
+        for (int i = 0; i < parent.getChildCount(); i++) {
+            DefaultMutableTreeNode child = (DefaultMutableTreeNode) parent.getChildAt(i);
+            Object uo = child.getUserObject();
+            String cl = uo instanceof ConnHolder ? ((ConnHolder) uo).info.getName()
+                       : uo != null ? uo.toString() : "";
+            if (label.equals(cl)) return child;
+        }
+        return null;
+    }
+
+    // ── Hidden schemas persistence ──
+
+    /** Return hidden schemas as connName → list of schema names. */
+    public java.util.Map<String, java.util.List<String>> getHiddenSchemas() {
+        java.util.Map<String, java.util.List<String>> map = new java.util.LinkedHashMap<>();
+        for (var e : connHiddenSchemas.entrySet()) {
+            map.put(e.getKey(), new java.util.ArrayList<>(e.getValue()));
+        }
+        return map;
+    }
+
+    /** Restore hidden schemas from a previously saved map. */
+    public void setHiddenSchemas(java.util.Map<String, java.util.List<String>> saved) {
+        if (saved == null) return;
+        connHiddenSchemas.clear();
+        for (var e : saved.entrySet()) {
+            connHiddenSchemas.put(e.getKey(), new java.util.LinkedHashSet<>(e.getValue()));
+        }
+    }
+
+    /** Return full schema list per connection. */
+    public java.util.Map<String, java.util.List<String>> getConnFullSchemas() {
+        return connFullSchemas;
     }
 }

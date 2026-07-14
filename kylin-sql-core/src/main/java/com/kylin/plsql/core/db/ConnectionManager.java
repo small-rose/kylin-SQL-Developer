@@ -29,7 +29,7 @@ public class ConnectionManager {
         }
     }
 
-    public void connect(ConnectionInfo info) {
+    public void connect(ConnectionInfo info) throws SQLException {
         String key = info.getName();
         if (dataSources.containsKey(key)) {
             log.info("连接已存在(将重新连接): {}", key);
@@ -71,9 +71,10 @@ public class ConnectionManager {
             queryTimeouts.put(key, info.getQueryTimeout());
             log.info("已连接: {}", info);
         } catch (Exception e) {
-            log.error("连接失败: {} - {}", key, e.getMessage());
+            log.error("连接失败: {} - {}", key, e.getMessage(), e);
             autoCommitStates.remove(key);
             queryTimeouts.remove(key);
+            throw new SQLException("连接失败: " + e.getMessage(), e);
         }
     }
 
