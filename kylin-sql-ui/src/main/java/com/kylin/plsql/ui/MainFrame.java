@@ -988,7 +988,9 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
 
     private void openFile() {
         JFileChooser chooser = new JFileChooser();
-        chooser.setFileFilter(new FileNameExtensionFilter("SQL 文件 (*.sql)", "sql"));
+        chooser.setFileFilter(new FileNameExtensionFilter(
+            "SQL 文件 (*.sql, *.pck, *.pks, *.pkb, *.prc, *.fnc, *.vw, *.trg)",
+            "sql", "pck", "pks", "pkb", "prc", "fnc", "vw", "trg"));
         chooser.setAcceptAllFileFilterUsed(true);
         if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
 

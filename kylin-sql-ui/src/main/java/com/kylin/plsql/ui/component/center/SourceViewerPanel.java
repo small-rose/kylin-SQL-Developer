@@ -634,13 +634,20 @@ public class SourceViewerPanel extends JPanel {
         return btn;
     }
 
-    private static final Pattern BODY_START = Pattern.compile(
-        "(?i)CREATE\\s+(?:OR\\s+REPLACE\\s+)?PACKAGE\\s+BODY\\b|(?m)^\\s*PACKAGE\\s+BODY\\b");
+    /** 匹配 PACKAGE BODY 起始位置（忽略大小写，支持或不含 CREATE OR REPLACE） */
+    private static final Pattern BODY_MATCH = Pattern.compile(
+        "(?i)CREATE\\s+(?:OR\\s+REPLACE\\s+)?PACKAGE\\s+BODY\\b",
+        Pattern.MULTILINE);
 
+    /**
+     * 将合并的包头+包体文件拆分为 specSource / bodySource。
+     * 拆分点取文件最后出现的 PACKAGE BODY，并将之前的全部内容作为包头。
+     */
     private boolean splitPackageContent(String content) {
-        Matcher m = BODY_START.matcher(content);
-        if (!m.find()) return false;
-        int split = m.start();
+        Matcher m = BODY_MATCH.matcher(content);
+        int split = -1;
+        while (m.find()) split = m.start();
+        if (split < 0) return false;
         String spec = content.substring(0, split).trim();
         String body = content.substring(split).trim();
         if (spec.isEmpty() || body.isEmpty()) return false;
