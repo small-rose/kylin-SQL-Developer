@@ -39,8 +39,15 @@ for dir in $PATH; do
 done
 unset IFS
 
+MIN_VER=17
+
 if [ -z "$BEST_JAVA" ]; then
-    echo "[ERROR] Java not found. Install JDK 17+ or set JAVA_HOME." >&2
+    echo "[ERROR] Java not found. Install JDK ${MIN_VER}+ or set JAVA_HOME." >&2
+    exit 1
+fi
+
+if [ "$BEST_VER" -lt "$MIN_VER" ] 2>/dev/null; then
+    echo "[ERROR] Java ${BEST_VER} is too old. Need JDK ${MIN_VER}+ (found: $BEST_JAVA)." >&2
     exit 1
 fi
 
