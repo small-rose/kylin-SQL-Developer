@@ -91,6 +91,8 @@ public class MainFrame extends JFrame {
     private Timer autoSaveTimer;
     private JToolBar toolbar;
     private JMenuBar menuBar;
+    private boolean caseModeIsUpper = true;
+    private JButton caseBtn;
 
     // ── tab context menu support ──
     private JPanel tabContainer;
@@ -180,6 +182,9 @@ public class MainFrame extends JFrame {
 
         JButton formatBtn = tb("format", "格式化", "格式化 (Ctrl+Shift+F)", e -> formatSql());
         toolbar.add(formatBtn);
+
+        caseBtn = tb("case-sensitive", "Aa", "大小写转换 (大写)", e -> toggleCaseSql());
+        toolbar.add(caseBtn);
 
         toolbar.addSeparator();
 
@@ -955,9 +960,9 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         return btn;
     }
 
-    /** Matches: CREATE [OR REPLACE] (FUNCTION|PROCEDURE|PACKAGE [BODY]|...) */
+    /** Matches: CREATE [OR REPLACE] [EDITIONABLE|NONEDITIONABLE] (FUNCTION|PROCEDURE|PACKAGE [BODY]|...) */
     private static final Pattern OBJ_CREATE_PATTERN = Pattern.compile(
-        "CREATE\\s+(OR\\s+REPLACE\\s+)?(FUNCTION|PROCEDURE|PACKAGE\\s+BODY|PACKAGE|TYPE\\s+BODY|TYPE|TRIGGER)\\b",
+        "CREATE\\s+(OR\\s+REPLACE\\s+)?(EDITIONABLE\\s+|NONEDITIONABLE\\s+)?(FUNCTION|PROCEDURE|PACKAGE\\s+BODY|PACKAGE|TYPE\\s+BODY|TYPE|TRIGGER)\\b",
         Pattern.CASE_INSENSITIVE | Pattern.MULTILINE);
     /** Matches standalone declaration at line start: e.g. "PACKAGE BODY foo IS" */
     private static final Pattern OBJ_DECL_PATTERN = Pattern.compile(
@@ -969,16 +974,16 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             log.debug("detectObjectType: content is null/blank");
             return null;
         }
-        var m = OBJ_CREATE_PATTERN.matcher(content);
-        if (m.find()) {
-            String type = m.group(2).toUpperCase().replace(' ', '_');
-            log.debug("detectObjectType: matched via CREATE, type={}, raw='{}'", type, m.group());
-            return type;
-        }
-        m = OBJ_DECL_PATTERN.matcher(content);
+        var m = OBJ_DECL_PATTERN.matcher(content);
         if (m.find()) {
             String type = m.group(1).toUpperCase().replace(' ', '_');
             log.debug("detectObjectType: matched via line-start decl, type={}, raw='{}'", type, m.group());
+            return type;
+        }
+        m = OBJ_CREATE_PATTERN.matcher(content);
+        if (m.find()) {
+            String type = m.group(3).toUpperCase().replace(' ', '_');
+            log.debug("detectObjectType: matched via CREATE, type={}, raw='{}'", type, m.group());
             return type;
         }
         log.debug("detectObjectType: no match, first 200 chars: {}",
@@ -1030,10 +1035,11 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                     String content = fc.content;
                     String objType = fc.objType;
                     log.debug("openFile: {} bytes read from {}, objType={}", content.length(), absPath, objType);
-                    if (objType != null) {
+                    if (objType != null && ("PACKAGE".equals(objType) || "PACKAGE_BODY".equals(objType))) {
                         log.debug("openFile: opening in SourceViewerPanel (type={})", objType);
                         SourceViewerPanel viewer = new SourceViewerPanel(connectionManager, null, null,
                             file.getName(), objType, content);
+                        saveHistorySnapshot(absPath, content);
                         showEditorTabs();
                         editorTabs.addTab(viewer.getTabTitle(), viewer);
                         int idx = editorTabs.indexOfComponent(viewer);
@@ -1489,20 +1495,27 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
     }
 
     private void saveLocalHistory(SqlEditorPanel editor) {
-        String name = editor.getFileName() != null ? editor.getFileName() : editor.getTabTitle();
+        String name = editor.getFilePath() != null ? editor.getFilePath() : editor.getTabTitle();
+        saveHistorySnapshot(name, editor.getText());
+    }
+
+    private void saveHistorySnapshot(String key, String content) {
         String ts = java.time.LocalDateTime.now().format(
             java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss_SSS"));
         try {
-            Path dir = localHistoryDir().resolve(sanitizeFileName(name));
+            Path dir = localHistoryDir().resolve(sanitizeFileName(key));
             Files.createDirectories(dir);
-            Files.writeString(dir.resolve(ts + ".sql"), editor.getText());
-            // Keep max 30 versions per file
-            File[] files = dir.toFile().listFiles((d, fn) -> fn.endsWith(".sql"));
-            if (files != null && files.length > 30) {
-                java.util.Arrays.sort(files);
-                for (int i = 0; i < files.length - 30; i++) files[i].delete();
-            }
+            Files.writeString(dir.resolve(ts + ".sql"), content);
+            pruneHistory(dir);
         } catch (IOException ignored) {}
+    }
+
+    private static void pruneHistory(Path dir) {
+        File[] files = dir.toFile().listFiles((d, fn) -> fn.endsWith(".sql"));
+        if (files != null && files.length > 30) {
+            java.util.Arrays.sort(files);
+            for (int i = 0; i < files.length - 30; i++) files[i].delete();
+        }
     }
 
     private static String sanitizeFileName(String n) {
@@ -1536,18 +1549,24 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
     }
 
     private void diffLocalHistory(Component comp) {
-        if (!(comp instanceof SqlEditorPanel ep)) return;
+        String current;
+        if (comp instanceof SqlEditorPanel ep) {
+            current = ep.getText();
+        } else if (comp instanceof SourceViewerPanel sv) {
+            current = sv.getTextArea().getText();
+        } else {
+            return;
+        }
         String name = getHistoryKey(comp);
         if (name == null) return;
         File dir = localHistoryDir().resolve(name).toFile();
         File[] files = dir.listFiles((d, fn) -> fn.endsWith(".sql"));
-        if (files == null || files.length < 2) {
-            JOptionPane.showMessageDialog(this, "仅有当前版本，无法对比");
+        if (files == null || files.length < 1) {
+            JOptionPane.showMessageDialog(this, "暂无历史版本");
             return;
         }
         java.util.Arrays.sort(files, (a, b) -> b.getName().compareTo(a.getName()));
         try {
-            String current = ep.getText();
             String previous = Files.readString(files[0].toPath());
             String diff = simpleDiff(current, previous);
             openInNewEditor("-- 当前 vs " + files[0].getName().replace(".sql","") + "\n\n" + diff, null);
@@ -1574,7 +1593,11 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         if (sel == null) return;
         try {
             String content = Files.readString(dir.toPath().resolve(sel + ".sql"));
-            if (comp instanceof SqlEditorPanel ep) ep.setText(content);
+            if (comp instanceof SqlEditorPanel ep) {
+                ep.setText(content);
+            } else if (comp instanceof SourceViewerPanel sv) {
+                sv.getTextArea().setText(content);
+            }
             statusBar.setMessage("已恢复到: " + sel);
         } catch (IOException ex) {
             log.warn("restoreLocalHistory failed", ex);
@@ -1586,6 +1609,9 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             String fp = ep.getFilePath();
             if (fp != null) return sanitizeFileName(fp);
             return sanitizeFileName(ep.getTabTitle());
+        }
+        if (comp instanceof SourceViewerPanel sv) {
+            return sanitizeFileName(sv.getTabTitle());
         }
         return null;
     }
@@ -1848,26 +1874,38 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                 int baseOffset = editor.getTextArea().getSelectionStart();
                 SqlEditorPanel edRef = editor;
                 int execLineFinal = execLine;
+                // Pre-compute line numbers on EDT
+                int[] stmtLines = new int[parts.length];
+                int cumulativeOffset = 0;
+                for (int i = 0; i < parts.length; i++) {
+                    String stmt = parts[i].trim();
+                    int partLen = parts[i].length();
+                    if (!stmt.isEmpty()) {
+                        int stmtIndex = parts[i].indexOf(stmt);
+                        int lineOff = baseOffset + cumulativeOffset + Math.max(stmtIndex, 0);
+                        try {
+                            stmtLines[i] = 1 + editor.getTextArea().getLineOfOffset(lineOff);
+                        } catch (BadLocationException e) {
+                            stmtLines[i] = execLineFinal;
+                        }
+                    } else {
+                        stmtLines[i] = -1;
+                    }
+                    cumulativeOffset += partLen + 1;
+                }
                 // 多语句后台执行，避免 JDBC 阻塞 EDT
         new SwingWorker<List<StmtResult>, Void>() {
                     @Override protected List<StmtResult> doInBackground() {
                         List<StmtResult> results = new ArrayList<>();
-                        int cumulativeOffset = 0;
                         try (Connection conn = connectionManager.getConnection(connName)) {
                             var executor = new com.kylin.plsql.core.db.SqlExecutor();
                             for (int i = 0; i < parts.length; i++) {
                                 String stmt = parts[i].trim();
-                                int partLen = parts[i].length();
                                 if (!stmt.isEmpty()) {
-                                    int stmtIndex = parts[i].indexOf(stmt);
-                                    int lineOff = baseOffset + cumulativeOffset + Math.max(stmtIndex, 0);
-                                    int line;
-                                    try { line = 1 + edRef.getTextArea().getLineOfOffset(lineOff); }
-                                        catch (BadLocationException ignored) { line = execLineFinal; }
+                                    int line = stmtLines[i];
                                     var result = executor.execute(conn, stmt, qto);
                                     results.add(new StmtResult(result, stmt, line));
                                 }
-                                cumulativeOffset += partLen + 1;
                             }
                         } catch (Exception e) {
                             // will be handled as empty list
@@ -2028,6 +2066,48 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                 }
             }
         }.execute();
+    }
+
+    private void toggleCaseSql() {
+        Component comp = editorTabs.getSelectedComponent();
+        if (comp == null) return;
+
+        String text;
+        boolean hasSelection;
+
+        if (comp instanceof SqlEditorPanel ep) {
+            String sel = ep.getSelectedText();
+            hasSelection = sel != null;
+            text = hasSelection ? sel : ep.getText();
+            if (text == null || text.isBlank()) return;
+            String converted = convertSqlCase(text, caseModeIsUpper);
+            if (hasSelection) {
+                ep.getTextArea().replaceSelection(converted);
+            } else {
+                ep.setText(converted);
+            }
+        } else if (comp instanceof SourceViewerPanel sv) {
+            if (!sv.getTextArea().isEditable()) {
+                ToastManager.show(sv, "只读模式不可转换");
+                return;
+            }
+            var ta = sv.getTextArea();
+            String sel = ta.getSelectedText();
+            hasSelection = sel != null;
+            text = hasSelection ? sel : ta.getText();
+            if (text == null || text.isBlank()) return;
+            String converted = convertSqlCase(text, caseModeIsUpper);
+            if (hasSelection) {
+                ta.replaceSelection(converted);
+            } else {
+                ta.setText(converted);
+            }
+        } else {
+            return;
+        }
+
+        caseModeIsUpper = !caseModeIsUpper;
+        caseBtn.setToolTipText(caseModeIsUpper ? "大小写转换 (大写)" : "大小写转换 (小写)");
     }
 
     private SqlDialect getCurrentDialect(Component comp) {
@@ -2473,10 +2553,11 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                     String content = fc.content;
                     String objType = fc.objType;
                     log.debug("openOrSwitchToFile: {} bytes read from {}, objType={}", content.length(), filePath, objType);
-                    if (objType != null) {
+                    if (objType != null && ("PACKAGE".equals(objType) || "PACKAGE_BODY".equals(objType))) {
                         log.debug("openOrSwitchToFile: opening in SourceViewerPanel (type={})", objType);
                         SourceViewerPanel viewer = new SourceViewerPanel(connectionManager, null, null,
                             fileName, objType, content);
+                        saveHistorySnapshot(filePath, content);
                         showEditorTabs();
                         editorTabs.addTab(viewer.getTabTitle(), viewer);
                         int idx = editorTabs.indexOfComponent(viewer);
@@ -2490,6 +2571,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                         editor.getTextArea().setSyntaxEditingStyle("text/plsql");
                         editor.setText(content);
                         editor.setFilePath(filePath);
+                        saveHistorySnapshot(filePath, content);
                         editor.resetModified();
                         var connections = configManager.loadConnections();
                         editor.setConnections(connections);
@@ -2712,7 +2794,6 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         btn.setToolTipText(tip);
         btn.setFocusable(false);
         btn.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
-        btn.setContentAreaFilled(false);
         btn.addActionListener(action);
         ImageIcon svgIcon = com.kylin.plsql.ui.component.common.IconUtil.loadButtonIcon(iconName, null);
         if (svgIcon != null) {
@@ -2726,6 +2807,74 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             }
         }
         return btn;
+    }
+
+    public static String convertSqlCase(String sql, boolean toUpper) {
+        StringBuilder sb = new StringBuilder(sql.length());
+        int i = 0;
+        while (i < sql.length()) {
+            char c = sql.charAt(i);
+
+            // String literal '...'
+            if (c == '\'') {
+                int start = i++;
+                while (i < sql.length()) {
+                    if (sql.charAt(i) == '\'') {
+                        i++;
+                        if (i < sql.length() && sql.charAt(i) == '\'') { i++; continue; }
+                        break;
+                    }
+                    i++;
+                }
+                sb.append(sql, start, i);
+                continue;
+            }
+
+            // Line comment --
+            if (c == '-' && i + 1 < sql.length() && sql.charAt(i + 1) == '-') {
+                int start = i;
+                i += 2;
+                while (i < sql.length() && sql.charAt(i) != '\n') i++;
+                sb.append(sql, start, i);
+                continue;
+            }
+
+            // Block comment /* */
+            if (c == '/' && i + 1 < sql.length() && sql.charAt(i + 1) == '*') {
+                int start = i;
+                i += 2;
+                while (i + 1 < sql.length()) {
+                    if (sql.charAt(i) == '*' && sql.charAt(i + 1) == '/') { i += 2; break; }
+                    i++;
+                }
+                sb.append(sql, start, i);
+                continue;
+            }
+
+            // Quoted identifier "..."
+            if (c == '"') {
+                int start = i++;
+                while (i < sql.length() && sql.charAt(i) != '"') i++;
+                if (i < sql.length()) i++;
+                sb.append(sql, start, i);
+                continue;
+            }
+
+            // Word (identifier/keyword)
+            if (Character.isLetter(c) || c == '_' || c == '#' || c == '$') {
+                int start = i++;
+                while (i < sql.length() && (Character.isLetterOrDigit(sql.charAt(i)) || sql.charAt(i) == '_' || sql.charAt(i) == '#' || sql.charAt(i) == '$'))
+                    i++;
+                String word = sql.substring(start, i);
+                sb.append(toUpper ? word.toUpperCase(java.util.Locale.ROOT) : word.toLowerCase(java.util.Locale.ROOT));
+                continue;
+            }
+
+            // Everything else (numbers, operators, whitespace, etc.)
+            sb.append(c);
+            i++;
+        }
+        return sb.toString();
     }
 
 }

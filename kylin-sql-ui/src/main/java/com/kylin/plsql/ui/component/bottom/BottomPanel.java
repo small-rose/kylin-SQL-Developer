@@ -325,8 +325,6 @@ public class BottomPanel extends JPanel {
         }
         selectTab(activeTab);
         revalidate();
-        Container p = getParent();
-        while (p != null) { p.revalidate(); p = p.getParent(); }
         repaint();
     }
 
@@ -395,8 +393,6 @@ public class BottomPanel extends JPanel {
             if (!expanded) { expanded = true; contentPanel.setVisible(true); }
             selectTab(Tab.SERVICES);
             revalidate();
-            Container p = getParent();
-            while (p != null) { p.revalidate(); p = p.getParent(); }
             repaint();
         }
     }

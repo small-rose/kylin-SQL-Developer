@@ -24,19 +24,29 @@ public class AlwaysVisibleFoldIndicator extends FoldIndicator {
 
         int w = getWidth();
         int lineX = w / 2;
+        int lineHeight = rsta.getLineHeight();
+        if (lineHeight <= 0) return;
 
         Rectangle clip = g.getClipBounds();
+        int firstVisibleLine = clip.y / lineHeight;
+        int lastVisibleLine = (clip.y + clip.height) / lineHeight;
+
         Color fg = getForeground();
         Color armedFg = getArmedForeground();
 
         for (int i = 0; i < fm.getFoldCount(); i++) {
-            paintFold(g, rsta, fm.getFold(i), clip, lineX, w, fg, armedFg);
+            Fold fold = fm.getFold(i);
+            if (fold != null && fold.getStartLine() <= lastVisibleLine) {
+                paintFold(g, rsta, fold, clip, lineX, w, fg, armedFg, lineHeight, firstVisibleLine, lastVisibleLine);
+            }
         }
     }
 
     private void paintFold(Graphics g, RSyntaxTextArea rsta, Fold fold,
-                           Rectangle clip, int lineX, int w, Color fg, Color armedFg) {
+                           Rectangle clip, int lineX, int w, Color fg, Color armedFg,
+                           int lineHeight, int firstVisibleLine, int lastVisibleLine) {
         if (fold == null) return;
+        if (fold.getEndLine() < firstVisibleLine) return;
 
         int y1;
         try {
@@ -46,35 +56,32 @@ public class AlwaysVisibleFoldIndicator extends FoldIndicator {
         }
         if (y1 < 0) return;
 
-        int lineHeight = rsta.getLineHeight();
-        if (y1 > clip.y + clip.height) return;
+        if (fold.isCollapsed()) return;
 
-        if (fold.isCollapsed()) {
-            // Already drawn by super.paintComponent — skip arrow duplication
-        } else {
-            int y2;
-            try {
-                y2 = rsta.yForLine(fold.getEndLine());
-            } catch (Exception e) {
-                return;
+        int y2;
+        try {
+            y2 = rsta.yForLine(fold.getEndLine());
+        } catch (Exception e) {
+            return;
+        }
+
+        int midY = y1 + lineHeight / 2;
+        drawDownArrow(g, lineX, midY, fg);
+
+        if (y2 >= 0) {
+            int endMidY = y2 + lineHeight / 2;
+            if (endMidY >= clip.y) {
+                g.setColor(fg);
+                g.drawLine(lineX, midY + 3, lineX, endMidY);
+                g.drawLine(lineX, endMidY, w - 2, endMidY);
             }
+        }
 
-            // Down arrow at fold start
-            int midY = y1 + lineHeight / 2;
-            drawDownArrow(g, lineX, midY, fg);
-
-            // Vertical bracket line
-            if (y2 >= 0) {
-                int endMidY = y2 + lineHeight / 2;
-                if (endMidY >= clip.y) {
-                    g.setColor(fg);
-                    g.drawLine(lineX, midY + 3, lineX, endMidY);
-                    g.drawLine(lineX, endMidY, w - 2, endMidY);
-                }
-            }
-
-            for (int i = 0; i < fold.getChildCount(); i++) {
-                paintFold(g, rsta, fold.getChild(i), clip, lineX, w, fg, armedFg);
+        for (int i = 0; i < fold.getChildCount(); i++) {
+            Fold child = fold.getChild(i);
+            if (child != null && child.getStartLine() <= lastVisibleLine) {
+                paintFold(g, rsta, child, clip, lineX, w, fg, armedFg,
+                          lineHeight, firstVisibleLine, lastVisibleLine);
             }
         }
     }

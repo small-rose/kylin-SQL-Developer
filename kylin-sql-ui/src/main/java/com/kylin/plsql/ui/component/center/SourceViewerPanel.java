@@ -9,6 +9,8 @@ import java.util.regex.Pattern;
 
 import javax.swing.*;
 import javax.swing.border.Border;
+import javax.swing.event.HyperlinkEvent;
+import javax.swing.text.BadLocationException;
 
 import com.kylin.plsql.core.cache.MetadataCache;
 import com.kylin.plsql.core.config.ConfigManager;
@@ -17,12 +19,10 @@ import com.kylin.plsql.core.db.ConnectionManager;
 import com.kylin.plsql.core.db.SqlExecutor;
 import com.kylin.plsql.ui.component.common.PlSqlCompletionProvider;
 import org.fife.ui.autocomplete.AutoCompletion;
-import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
+import org.fife.ui.rsyntaxtextarea.*;
+import org.fife.ui.rtextarea.RTextScrollPane;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
-import org.fife.ui.rsyntaxtextarea.Theme;
-import org.fife.ui.rtextarea.RTextScrollPane;
 
 /** Database source code viewer with method navigation and spec/body tabs. */
 public class SourceViewerPanel extends JPanel {
@@ -328,6 +328,53 @@ public class SourceViewerPanel extends JPanel {
         ac.setAutoActivationDelay(delay);
         ac.install(textArea);
         log.info("AutoCompletion installed on SourceViewerPanel, delay={}ms, provider={}, editable={}", delay, provider.getClass().getSimpleName(), textArea.isEditable());
+
+        installLinkNavigation();
+    }
+
+    private void installLinkNavigation() {
+        textArea.setLinkGenerator((source, offset) -> {
+            RSyntaxTextArea rsta = (RSyntaxTextArea) source;
+            int line;
+            try {
+                line = rsta.getLineOfOffset(offset);
+            } catch (BadLocationException e) {
+                return null;
+            }
+            Token tokenList = rsta.getTokenListForLine(line);
+            for (Token t = tokenList; t != null; t = t.getNextToken()) {
+                if (t.isWhitespace() || t.isComment()) continue;
+                if (offset < t.getOffset() || offset >= t.getEndOffset()) continue;
+                String word = t.getLexeme();
+                if (word == null || word.isBlank()) return null;
+                List<MethodInfo> methods = showingBody ? bodyMethods : specMethods;
+                for (MethodInfo m : methods) {
+                    if (m.name.equalsIgnoreCase(word)) {
+                        int destLine = m.line - 1;
+                        int linkStart = t.getOffset();
+                        try {
+                            int destOffset = rsta.getLineStartOffset(destLine);
+                            return new LinkGeneratorResult() {
+                                @Override
+                                public int getSourceOffset() {
+                                    return linkStart;
+                                }
+                                @Override
+                                public HyperlinkEvent execute() {
+                                    rsta.setCaretPosition(destOffset);
+                                    return null;
+                                }
+                            };
+                        } catch (BadLocationException e) {
+                            return null;
+                        }
+                    }
+                }
+                return null;
+            }
+            return null;
+        });
+        textArea.setHyperlinksEnabled(true);
     }
 
     private static int readAutocompleteDelay() {
@@ -617,7 +664,6 @@ public class SourceViewerPanel extends JPanel {
         JButton btn = new JButton();
         btn.setFont(new Font("Segoe UI", Font.BOLD, 11));
         btn.setFocusable(false);
-        btn.setContentAreaFilled(false);
         btn.setBorder(BorderFactory.createEmptyBorder(1, 5, 1, 5));
         btn.addActionListener(action);
         ImageIcon svgIcon = com.kylin.plsql.ui.component.common.IconUtil.loadButtonIcon(iconName, null);
@@ -634,9 +680,9 @@ public class SourceViewerPanel extends JPanel {
         return btn;
     }
 
-    /** 匹配 PACKAGE BODY 起始位置（忽略大小写，支持或不含 CREATE OR REPLACE） */
+    /** 匹配 PACKAGE BODY 起始位置（忽略大小写，支持 CREATE [OR REPLACE] [EDITIONABLE|NONEDITIONABLE]） */
     private static final Pattern BODY_MATCH = Pattern.compile(
-        "(?i)CREATE\\s+(?:OR\\s+REPLACE\\s+)?PACKAGE\\s+BODY\\b",
+        "(?i)(?:CREATE\\s+(?:OR\\s+REPLACE\\s+)?(?:EDITIONABLE\\s+|NONEDITIONABLE\\s+)?)?PACKAGE\\s+BODY\\b",
         Pattern.MULTILINE);
 
     /**

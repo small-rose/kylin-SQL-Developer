@@ -1,6 +1,10 @@
 package com.kylin.plsql.ui.dialog.common;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.LoggerContext;
+import com.kylin.plsql.core.config.ConfigManager;
 import com.kylin.plsql.core.config.ThemeManager;
+import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
 import java.awt.*;
@@ -16,8 +20,10 @@ public class LogViewerDialog extends JDialog {
     private final JLabel statusLabel = new JLabel(" ");
     private final ThemeManager theme = ThemeManager.getInstance();
     private final JCheckBox followTail = new JCheckBox("跟踪尾部");
+    private final JCheckBox debugToggle = new JCheckBox("调试日志");
     private final JTextField filterField = new JTextField();
     private String filterText = "";
+    private final ConfigManager config = ConfigManager.getInstance();
 
     public LogViewerDialog(Frame owner) {
         super(owner, "应用日志", false);
@@ -41,6 +47,16 @@ public class LogViewerDialog extends JDialog {
         });
 
         followTail.setSelected(true);
+        // 调试日志开关：从持久化配置读取初始状态
+        boolean debugOn = "true".equals(config.getPreference("debugLogEnabled", "false"));
+        debugToggle.setSelected(debugOn);
+        applyDebugLevel(debugOn);
+        debugToggle.addActionListener(e -> {
+            boolean on = debugToggle.isSelected();
+            config.setPreference("debugLogEnabled", String.valueOf(on));
+            applyDebugLevel(on);
+        });
+
         JButton refreshBtn = new JButton("刷新");
         refreshBtn.addActionListener(e -> reloadLog());
         JButton clearBtn = new JButton("清空显示");
@@ -62,6 +78,8 @@ public class LogViewerDialog extends JDialog {
         toolbar.add(clearBtn);
         toolbar.addSeparator();
         toolbar.add(followTail);
+        toolbar.addSeparator();
+        toolbar.add(debugToggle);
 
         setLayout(new BorderLayout());
         add(toolbar, BorderLayout.NORTH);
@@ -122,6 +140,12 @@ public class LogViewerDialog extends JDialog {
             }
         }
         return sb.toString();
+    }
+
+    /** 运行时切换 root logger 级别（DEBUG / INFO），借助 Logback API 实时生效。 */
+    private static void applyDebugLevel(boolean debug) {
+        LoggerContext ctx = (LoggerContext) LoggerFactory.getILoggerFactory();
+        ctx.getLogger(org.slf4j.Logger.ROOT_LOGGER_NAME).setLevel(debug ? Level.DEBUG : Level.INFO);
     }
 
     private void applyTheme() {

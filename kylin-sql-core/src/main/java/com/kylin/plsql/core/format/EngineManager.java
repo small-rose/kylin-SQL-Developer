@@ -43,6 +43,34 @@ public class EngineManager {
     }
 
     public static String format(String sql) throws Exception {
-        return getCurrent().format(sql);
+        SqlFormatterEngine engine = getCurrent();
+        if (engine instanceof JsqlFormatterEngine && hasNonAscii(sql)) {
+            engine = findCustomEngine();
+        }
+        if (engine == null) engine = findCustomEngine();
+        if (engine == null) throw new Exception("No available formatting engine");
+        try {
+            return engine.format(sql);
+        } catch (Exception e) {
+            if (engine instanceof JsqlFormatterEngine) {
+                SqlFormatterEngine fallback = findCustomEngine();
+                if (fallback != null) return fallback.format(sql);
+            }
+            throw e;
+        }
+    }
+
+    private static boolean hasNonAscii(String sql) {
+        for (int i = 0; i < sql.length(); i++) {
+            if (sql.charAt(i) > 127) return true;
+        }
+        return false;
+    }
+
+    private static SqlFormatterEngine findCustomEngine() {
+        for (SqlFormatterEngine e : engines) {
+            if (e instanceof CustomFormatterEngine) return e;
+        }
+        return null;
     }
 }

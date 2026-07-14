@@ -59,7 +59,7 @@ public class ToastManager {
             label.setBackground(dark ? new Color(0xE0E0E0) : new Color(0x444444));
             label.setForeground(dark ? new Color(0x222222) : Color.WHITE);
         }
-        label.setFont(new Font("Dialog", Font.PLAIN, 12));
+        label.setFont(UIManager.getFont("Label.font"));
         label.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(dark ? new Color(0xAAAAAA) : new Color(0x666666)),
                 BorderFactory.createEmptyBorder(6, 12, 6, 12)));

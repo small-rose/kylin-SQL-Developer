@@ -211,17 +211,27 @@ public class SqlEditorPanel extends JPanel {
         int delay = readAutocompleteDelay();
         ac.setAutoActivationDelay(delay);
         ac.install(textArea);
-        log.info("AutoCompletion installed on SqlEditorPanel, delay={}ms, provider={}", delay, provider.getClass().getSimpleName());
+        log.info("AutoCompletion installed on SqlEditorPanel, delay={}ms, provider={}, autoActivation={}, autoComplete={}",
+            delay, provider.getClass().getSimpleName(), ac.isAutoActivationEnabled(), ac.isAutoCompleteEnabled());
 
         textArea.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
             @Override public void insertUpdate(javax.swing.event.DocumentEvent e) {
                 if (e.getLength() != 1) return;
-                if (isInsideComment(textArea)) return;
                 char c;
                 try { c = e.getDocument().getText(e.getOffset(), 1).charAt(0); }
                 catch (Exception ex) { return; }
                 if (c == '.') {
-                    javax.swing.SwingUtilities.invokeLater(() -> ac.doCompletion());
+                    if (isInsideComment(textArea)) return;
+                    log.info("dot detected, calling doCompletion()");
+                    javax.swing.SwingUtilities.invokeLater(() -> {
+                        try { ac.doCompletion(); } catch (Exception ex) { log.error("doCompletion failed", ex); }
+                    });
+                } else if (Character.isLetter(c)) {
+                    // 手动触发自动补全（AutoActivationListener 因未知原因不触发）
+                    log.info("letter '{}' inserted, calling doCompletion()", c);
+                    javax.swing.SwingUtilities.invokeLater(() -> {
+                        try { ac.doCompletion(); } catch (Exception ex) { log.error("doCompletion failed", ex); }
+                    });
                 }
             }
             @Override public void removeUpdate(javax.swing.event.DocumentEvent e) {}
@@ -688,7 +698,6 @@ public class SqlEditorPanel extends JPanel {
         JButton btn = new JButton();
         if (tip != null) btn.setToolTipText(tip);
         btn.setFocusable(false);
-        btn.setContentAreaFilled(false);
         if (action != null) btn.addActionListener(action);
         ImageIcon svgIcon = com.kylin.plsql.ui.component.common.IconUtil.loadButtonIcon(iconName, null);
         if (svgIcon != null) {

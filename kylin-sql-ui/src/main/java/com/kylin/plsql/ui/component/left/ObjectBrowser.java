@@ -129,6 +129,25 @@ public class ObjectBrowser extends JPanel {
     // PACKAGE_BODY also maps to "包"
     static { CODE_TO_LABEL.put("PACKAGE_BODY", "包"); }
 
+    // ── Column query SQL per database (parallel to _TYPES above) ──
+    private static final String ORACLE_COLUMNS =
+        "SELECT c.column_name, c.data_type, c.data_length, cc.comments " +
+        "FROM all_tab_columns c LEFT JOIN all_col_comments cc " +
+        "ON cc.owner=c.owner AND cc.table_name=c.table_name AND cc.column_name=c.column_name " +
+        "WHERE c.owner = ? AND c.table_name = ? ORDER BY c.column_id";
+    private static final String MYSQL_COLUMNS =
+        "SELECT column_name, data_type, character_maximum_length, column_comment " +
+        "FROM information_schema.columns WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position";
+    private static final String PG_COLUMNS = MYSQL_COLUMNS;
+
+    private static String columnQuerySql(String dbProduct) {
+        if (dbProduct == null) return ORACLE_COLUMNS;
+        String p = dbProduct.toLowerCase();
+        if (p.contains("mysql") || p.contains("mariadb")) return MYSQL_COLUMNS;
+        if (p.contains("postgresql") || p.contains("edb")) return PG_COLUMNS;
+        return ORACLE_COLUMNS;
+    }
+
     // ── Column info holder for table child nodes ──
 
     private static class ColumnInfo {
@@ -350,12 +369,34 @@ public class ObjectBrowser extends JPanel {
                     DefaultMutableTreeNode first = (DefaultMutableTreeNode) node.getChildAt(0);
                     if ("".equals(first.getUserObject())) {
                         String typeLabel = getNodeLabel(node, 3);
-                        if ("表".equals(typeLabel)) {
                         DefaultMutableTreeNode nodeRef = node;
+                        if ("表".equals(typeLabel)) {
                         new SwingWorker<Void, Void>() {
                             @Override
                             protected Void doInBackground() {
                                 loadColumns(nodeRef);
+                                return null;
+                            }
+                            @Override
+                            protected void done() {
+                                treeModel.reload(nodeRef);
+                            }
+                        }.execute();
+                    } else if ("包".equals(typeLabel)) {
+                        String connName = getConnName(node);
+                        String schema = getNodePath(node, 2);
+                        String pkgName = node.getUserObject().toString();
+                        new SwingWorker<Void, Void>() {
+                            @Override
+                            protected Void doInBackground() {
+                                String sql = "SELECT DISTINCT PROCEDURE_NAME FROM ALL_PROCEDURES WHERE OWNER = ? AND OBJECT_NAME = ? AND PROCEDURE_NAME IS NOT NULL ORDER BY PROCEDURE_NAME";
+                                try (Connection conn = cm.getConnection(connName); PreparedStatement ps = conn.prepareStatement(sql)) {
+                                    ps.setString(1, schema); ps.setString(2, pkgName);
+                                    nodeRef.removeAllChildren();
+                                    try (ResultSet rs = ps.executeQuery()) {
+                                        while (rs.next()) nodeRef.add(new DefaultMutableTreeNode(rs.getString(1)));
+                                    }
+                                } catch (SQLException e) { log.error("加载包内容失败: {}", e.getMessage()); }
                                 return null;
                             }
                             @Override
@@ -505,14 +546,7 @@ public class ObjectBrowser extends JPanel {
 
         // ── Cache miss: query DB ──
         String dbProduct = getConnDbProduct(tblNode);
-        String sql;
-        if (dbProduct != null && (dbProduct.contains("mysql") || dbProduct.contains("mariadb"))) {
-            sql = "SELECT column_name, data_type, character_maximum_length, column_comment FROM information_schema.columns WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position";
-        } else if (dbProduct != null && (dbProduct.contains("postgresql") || dbProduct.contains("edb"))) {
-            sql = "SELECT column_name, data_type, character_maximum_length, column_comment FROM information_schema.columns WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position";
-        } else {
-            sql = "SELECT c.column_name, c.data_type, c.data_length, cc.comments FROM all_tab_columns c LEFT JOIN all_col_comments cc ON cc.owner=c.owner AND cc.table_name=c.table_name AND cc.column_name=c.column_name WHERE c.owner = ? AND c.table_name = ? ORDER BY c.column_id";
-        }
+        String sql = columnQuerySql(dbProduct);
 
         try (Connection conn = cm.getConnection(connName);
              PreparedStatement ps = conn.prepareStatement(sql)) {

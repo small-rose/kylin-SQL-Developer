@@ -467,6 +467,8 @@ public class RightPanel extends JPanel {
         private java.util.function.Consumer<String> onTextChange;
         private java.util.function.Consumer<Integer> onNavigate;
         private String text = "";
+        private String[] cachedLines = new String[0];
+        private int cachedMaxLen;
         private int caretLine = 1;
         private int totalLines = 1;
         private SqlEditorPanel previousEditor;
@@ -510,9 +512,9 @@ public class RightPanel extends JPanel {
             this.totalLines = Math.max(editor.getTextArea().getLineCount(), 1);
             this.onNavigate = editor::navigateToLine;
             currentDocListener = new javax.swing.event.DocumentListener() {
-                public void insertUpdate(javax.swing.event.DocumentEvent e) { text = editor.getText(); totalLines = Math.max(editor.getTextArea().getLineCount(), 1); repaint(); }
-                public void removeUpdate(javax.swing.event.DocumentEvent e) { text = editor.getText(); totalLines = Math.max(editor.getTextArea().getLineCount(), 1); repaint(); }
-                public void changedUpdate(javax.swing.event.DocumentEvent e) { text = editor.getText(); totalLines = Math.max(editor.getTextArea().getLineCount(), 1); repaint(); }
+                public void insertUpdate(javax.swing.event.DocumentEvent e) { text = editor.getText(); totalLines = Math.max(editor.getTextArea().getLineCount(), 1); updateCache(); repaint(); }
+                public void removeUpdate(javax.swing.event.DocumentEvent e) { text = editor.getText(); totalLines = Math.max(editor.getTextArea().getLineCount(), 1); updateCache(); repaint(); }
+                public void changedUpdate(javax.swing.event.DocumentEvent e) { text = editor.getText(); totalLines = Math.max(editor.getTextArea().getLineCount(), 1); updateCache(); repaint(); }
             };
             editor.getTextArea().getDocument().addDocumentListener(currentDocListener);
             previousEditor = editor;
@@ -521,10 +523,21 @@ public class RightPanel extends JPanel {
 
         void setText(String t) {
             this.text = t != null ? t : "";
-            this.totalLines = text.isEmpty() ? 1 : text.split("\n", -1).length;
+            updateCache();
             repaint();
         }
         void setOnNavigate(java.util.function.Consumer<Integer> fn) { this.onNavigate = fn; }
+
+        private void updateCache() {
+            cachedLines = text.isEmpty() ? new String[0] : text.split("\n", -1);
+            totalLines = Math.max(cachedLines.length, 1);
+            int max = 0;
+            for (String line : cachedLines) {
+                int len = line.length();
+                if (len > max) max = len;
+            }
+            cachedMaxLen = max;
+        }
 
         void setCaretLine(int line, int total) {
             this.caretLine = line;
@@ -543,22 +556,15 @@ public class RightPanel extends JPanel {
             int startY = 2;
 
             // Draw code as miniature lines (minimap)
-            if (text != null && !text.isEmpty()) {
-                String[] lines = text.split("\n", -1);
-                if (lines.length > 0) {
-                    int maxLen = 0;
-                    for (String line : lines) maxLen = Math.max(maxLen, line.length());
-                    if (maxLen > 0) {
-                        int contentW = w - 6;
-                        for (int i = 0; i < lines.length && i < totalLines; i++) {
-                            int y = startY + i * lineH + lineH / 2;
-                            int lineLen = lines[i].length();
-                            if (lineLen > 0) {
-                                int segW = Math.max(2, lineLen * contentW / maxLen);
-                                g.setColor(theme.resolve("fg.secondary"));
-                                g.drawLine(2, y, 2 + segW, y);
-                            }
-                        }
+            if (text != null && !text.isEmpty() && cachedMaxLen > 0) {
+                int contentW = w - 6;
+                for (int i = 0; i < cachedLines.length && i < totalLines; i++) {
+                    int y = startY + i * lineH + lineH / 2;
+                    int lineLen = cachedLines[i].length();
+                    if (lineLen > 0) {
+                        int segW = Math.max(2, lineLen * contentW / cachedMaxLen);
+                        g.setColor(theme.resolve("fg.secondary"));
+                        g.drawLine(2, y, 2 + segW, y);
                     }
                 }
             }
@@ -610,9 +616,6 @@ public class RightPanel extends JPanel {
                         }
                     }
                 }
-            });
-            list.addComponentListener(new java.awt.event.ComponentAdapter() {
-                @Override public void componentResized(java.awt.event.ComponentEvent e) { list.repaint(); }
             });
             JScrollPane scroll = new JScrollPane(list);
             scroll.setBorder(BorderFactory.createEmptyBorder());
