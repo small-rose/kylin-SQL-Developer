@@ -48,3 +48,10 @@ SqlFormatter.format(source, options, dialect)
 - 当前会话：格式化引擎完整重写，Phase 1-3 完成
 - 前一阶段：SqlToolsDialog 改进（IN 子句/转义/复制按钮/Toast）
 - 前一阶段：MainFrame menu bar WindowFocusListener 修复
+- **Session 2026-07-13 自动补全：**
+  - 将自动补全延迟设置移入 autosave 面板（删除独立节点/面板）
+  - `AutoActivationListener` 始终未触发 → 改用 `SqlEditorPanel` 内 `DocumentListener` 直接调用 `ac.doCompletion()`
+  - `PlSqlCompletionProvider` 重写：构造函数接收 `Supplier<String> connNameSupplier`；`getCompletionsImpl` 从 `MetadataCache` 查询表/视图/列
+  - `MetadataCache` 新增 `getObjectNamesByType(connName, schema)` 返回 `Map<String, List<String>>`
+  - 点后缀列补全（`tablename.` → 列列表）：`getTableBeforeDot()` 提取点前最后一个词 → `isKnownTable()` 直查 / `resolveAlias()` 通过正则`\b(?:FROM|JOIN|INTO)\s+table(?:\s+AS)?\s+alias` 解析别名
+  - 单匹配自动补全保持默认（不调用 `setAutoCompleteSingleChoices`）

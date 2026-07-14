@@ -327,35 +327,42 @@ public class ObjectBrowser extends JPanel {
             public void treeWillExpand(javax.swing.event.TreeExpansionEvent e) {
                 DefaultMutableTreeNode node = (DefaultMutableTreeNode) e.getPath().getLastPathComponent();
                 // Level 1: load schemas lazily
+                // 懒加载 schema（后台 JDBC → EDT treeModel.reload）
                 if (node.getUserObject() instanceof ConnHolder && node.getChildCount() == 1) {
                     DefaultMutableTreeNode first = (DefaultMutableTreeNode) node.getChildAt(0);
                     if ("加载中...".equals(first.getUserObject())) {
-                        SwingWorker<Void, Void> worker = new SwingWorker<>() {
+                        DefaultMutableTreeNode nodeRef = node;
+                        new SwingWorker<Void, Void>() {
                             @Override
                             protected Void doInBackground() {
-                                loadConnection(node);
+                                loadConnection(nodeRef);
                                 return null;
                             }
-                        };
-                        worker.execute();
-                        try { Thread.sleep(50); } catch (InterruptedException ignored) {}
+                            @Override
+                            protected void done() {
+                                treeModel.reload(nodeRef);
+                            }
+                        }.execute();
                     }
                 }
-                // Level 4: expandable object node - lazy load columns
+                // Level 4: 表节点展开时后台加载列
                 if (node.getLevel() == 4 && node.getChildCount() == 1) {
                     DefaultMutableTreeNode first = (DefaultMutableTreeNode) node.getChildAt(0);
                     if ("".equals(first.getUserObject())) {
                         String typeLabel = getNodeLabel(node, 3);
                         if ("表".equals(typeLabel)) {
-                        SwingWorker<Void, Void> worker = new SwingWorker<>() {
+                        DefaultMutableTreeNode nodeRef = node;
+                        new SwingWorker<Void, Void>() {
                             @Override
                             protected Void doInBackground() {
-                                loadColumns(node);
+                                loadColumns(nodeRef);
                                 return null;
                             }
-                        };
-                        worker.execute();
-                        try { Thread.sleep(50); } catch (InterruptedException ignored) {}
+                            @Override
+                            protected void done() {
+                                treeModel.reload(nodeRef);
+                            }
+                        }.execute();
                     }
                 }
             }
@@ -1094,15 +1101,25 @@ public class ObjectBrowser extends JPanel {
         if (path == null) return;
         DefaultMutableTreeNode pkgNode = (DefaultMutableTreeNode) path.getLastPathComponent();
         pkgNode.removeAllChildren();
-        String sql = "SELECT OBJECT_NAME, PROCEDURE_NAME, OBJECT_TYPE FROM ALL_PROCEDURES WHERE OWNER = ? AND OBJECT_NAME = ? ORDER BY PROCEDURE_NAME";
-        try (Connection conn = cm.getConnection(connName); PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, schema); ps.setString(2, packageName);
-            try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) { String p = rs.getString("PROCEDURE_NAME"); if (p != null) pkgNode.add(new DefaultMutableTreeNode(p + " (过程)")); }
+        DefaultMutableTreeNode nodeRef = pkgNode;
+        new SwingWorker<Void, Void>() {
+            @Override
+            protected Void doInBackground() {
+                String sql = "SELECT OBJECT_NAME, PROCEDURE_NAME, OBJECT_TYPE FROM ALL_PROCEDURES WHERE OWNER = ? AND OBJECT_NAME = ? ORDER BY PROCEDURE_NAME";
+                try (Connection conn = cm.getConnection(connName); PreparedStatement ps = conn.prepareStatement(sql)) {
+                    ps.setString(1, schema); ps.setString(2, packageName);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        while (rs.next()) { String p = rs.getString("PROCEDURE_NAME"); if (p != null) nodeRef.add(new DefaultMutableTreeNode(p + " (过程)")); }
+                    }
+                } catch (SQLException e) { log.error("展开包失败: {}", e.getMessage()); }
+                return null;
             }
-        } catch (SQLException e) { log.error("展开包失败: {}", e.getMessage()); }
-        treeModel.reload(pkgNode);
-        tree.expandPath(path);
+            @Override
+            protected void done() {
+                treeModel.reload(nodeRef);
+                tree.expandPath(path);
+            }
+        }.execute();
     }
 
     // ── Double-click handler ──

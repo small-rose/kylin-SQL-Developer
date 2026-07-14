@@ -27,6 +27,7 @@ public class MetadataCache {
         public String type;
         public int size;
         public boolean nullable;
+        public String comment;
     }
 
     public static class CachedConnection {
@@ -35,6 +36,7 @@ public class MetadataCache {
         public long cachedAt;
         public Map<String, Map<String, List<String>>> objects = new LinkedHashMap<>(); // schema → type → [names]
         public Map<String, List<CachedColumn>> columns = new LinkedHashMap<>();        // "schema.table" → columns
+        public Map<String, String> tableComments = new LinkedHashMap<>();              // "schema.table" → comment
         public Map<String, String> ddlCache = new LinkedHashMap<>();                   // "schema.table" → DDL text
     }
 
@@ -123,6 +125,10 @@ public class MetadataCache {
         return byType != null ? byType.get(type) : null;
     }
 
+    public Map<String, List<String>> getObjectNamesByType(String connName, String schema) {
+        return load(connName).objects.get(schema);
+    }
+
     public void putSchemas(String connName, String dbProduct, Collection<String> schemas) {
         CachedConnection cc = load(connName);
         cc.dbProduct = dbProduct;
@@ -142,6 +148,15 @@ public class MetadataCache {
 
     public void putColumns(String connName, String schema, String table, List<CachedColumn> cols) {
         load(connName).columns.put(schema + "." + table, cols);
+        save(connName);
+    }
+
+    public String getTableComment(String connName, String schema, String table) {
+        return load(connName).tableComments.get(schema + "." + table);
+    }
+
+    public void putTableComment(String connName, String schema, String table, String comment) {
+        load(connName).tableComments.put(schema + "." + table, comment);
         save(connName);
     }
 

@@ -164,6 +164,7 @@ public class SettingsDialog extends JDialog {
     private JTree settingsTree;
     private JPanel cardPanel;
     private CardLayout cardLayout;
+    private JTextField autocompleteDelayField;
     private JTree metadataTree;
     private DefaultTreeModel metadataTreeModel;
     private JTable typeTable;
@@ -1233,6 +1234,13 @@ public class SettingsDialog extends JDialog {
         });
         grid.add(browseBtn, c);
 
+        row++;
+        c.gridy = row; c.gridx = 0; c.weightx = 0;
+        grid.add(new JLabel("自动补全延迟(毫秒):"), c);
+        c.gridx = 1; c.weightx = 1;
+        autocompleteDelayField = new JTextField(configManager.getPreference("autocomplete.delay", "300"), 10);
+        grid.add(autocompleteDelayField, c);
+
         applyPanelTheme(grid);
         JPanel wrapper = new JPanel(new BorderLayout());
         wrapper.setOpaque(false);
@@ -1431,6 +1439,7 @@ public class SettingsDialog extends JDialog {
         configManager.setPreference("format.indent", String.valueOf(workingOptions.getIndentSize()));
         configManager.setPreference("format.maxWidth", String.valueOf(workingOptions.getMaxLineWidth()));
         configManager.setPreference("format.lineEnding", workingOptions.getLineEnding());
+        if (autocompleteDelayField != null) configManager.setPreference("autocomplete.delay", autocompleteDelayField.getText());
         // Apply color overrides immediately
         if (owner instanceof MainFrame) {
             ((MainFrame) owner).reapplyTheme();

@@ -72,18 +72,57 @@ public class GlobalSearchDialog extends JDialog {
         void accept(int line, String lineText);
     }
 
+    private static final Icon ICON_FILE = makeIcon("F", new Color(0x337AB7));
+    private static final Icon ICON_TABLE = makeIcon("T", new Color(0x337AB7));
+    private static final Icon ICON_VIEW = makeIcon("V", new Color(0x5BC0DE));
+    private static final Icon ICON_PROC = makeIcon("P", new Color(0xD9534F));
+    private static final Icon ICON_FUNC = makeIcon("F", new Color(0xD9534F));
+    private static final Icon ICON_PKG = makeIcon("K", new Color(0xA0522D));
+    private static final Icon ICON_TRIGGER = makeIcon("R", new Color(0xF0AD4E));
+
+    private static Icon makeIcon(String text, Color bg) {
+        BufferedImage img = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = img.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setColor(bg);
+        g.fillRoundRect(1, 1, 14, 14, 3, 3);
+        g.setColor(Color.WHITE);
+        g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 9));
+        FontMetrics fm = g.getFontMetrics();
+        int x = (16 - fm.stringWidth(text)) / 2;
+        int y = (16 + fm.getAscent()) / 2 - 1;
+        g.drawString(text, x, y);
+        g.dispose();
+        return new ImageIcon(img);
+    }
+
+    private static Icon iconForObjectType(String type) {
+        return switch (type) {
+            case "TABLE" -> ICON_TABLE;
+            case "VIEW" -> ICON_VIEW;
+            case "PROCEDURE" -> ICON_PROC;
+            case "FUNCTION" -> ICON_FUNC;
+            case "PACKAGE" -> ICON_PKG;
+            case "TRIGGER" -> ICON_TRIGGER;
+            default -> ICON_FILE;
+        };
+    }
+
     private static class ResultRenderer extends DefaultListCellRenderer {
         @Override
         public Component getListCellRendererComponent(JList<?> list, Object value, int index,
-                                                      boolean isSelected, boolean cellHasFocus) {
+                                                       boolean isSelected, boolean cellHasFocus) {
             Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-            if (value instanceof SearchResult sr) {
+            if (c instanceof JLabel label && value instanceof SearchResult sr) {
                 if (sr.isMetadata) {
-                    setText(sr.objectType + "  " + sr.owner + "." + sr.objectName);
+                    label.setIcon(iconForObjectType(sr.objectType));
+                    label.setText(sr.objectType + "  " + sr.owner + "." + sr.objectName);
                 } else if (sr.filePath != null) {
-                    setText(sr.filePath + ":" + sr.line);
+                    label.setIcon(ICON_FILE);
+                    label.setText(sr.filePath + ":" + sr.line);
                 } else {
-                    setText("Line " + sr.line + ": " + sr.lineText);
+                    label.setIcon(ICON_FILE);
+                    label.setText("Line " + sr.line + ": " + sr.lineText);
                 }
             }
             return c;
@@ -411,43 +450,58 @@ public class GlobalSearchDialog extends JDialog {
             }
         }
 
-        if (configManager != null) {
-            Set<String> openPaths = new HashSet<>();
-            for (ConfigManager.SavedFileRecord rec : configManager.loadFileRecords()) {
-                if (rec.filePath == null) continue;
-                try {
-                    String content = new String(Files.readAllBytes(Paths.get(rec.filePath)), StandardCharsets.UTF_8);
-                    int matched = searchText(content, query, caseSensitive, wholeWords, regex, (line, lineText) -> {
-                        listModel.addElement(new SearchResult(rec.filePath, line, lineText.trim()));
-                    });
-                    if (matched > 0) {
-                        fileMatches += matched;
-                        fileCount++;
+        // ── File search runs in background ──
+        int editorMatchesFinal = editorMatches;
+        int editorFileCountFinal = editorFileCount;
+        int metadataMatchesFinal = metadataMatches;
+        new SwingWorker<int[], Void>() {
+            @Override
+            protected int[] doInBackground() {
+                int fm = 0, fc = 0;
+                if (configManager != null) {
+                    for (ConfigManager.SavedFileRecord rec : configManager.loadFileRecords()) {
+                        if (rec.filePath == null) continue;
+                        try {
+                            String content = new String(Files.readAllBytes(Paths.get(rec.filePath)), StandardCharsets.UTF_8);
+                            int matched = searchText(content, query, caseSensitive, wholeWords, regex, (line, lineText) -> {});
+                            if (matched > 0) {
+                                fm += matched;
+                                fc++;
+                            }
+                        } catch (Exception ignored) {
+                        }
                     }
+                }
+                return new int[]{fm, fc};
+            }
+            @Override
+            protected void done() {
+                try {
+                    int[] fc = get();
+                    int fileMatches2 = fc[0], fileCount2 = fc[1];
+                    StringBuilder sb = new StringBuilder();
+                    if (editorMatchesFinal > 0) {
+                        sb.append("找到 ").append(editorMatchesFinal).append(" 个匹配，分布在 ").append(editorFileCountFinal).append(" 个文件中");
+                    }
+                    if (metadataMatchesFinal > 0) {
+                        if (sb.length() > 0) sb.append(" ｜ ");
+                        sb.append("找到 ").append(metadataMatchesFinal).append(" 个对象");
+                    }
+                    if (fileMatches2 > 0) {
+                        if (sb.length() > 0) sb.append(" ｜ ");
+                        sb.append("找到 ").append(fileMatches2).append(" 个匹配，分布在 ").append(fileCount2).append(" 个存储文件中");
+                    }
+                    if (sb.length() == 0) {
+                        sb.append("无匹配");
+                    }
+                    statusLabel.setText(sb.toString());
+
+                    int total = editorMatchesFinal + metadataMatchesFinal + fileMatches2;
+                    updateTitle(total);
                 } catch (Exception ignored) {
                 }
             }
-        }
-
-        StringBuilder sb = new StringBuilder();
-        if (editorMatches > 0) {
-            sb.append("找到 ").append(editorMatches).append(" 个匹配，分布在 ").append(editorFileCount).append(" 个文件中");
-        }
-        if (metadataMatches > 0) {
-            if (sb.length() > 0) sb.append(" ｜ ");
-            sb.append("找到 ").append(metadataMatches).append(" 个对象");
-        }
-        if (fileMatches > 0) {
-            if (sb.length() > 0) sb.append(" ｜ ");
-            sb.append("找到 ").append(fileMatches).append(" 个匹配，分布在 ").append(fileCount).append(" 个存储文件中");
-        }
-        if (sb.length() == 0) {
-            sb.append("无匹配");
-        }
-        statusLabel.setText(sb.toString());
-
-        int total = editorMatches + metadataMatches + fileMatches;
-        updateTitle(total);
+        }.execute();
     }
 
     private int searchText(String text, String query, boolean caseSensitive,

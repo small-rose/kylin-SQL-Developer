@@ -51,11 +51,21 @@ public class ConfigManager {
 
     private static final String SAVED_FILES_FILE = "saved_files.json";
 
+    private static ConfigManager instance;
+
     private final Path configPath;
     private final Gson gson;
     private Map<String, String> preferences;
 
+    public static ConfigManager getInstance() {
+        if (instance == null) {
+            instance = new ConfigManager();
+        }
+        return instance;
+    }
+
     public ConfigManager() {
+        instance = this;
         String userHome = System.getProperty("user.home", ".");
         configPath = Paths.get(userHome, CONFIG_DIR);
         gson = new GsonBuilder().setPrettyPrinting().create();

@@ -14,7 +14,7 @@ import org.fife.ui.rsyntaxtextarea.TokenMap;
 /** Custom RSyntaxTextArea TokenMaker for PL/SQL syntax highlighting. */
 public class PlSqlTokenMaker extends AbstractTokenMaker {
 
-    private static final Set<String> KEYWORDS = new HashSet<>(Arrays.asList(
+    public static final Set<String> KEYWORDS = new HashSet<>(Arrays.asList(
         // DML - Core
         "SELECT", "FROM", "WHERE", "AND", "OR", "NOT", "IN", "EXISTS",
         "INSERT", "INTO", "VALUES", "UPDATE", "SET", "DELETE", "MERGE",

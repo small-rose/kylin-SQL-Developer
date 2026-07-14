@@ -184,7 +184,8 @@ public class ExportTaskListDialog extends BaseToolDialog {
             @Override
             protected Void doInBackground() {
                 task.status = "执行中";
-                taskModel.fireTableRowsUpdated(row, row);
+                final int r0 = row;
+                SwingUtilities.invokeLater(() -> taskModel.fireTableRowsUpdated(r0, r0));
 
                 StringBuilder sb = new StringBuilder();
                 try {
@@ -217,7 +218,8 @@ public class ExportTaskListDialog extends BaseToolDialog {
                         }
                         task.exportedRows = r + 1;
                         if (r % 100 == 0) {
-                            taskModel.fireTableRowsUpdated(row, row);
+                            int rr = row;
+                            SwingUtilities.invokeLater(() -> taskModel.fireTableRowsUpdated(rr, rr));
                         }
                     }
 

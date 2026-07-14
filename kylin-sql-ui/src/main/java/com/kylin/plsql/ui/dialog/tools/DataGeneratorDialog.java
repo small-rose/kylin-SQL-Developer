@@ -105,7 +105,7 @@ public class DataGeneratorDialog extends BaseToolDialog {
         splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
                 wrapTitled("列定义", colScroll),
                 wrapTitled("数据预览", outputScroll));
-        splitPane.setResizeWeight(0.35);
+        splitPane.setResizeWeight(0.5);
         splitPane.setContinuousLayout(true);
 
         layoutToggleBtn = new JToggleButton("⇔ 垂直布局");
@@ -193,15 +193,36 @@ public class DataGeneratorDialog extends BaseToolDialog {
         String connName = (String) connCombo.getSelectedItem();
         if (connName == null) return;
         schemaCombo.removeAllItems();
-        try (Connection conn = connProvider.apply(connName)) {
-            if (conn == null) return;
-            DatabaseMetaData meta = conn.getMetaData();
-            try (ResultSet rs = meta.getSchemas()) {
-                while (rs.next()) schemaCombo.addItem(rs.getString("TABLE_SCHEM"));
+        // 后台加载 Schema 列表，避免 JDBC 阻塞 EDT
+        new SwingWorker<List<String>, Void>() {
+            @Override
+            protected List<String> doInBackground() {
+                List<String> schemas = new ArrayList<>();
+                try (Connection conn = connProvider.apply(connName)) {
+                    if (conn == null) return schemas;
+                    DatabaseMetaData meta = conn.getMetaData();
+                    try (ResultSet rs = meta.getSchemas()) {
+                        while (rs.next()) schemas.add(rs.getString("TABLE_SCHEM"));
+                    }
+                } catch (Exception e) {
+                    return null;
+                }
+                return schemas;
             }
-        } catch (Exception e) {
-            ToastManager.showError(this, "加载 Schema 失败: " + e.getMessage());
-        }
+            @Override
+            protected void done() {
+                try {
+                    List<String> schemas = get();
+                    if (schemas == null) {
+                        ToastManager.showError(DataGeneratorDialog.this, "加载 Schema 失败");
+                        return;
+                    }
+                    for (String s : schemas) schemaCombo.addItem(s);
+                } catch (Exception e) {
+                    ToastManager.showError(DataGeneratorDialog.this, "加载 Schema 失败: " + e.getMessage());
+                }
+            }
+        }.execute();
     }
 
     private void loadTables() {
@@ -209,15 +230,36 @@ public class DataGeneratorDialog extends BaseToolDialog {
         String schema = (String) schemaCombo.getSelectedItem();
         if (connName == null || schema == null) return;
         tableCombo.removeAllItems();
-        try (Connection conn = connProvider.apply(connName)) {
-            if (conn == null) return;
-            DatabaseMetaData meta = conn.getMetaData();
-            try (ResultSet rs = meta.getTables(null, schema, "%", new String[]{"TABLE", "VIEW"})) {
-                while (rs.next()) tableCombo.addItem(rs.getString("TABLE_NAME"));
+        // 后台加载表列表
+        new SwingWorker<List<String>, Void>() {
+            @Override
+            protected List<String> doInBackground() {
+                List<String> tables = new ArrayList<>();
+                try (Connection conn = connProvider.apply(connName)) {
+                    if (conn == null) return tables;
+                    DatabaseMetaData meta = conn.getMetaData();
+                    try (ResultSet rs = meta.getTables(null, schema, "%", new String[]{"TABLE", "VIEW"})) {
+                        while (rs.next()) tables.add(rs.getString("TABLE_NAME"));
+                    }
+                } catch (Exception e) {
+                    return null;
+                }
+                return tables;
             }
-        } catch (Exception e) {
-            ToastManager.showError(this, "加载表失败: " + e.getMessage());
-        }
+            @Override
+            protected void done() {
+                try {
+                    List<String> tables = get();
+                    if (tables == null) {
+                        ToastManager.showError(DataGeneratorDialog.this, "加载表失败");
+                        return;
+                    }
+                    for (String t : tables) tableCombo.addItem(t);
+                } catch (Exception e) {
+                    ToastManager.showError(DataGeneratorDialog.this, "加载表失败: " + e.getMessage());
+                }
+            }
+        }.execute();
     }
 
     private void loadColumns() {
@@ -225,22 +267,42 @@ public class DataGeneratorDialog extends BaseToolDialog {
         String schema = (String) schemaCombo.getSelectedItem();
         String table = (String) tableCombo.getSelectedItem();
         if (connName == null || schema == null || table == null) return;
-        columns.clear();
-        try (Connection conn = connProvider.apply(connName)) {
-            if (conn == null) return;
-            DatabaseMetaData meta = conn.getMetaData();
-            try (ResultSet rs = meta.getColumns(null, schema, table, "%")) {
-                while (rs.next()) {
-                    String colName = rs.getString("COLUMN_NAME");
-                    String colType = rs.getString("TYPE_NAME");
-                    String rule = inferRule(colType);
-                    columns.add(new ColumnDef(colName, colType, rule));
+        new SwingWorker<List<ColumnDef>, Void>() {
+            @Override
+            protected List<ColumnDef> doInBackground() {
+                List<ColumnDef> result = new ArrayList<>();
+                try (Connection conn = connProvider.apply(connName)) {
+                    if (conn == null) return result;
+                    DatabaseMetaData meta = conn.getMetaData();
+                    try (ResultSet rs = meta.getColumns(null, schema, table, "%")) {
+                        while (rs.next()) {
+                            String colName = rs.getString("COLUMN_NAME");
+                            String colType = rs.getString("TYPE_NAME");
+                            String rule = inferRule(colType);
+                            result.add(new ColumnDef(colName, colType, rule));
+                        }
+                    }
+                } catch (Exception e) {
+                    return null;
+                }
+                return result;
+            }
+            @Override
+            protected void done() {
+                try {
+                    List<ColumnDef> result = get();
+                    if (result == null) {
+                        ToastManager.showError(DataGeneratorDialog.this, "加载列失败");
+                        return;
+                    }
+                    columns.clear();
+                    columns.addAll(result);
+                    colModel.setData(columns);
+                } catch (Exception e) {
+                    ToastManager.showError(DataGeneratorDialog.this, "加载列失败: " + e.getMessage());
                 }
             }
-        } catch (Exception e) {
-            ToastManager.showError(this, "加载列失败: " + e.getMessage());
-        }
-        colModel.setData(columns);
+        }.execute();
     }
 
     private void generate() {

@@ -7,6 +7,7 @@ import com.kylin.plsql.ui.component.common.ToastManager;
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
 import java.awt.*;
+import java.awt.image.BufferedImage;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
@@ -28,6 +29,56 @@ public class ObjectSearchDialog extends BaseToolDialog {
     private final JTable detailTable;
     private final Function<String, Connection> connProvider;
     private final BiConsumer<String, String> onNavigate;
+
+    private static final Icon ICON_TABLE = makeIcon("T", new Color(0x337AB7));
+    private static final Icon ICON_VIEW = makeIcon("V", new Color(0x5BC0DE));
+    private static final Icon ICON_PROC = makeIcon("P", new Color(0xD9534F));
+    private static final Icon ICON_FUNC = makeIcon("F", new Color(0xD9534F));
+    private static final Icon ICON_PKG = makeIcon("K", new Color(0xA0522D));
+    private static final Icon ICON_TRIGGER = makeIcon("R", new Color(0xF0AD4E));
+    private static final Icon ICON_DEFAULT = makeIcon("?", new Color(0x888888));
+
+    private static Icon makeIcon(String text, Color bg) {
+        BufferedImage img = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = img.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setColor(bg);
+        g.fillRoundRect(1, 1, 14, 14, 3, 3);
+        g.setColor(Color.WHITE);
+        g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 9));
+        FontMetrics fm = g.getFontMetrics();
+        int x = (16 - fm.stringWidth(text)) / 2;
+        int y = (16 + fm.getAscent()) / 2 - 1;
+        g.drawString(text, x, y);
+        g.dispose();
+        return new ImageIcon(img);
+    }
+
+    private static Icon iconForType(String type) {
+        if (type == null) return ICON_DEFAULT;
+        return switch (type.toUpperCase()) {
+            case "TABLE" -> ICON_TABLE;
+            case "VIEW" -> ICON_VIEW;
+            case "PROCEDURE" -> ICON_PROC;
+            case "FUNCTION" -> ICON_FUNC;
+            case "PACKAGE" -> ICON_PKG;
+            case "TRIGGER" -> ICON_TRIGGER;
+            default -> ICON_DEFAULT;
+        };
+    }
+
+    private static class ResultRenderer extends DefaultListCellRenderer {
+        @Override
+        public Component getListCellRendererComponent(JList<?> list, Object value, int index,
+                                                       boolean isSelected, boolean cellHasFocus) {
+            Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+            if (c instanceof JLabel label && value instanceof SearchResult sr) {
+                label.setIcon(iconForType(sr.type));
+                label.setText(sr.schema + "." + sr.name + " (" + sr.type + ")");
+            }
+            return c;
+        }
+    }
 
     static class SearchResult {
         final String name;
@@ -107,6 +158,7 @@ public class ObjectSearchDialog extends BaseToolDialog {
 
         resultModel = new DefaultListModel<>();
         resultList = new JList<>(resultModel);
+        resultList.setCellRenderer(new ResultRenderer());
         resultList.addListSelectionListener(e -> {
             if (!e.getValueIsAdjusting()) showDetails();
         });
@@ -226,36 +278,52 @@ public class ObjectSearchDialog extends BaseToolDialog {
             return;
         }
         detailLabel.setText(sr.schema + "." + sr.name + " (" + sr.type + ")");
+        detailModel.clear();
 
         String connName = (String) connCombo.getSelectedItem();
-        List<String[]> details = new ArrayList<>();
-        try (Connection conn = connProvider.apply(connName)) {
-            if (conn == null) return;
-            DatabaseMetaData meta = conn.getMetaData();
-
-            if (sr.type.contains("TABLE")) {
-                try (ResultSet rs = meta.getColumns(null, sr.schema, sr.name, "%")) {
-                    while (rs.next()) {
-                        details.add(new String[]{
-                                rs.getString("COLUMN_NAME"),
-                                rs.getString("TYPE_NAME") + "(" + rs.getInt("COLUMN_SIZE") + ")"
-                        });
+        SearchResult srRef = sr;
+        new SwingWorker<List<String[]>, Void>() {
+            @Override
+            protected List<String[]> doInBackground() {
+                List<String[]> details = new ArrayList<>();
+                try (Connection conn = connProvider.apply(connName)) {
+                    if (conn == null) return details;
+                    DatabaseMetaData meta = conn.getMetaData();
+                    if (srRef.type.contains("TABLE")) {
+                        try (ResultSet rs = meta.getColumns(null, srRef.schema, srRef.name, "%")) {
+                            while (rs.next()) {
+                                details.add(new String[]{
+                                        rs.getString("COLUMN_NAME"),
+                                        rs.getString("TYPE_NAME") + "(" + rs.getInt("COLUMN_SIZE") + ")"
+                                });
+                            }
+                        }
+                    } else if (srRef.type.contains("PROCEDURE") || srRef.type.contains("FUNCTION")) {
+                        try (ResultSet rs = meta.getProcedureColumns(null, srRef.schema, srRef.name, "%")) {
+                            while (rs.next()) {
+                                details.add(new String[]{
+                                        rs.getString("COLUMN_NAME"),
+                                        rs.getString("TYPE_NAME") + " (" + rs.getString("COLUMN_TYPE") + ")"
+                                });
+                            }
+                        }
                     }
+                } catch (Exception e) {
+                    details.add(new String[]{"错误", e.getMessage()});
                 }
-            } else if (sr.type.contains("PROCEDURE") || sr.type.contains("FUNCTION")) {
-                try (ResultSet rs = meta.getProcedureColumns(null, sr.schema, sr.name, "%")) {
-                    while (rs.next()) {
-                        details.add(new String[]{
-                                rs.getString("COLUMN_NAME"),
-                                rs.getString("TYPE_NAME") + " (" + rs.getString("COLUMN_TYPE") + ")"
-                        });
-                    }
+                return details;
+            }
+            @Override
+            protected void done() {
+                try {
+                    detailModel.setData(get());
+                } catch (Exception e) {
+                    List<String[]> err = new ArrayList<>();
+                    err.add(new String[]{"错误", e.getMessage()});
+                    detailModel.setData(err);
                 }
             }
-        } catch (Exception e) {
-            details.add(new String[]{"错误", e.getMessage()});
-        }
-        detailModel.setData(details);
+        }.execute();
     }
 
     @Override

@@ -13,8 +13,6 @@ import com.kylin.plsql.core.db.SqlHistory;
 import com.kylin.plsql.core.format.FormatOptions;
 import com.kylin.plsql.core.format.dialect.DialectManager;
 import com.kylin.plsql.core.format.dialect.SqlDialect;
-import com.kylin.plsql.core.format.plsql.PlSqlFormatter;
-import com.kylin.plsql.core.format.plsql.model.FormatResult;
 import com.kylin.plsql.core.parser.PlSqlCallHierarchy;
 import com.kylin.plsql.core.parser.PlSqlNavigator;
 import com.kylin.plsql.core.parser.PlSqlSymbolIndex;
@@ -38,7 +36,6 @@ import com.kylin.plsql.ui.dialog.tools.AdvancedExportDialog;
 import com.kylin.plsql.ui.dialog.tools.DataGeneratorDialog;
 import com.kylin.plsql.ui.dialog.tools.ObjectSearchDialog;
 import com.kylin.plsql.ui.dialog.tools.RegexTesterDialog;
-import com.kylin.plsql.ui.dialog.tools.SqlFormatDialog;
 import com.kylin.plsql.ui.dialog.tools.SqlHistoryDialog;
 import com.kylin.plsql.ui.dialog.tools.SqlToolsDialog;
 import com.kylin.plsql.ui.dialog.tools.TextDiffDialog;
@@ -62,6 +59,8 @@ import java.nio.file.Path;
 import java.sql.Connection;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.regex.Pattern;
 
 /** Main application window with menu bar, toolbars, editor tabs, and status bar. */
@@ -119,7 +118,6 @@ public class MainFrame extends JFrame {
         initComponents();
         layoutComponents();
         setupMenu();
-        loadSavedConnections();
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
@@ -127,16 +125,24 @@ public class MainFrame extends JFrame {
                 System.exit(0);
             }
         });
-        boolean restored = tryRestoreWorkspace();
-        if (!restored) {
-            showWelcome();
-        }
-        bottomPanel.refreshConnTree();
-        restartAutoSaveTimer();
-        statusBar.startMemoryMonitor();
-        startConnectionMonitor();
         setExtendedState(JFrame.MAXIMIZED_BOTH);
-        reapplyTheme();
+        javax.swing.SwingUtilities.invokeLater(() -> {
+            loadSavedConnections();
+            boolean restored = tryRestoreWorkspace();
+            if (!restored) showWelcome();
+            bottomPanel.refreshConnTree();
+            restartAutoSaveTimer();
+            statusBar.startMemoryMonitor();
+            startConnectionMonitor();
+            reapplyTheme();
+            // 工作区恢复后重设分隔线，防止编辑器右侧留空白
+            if (leftSplitRef[0] != null) leftSplitRef[0].setDividerLocation(250);
+            if (mainSplitRef[0] != null) {
+                int w = mainSplitRef[0].getWidth();
+                int rightW = rightPanel.getPreferredSize().width;
+                mainSplitRef[0].setDividerLocation(Math.max(w - rightW, w / 2));
+            }
+        });
     }
 
     private void initComponents() {
@@ -389,20 +395,27 @@ public class MainFrame extends JFrame {
         bottomPanel.setRefreshExecutor((connName, sql) -> {
             if (connName == null || connName.isEmpty()) return;
             boolean closeConn = connectionManager.isAutoCommit(connName);
-            java.sql.Connection conn = null;
-            try {
-                conn = connectionManager.getConnection(connName);
-                int qto = connectionManager.getQueryTimeout(connName);
-                var executor = new com.kylin.plsql.core.db.SqlExecutor();
-                var result = executor.execute(conn, sql, qto);
-                bottomPanel.showResult(sql, result, connName);
-            } catch (Exception ex) {
-                bottomPanel.showError(ex.getMessage());
-            } finally {
-                if (closeConn && conn != null) {
-                    try { conn.close(); } catch (java.sql.SQLException ignored) {}
+            new SwingWorker<com.kylin.plsql.core.db.SqlExecutor.SqlResult, Void>() {
+                @Override protected com.kylin.plsql.core.db.SqlExecutor.SqlResult doInBackground() {
+                    try (java.sql.Connection conn = connectionManager.getConnection(connName)) {
+                        int qto = connectionManager.getQueryTimeout(connName);
+                        var executor = new com.kylin.plsql.core.db.SqlExecutor();
+                        return executor.execute(conn, sql, qto);
+                    } catch (Exception ex) {
+                        return null;
+                    }
                 }
-            }
+                @Override protected void done() {
+                    try {
+                        var result = get();
+                        if (result != null) {
+                            bottomPanel.showResult(sql, result, connName);
+                        }
+                    } catch (Exception ex) {
+                        bottomPanel.showError(ex.getMessage());
+                    }
+                }
+            }.execute();
         });
 
         JPanel bottomWrapper = new JPanel(new BorderLayout());
@@ -718,12 +731,13 @@ public class MainFrame extends JFrame {
         JMenu toolsMenu = new JMenu("工具");
 
         JMenuItem sqlToolsItem = new JMenuItem("SQL 工具");
-        sqlToolsItem.addActionListener(e -> new SqlToolsDialog(MainFrame.this).setVisible(true));
+        sqlToolsItem.setIcon(IconUtil.menuIcon("toolbox"));
+        sqlToolsItem.addActionListener(e -> new SqlToolsDialog(MainFrame.this, formatOptions, 0).setVisible(true));
         toolsMenu.add(sqlToolsItem);
 
         JMenuItem sqlFmtItem = new JMenuItem("SQL 格式化");
         sqlFmtItem.setIcon(IconUtil.menuIcon("format"));
-        sqlFmtItem.addActionListener(e -> new SqlFormatDialog(MainFrame.this, formatOptions).setVisible(true));
+        sqlFmtItem.addActionListener(e -> new SqlToolsDialog(MainFrame.this, formatOptions, 2).setVisible(true));
         toolsMenu.add(sqlFmtItem);
 
         JMenuItem dataGenItem = new JMenuItem("数据生成器");
@@ -982,67 +996,93 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         if (!file.exists()) return;
 
         String fileName = file.getName();
+        String absPath = file.getAbsolutePath();
         for (int i = 0; i < editorTabs.getTabCount(); i++) {
             Component comp = editorTabs.getComponentAt(i);
             if (comp instanceof SourceViewerPanel sv && fileName.equals(sv.getObjectName())
-                    || comp instanceof SqlEditorPanel ep && file.getAbsolutePath().equals(ep.getFilePath())) {
+                    || comp instanceof SqlEditorPanel ep && absPath.equals(ep.getFilePath())) {
                 editorTabs.setSelectedIndex(i);
                 statusBar.setMessage("已打开: " + fileName);
                 return;
             }
         }
 
-        try {
-            String content = Files.readString(file.toPath());
-            log.debug("openFile: {} bytes read from {}", content.length(), file.getAbsolutePath());
-            String objType = detectObjectType(content);
-            log.debug("openFile: detected object type = {}", objType);
-            if (objType != null) {
-                log.debug("openFile: opening in SourceViewerPanel (type={})", objType);
-                SourceViewerPanel viewer = new SourceViewerPanel(connectionManager, null, null,
-                    file.getName(), objType, content);
-                showEditorTabs();
-                editorTabs.addTab(viewer.getTabTitle(), viewer);
-                int idx = editorTabs.indexOfComponent(viewer);
-                initTabComponent(idx, viewer);
-                editorTabs.setSelectedComponent(viewer);
-                viewer.getTextArea().requestFocusInWindow();
-                statusBar.setMessage("已打开: " + file.getAbsolutePath());
-                rightPanel.onFileOpenedOrSaved(file.getAbsolutePath());
-                saveWorkspace();
-            } else {
-                log.debug("openFile: opening in SqlEditorPanel (no object type detected)");
-                SqlEditorPanel editor = new SqlEditorPanel(connectionManager, file.getName());
-                editor.getTextArea().setSyntaxEditingStyle("text/plsql");
-                editor.setText(content);
-                editor.setFilePath(file.getAbsolutePath());
-                editor.resetModified();
-                var connections = configManager.loadConnections();
-                editor.setConnections(connections);
-                editor.setOnExecute(() -> executeActiveEditor());
-                editor.setOnAppendExecute(() -> executeAppendEditor());
-                editor.setOnFormat(this::formatSql);
-                editor.setOnStatusMessage(msg -> {
-                    bottomPanel.showToast(msg);
-                    statusBar.setStatusText(msg);
-                });
-                editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
-                editor.setOnConnectionChange(() -> bottomPanel.refreshConnTree());
-                showEditorTabs();
-                editorTabs.addTab(editor.getTabTitle(), editor);
-                int idx = editorTabs.indexOfComponent(editor);
-                initTabComponent(idx, editor);
-                editorTabs.setSelectedComponent(editor);
-                editor.getTextArea().requestFocusInWindow();
-                statusBar.setMessage("已打开: " + file.getAbsolutePath());
-                installCaretListener(editor);
-                rightPanel.onFileOpenedOrSaved(file.getAbsolutePath());
-                saveWorkspace();
+        new SwingWorker<FileContent, Void>() {
+            @Override protected FileContent doInBackground() {
+                try {
+                    String content = Files.readString(file.toPath());
+                    String objType = detectObjectType(content);
+                    return new FileContent(content, objType);
+                } catch (IOException e) {
+                    return new FileContent(e);
+                }
             }
-        } catch (IOException e) {
-            JOptionPane.showMessageDialog(this, "打开文件失败:\n" + e.getMessage(),
-                "错误", JOptionPane.ERROR_MESSAGE);
-        }
+            @Override protected void done() {
+                try {
+                    FileContent fc = get();
+                    if (fc.error != null) {
+                        JOptionPane.showMessageDialog(MainFrame.this, "打开文件失败:\n" + fc.error.getMessage(),
+                            "错误", JOptionPane.ERROR_MESSAGE);
+                        return;
+                    }
+                    String content = fc.content;
+                    String objType = fc.objType;
+                    log.debug("openFile: {} bytes read from {}, objType={}", content.length(), absPath, objType);
+                    if (objType != null) {
+                        log.debug("openFile: opening in SourceViewerPanel (type={})", objType);
+                        SourceViewerPanel viewer = new SourceViewerPanel(connectionManager, null, null,
+                            file.getName(), objType, content);
+                        showEditorTabs();
+                        editorTabs.addTab(viewer.getTabTitle(), viewer);
+                        int idx = editorTabs.indexOfComponent(viewer);
+                        initTabComponent(idx, viewer);
+                        editorTabs.setSelectedComponent(viewer);
+                        viewer.getTextArea().requestFocusInWindow();
+                        statusBar.setMessage("已打开: " + absPath);
+                        rightPanel.onFileOpenedOrSaved(absPath);
+                        saveWorkspace();
+                    } else {
+                        log.debug("openFile: opening in SqlEditorPanel (no object type detected)");
+                        SqlEditorPanel editor = new SqlEditorPanel(connectionManager, file.getName());
+                        editor.getTextArea().setSyntaxEditingStyle("text/plsql");
+                        editor.setText(content);
+                        editor.setFilePath(absPath);
+                        editor.resetModified();
+                        var connections = configManager.loadConnections();
+                        editor.setConnections(connections);
+                        editor.setOnExecute(() -> executeActiveEditor());
+                        editor.setOnAppendExecute(() -> executeAppendEditor());
+                        editor.setOnFormat(MainFrame.this::formatSql);
+                        editor.setOnStatusMessage(msg -> {
+                            bottomPanel.showToast(msg);
+                            statusBar.setStatusText(msg);
+                        });
+                        editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
+                        editor.setOnConnectionChange(() -> bottomPanel.refreshConnTree());
+                        showEditorTabs();
+                        editorTabs.addTab(editor.getTabTitle(), editor);
+                        int idx = editorTabs.indexOfComponent(editor);
+                        initTabComponent(idx, editor);
+                        editorTabs.setSelectedComponent(editor);
+                        editor.getTextArea().requestFocusInWindow();
+                        statusBar.setMessage("已打开: " + absPath);
+                        installCaretListener(editor);
+                        rightPanel.onFileOpenedOrSaved(absPath);
+                        saveWorkspace();
+                    }
+                } catch (Exception e) {
+                    log.error("openFile failed", e);
+                }
+            }
+        }.execute();
+    }
+
+    private static class FileContent {
+        final String content;
+        final String objType;
+        final IOException error;
+        FileContent(String content, String objType) { this.content = content; this.objType = objType; this.error = null; }
+        FileContent(IOException error) { this.content = null; this.objType = null; this.error = error; }
     }
 
     private boolean saveActiveFile() {
@@ -1784,10 +1824,10 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         }
 
         String sel = editor.getSelectedText();
-        String sql;
-        int execLine;
+        int qto = connectionManager.getQueryTimeout(connName);
+
         if (sel != null) {
-            execLine = editor.getSelectionStartLine();
+            int execLine = editor.getSelectionStartLine();
             int skip = 0;
             for (int i = 0; i < sel.length(); i++) {
                 if (!Character.isWhitespace(sel.charAt(i))) break;
@@ -1798,134 +1838,194 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                     execLine = 1 + editor.getTextArea().getLineOfOffset(editor.getTextArea().getSelectionStart() + skip);
                 } catch (BadLocationException ignored) {}
             }
-            // Split selection into individual statements by semicolons
             String[] parts = sel.split(";", -1);
             if (parts.length > 1) {
-                int qto2 = connectionManager.getQueryTimeout(connName);
-                int baseOffset = editor.getTextArea().getSelectionStart();
-                int cumulativeOffset = 0;
-                sql = null;
                 editor.clearExecResults();
                 bottomPanel.setBatchExecuting(true);
-                boolean closeConn1 = connectionManager.isAutoCommit(connName);
-                Connection conn = null;
-                try {
-                    conn = connectionManager.getConnection(connName);
-                    var executor = new com.kylin.plsql.core.db.SqlExecutor();
-                    boolean anySuccess = false;
-                    for (int i = 0; i < parts.length; i++) {
-                        String stmt = parts[i].trim();
-                        int partLen = parts[i].length();
-                        if (!stmt.isEmpty()) {
-                            int stmtIndex = parts[i].indexOf(stmt);
-                            int lineOff = baseOffset + cumulativeOffset + Math.max(stmtIndex, 0);
-                            int line;
-                            try { line = 1 + editor.getTextArea().getLineOfOffset(lineOff); }
-                            catch (BadLocationException ignored) { line = execLine; }
-                            if (sql == null) sql = stmt;
-                            var result = executor.execute(conn, stmt, qto2);
-                            bottomPanel.appendMessage("执行: " + stmt);
-                            bottomPanel.appendMessage("结果: " + result.getSummary());
-                            if (result.isSuccess()) {
-                                anySuccess = true;
-                                bottomPanel.showResult(stmt, result, connName);
-                            } else {
-                                bottomPanel.showError(result.error);
+                bottomPanel.appendMessage("━━━ 多语句执行 ━━━━━━━━━━━━━━━━━━━━");
+                int baseOffset = editor.getTextArea().getSelectionStart();
+                SqlEditorPanel edRef = editor;
+                int execLineFinal = execLine;
+                // 多语句后台执行，避免 JDBC 阻塞 EDT
+        new SwingWorker<List<StmtResult>, Void>() {
+                    @Override protected List<StmtResult> doInBackground() {
+                        List<StmtResult> results = new ArrayList<>();
+                        int cumulativeOffset = 0;
+                        try (Connection conn = connectionManager.getConnection(connName)) {
+                            var executor = new com.kylin.plsql.core.db.SqlExecutor();
+                            for (int i = 0; i < parts.length; i++) {
+                                String stmt = parts[i].trim();
+                                int partLen = parts[i].length();
+                                if (!stmt.isEmpty()) {
+                                    int stmtIndex = parts[i].indexOf(stmt);
+                                    int lineOff = baseOffset + cumulativeOffset + Math.max(stmtIndex, 0);
+                                    int line;
+                                    try { line = 1 + edRef.getTextArea().getLineOfOffset(lineOff); }
+                                        catch (BadLocationException ignored) { line = execLineFinal; }
+                                    var result = executor.execute(conn, stmt, qto);
+                                    results.add(new StmtResult(result, stmt, line));
+                                }
+                                cumulativeOffset += partLen + 1;
                             }
-                            editor.markExecResult(line, result.isSuccess());
+                        } catch (Exception e) {
+                            // will be handled as empty list
                         }
-                        cumulativeOffset += partLen + 1;
+                        return results;
                     }
-                    if (sql != null) {
-                        sqlHistory.add(sql);
-                        rightPanel.addHistoryEntry(sql, anySuccess, 0,
-                            LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
-                        statusBar.setMessage(anySuccess ? "多语句执行完成" : "多语句执行失败");
+                    @Override protected void done() {
+                        try {
+                            List<StmtResult> results = get();
+                            boolean anySuccess = false;
+                            String firstSql = null;
+                            for (StmtResult sr : results) {
+                                if (firstSql == null) firstSql = sr.stmt;
+                                bottomPanel.appendMessage("执行: " + sr.stmt);
+                                bottomPanel.appendMessage("结果: " + sr.result.getSummary());
+                                if (sr.result.isSuccess()) {
+                                    anySuccess = true;
+                                    bottomPanel.showResult(sr.stmt, sr.result, connName);
+                                } else {
+                                    bottomPanel.showError(sr.result.error);
+                                }
+                                edRef.markExecResult(sr.line, sr.result.isSuccess());
+                            }
+                            if (firstSql != null) {
+                                sqlHistory.add(firstSql);
+                                rightPanel.addHistoryEntry(firstSql, anySuccess, 0,
+                                    LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+                                statusBar.setMessage(anySuccess ? "多语句执行完成" : "多语句执行失败");
+                            }
+                        } catch (Exception e) {
+                            statusBar.setMessage("执行失败: " + e.getMessage());
+                            bottomPanel.showError(e.getMessage());
+                        } finally {
+                            bottomPanel.setBatchExecuting(false);
+                            bottomPanel.appendMessage("━━━━━━━━━━━━━━━━━━━━━━━━━");
+                        }
                     }
-                } catch (Exception e) {
-                    statusBar.setMessage("执行失败: " + e.getMessage());
-                    bottomPanel.showError(e.getMessage());
-                } finally {
-                    bottomPanel.setBatchExecuting(false);
-                    if (closeConn1 && conn != null) {
-                        try { conn.close(); } catch (java.sql.SQLException ignored) {}
-                    }
-                }
-                bottomPanel.appendMessage("━━━━━━━━━━━━━━━━━━━━━━━━━");
+                }.execute();
                 return;
             }
-            sql = parts[0].trim();
+            // single statement from selection
+            String sql = parts[0].trim();
+            executeSingle(editor, connName, sql, execLine, append, qto);
         } else {
-            sql = editor.getCurrentStatement();
-            execLine = editor.getLastExecLine();
-        }
-        if (sql == null || sql.isBlank()) {
-            JOptionPane.showMessageDialog(this, "请输入 SQL 语句");
-            return;
-        }
-
-        sqlHistory.add(sql);
-        int qto = connectionManager.getQueryTimeout(connName);
-        String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS"));
-        bottomPanel.appendMessage("━━━ SQL 执行 ━━━━━━━━━━━━━━━━━━━━━━━━━");
-        bottomPanel.appendMessage("开始时间: " + ts);
-        bottomPanel.appendMessage("执行 SQL: " + sql);
-        editor.clearExecResults();
-        boolean closeConn2 = connectionManager.isAutoCommit(connName);
-        Connection conn2 = null;
-        try {
-            conn2 = connectionManager.getConnection(connName);
-            var executor = new com.kylin.plsql.core.db.SqlExecutor();
-            var result = executor.execute(conn2, sql, qto);
-            bottomPanel.appendMessage("执行耗时: " + result.elapsedMs + "ms");
-            bottomPanel.appendMessage("结果: " + result.getSummary());
-            bottomPanel.appendMessage("━━━━━━━━━━━━━━━━━━━━━━━━━");
-            bottomPanel.setBatchExecuting(append);
-            bottomPanel.showResult(sql, result, connName);
-            bottomPanel.setBatchExecuting(false);
-            statusBar.setMessage(result.getSummary());
-            editor.markExecResult(execLine, result.isSuccess());
-            rightPanel.addHistoryEntry(sql, result.isSuccess(), result.elapsedMs,
-                LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
-        } catch (Exception e) {
-            editor.clearExecResults();
-            bottomPanel.appendMessage("执行失败: " + e.getMessage());
-            bottomPanel.appendMessage("━━━━━━━━━━━━━━━━━━━━━━━━━");
-            statusBar.setMessage("执行失败: " + e.getMessage());
-            bottomPanel.showError(e.getMessage());
-            editor.markExecResult(execLine, false);
-            rightPanel.addHistoryEntry(sql, false, 0,
-                LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
-        } finally {
-            if (closeConn2 && conn2 != null) {
-                try { conn2.close(); } catch (java.sql.SQLException ignored) {}
+            String sql = editor.getCurrentStatement();
+            int execLine = editor.getLastExecLine();
+            if (sql == null || sql.isBlank()) {
+                JOptionPane.showMessageDialog(this, "请输入 SQL 语句");
+                return;
             }
+            executeSingle(editor, connName, sql, execLine, append, qto);
+        }
+    }
+
+    private void executeSingle(SqlEditorPanel editor, String connName, String sql, int execLine, boolean append, int qto) {
+        editor.clearExecResults();
+        bottomPanel.appendMessage("━━━ SQL 执行 ━━━━━━━━━━━━━━━━━━━━━━━━━");
+        bottomPanel.appendMessage("执行 SQL: " + sql);
+        new SwingWorker<SingleResult, Void>() {
+            @Override protected SingleResult doInBackground() {
+                try (Connection conn = connectionManager.getConnection(connName)) {
+                    var executor = new com.kylin.plsql.core.db.SqlExecutor();
+                    var result = executor.execute(conn, sql, qto);
+                    return new SingleResult(result, null);
+                } catch (Exception e) {
+                    return new SingleResult(null, e.getMessage());
+                }
+            }
+            @Override protected void done() {
+                try {
+                    SingleResult sr = get();
+                    if (sr.error != null) {
+                        editor.clearExecResults();
+                        bottomPanel.appendMessage("执行失败: " + sr.error);
+                        bottomPanel.appendMessage("━━━━━━━━━━━━━━━━━━━━━━━━━");
+                        statusBar.setMessage("执行失败: " + sr.error);
+                        bottomPanel.showError(sr.error);
+                        editor.markExecResult(execLine, false);
+                        sqlHistory.add(sql);
+                        rightPanel.addHistoryEntry(sql, false, 0,
+                            LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+                        return;
+                    }
+                    var result = sr.result;
+                    bottomPanel.appendMessage("执行耗时: " + result.elapsedMs + "ms");
+                    bottomPanel.appendMessage("结果: " + result.getSummary());
+                    bottomPanel.appendMessage("━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    bottomPanel.setBatchExecuting(append);
+                    bottomPanel.showResult(sql, result, connName);
+                    bottomPanel.setBatchExecuting(false);
+                    statusBar.setMessage(result.getSummary());
+                    editor.markExecResult(execLine, result.isSuccess());
+                    sqlHistory.add(sql);
+                    rightPanel.addHistoryEntry(sql, result.isSuccess(), result.elapsedMs,
+                        LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+                } catch (Exception e) {
+                    editor.clearExecResults();
+                    bottomPanel.appendMessage("执行失败: " + e.getMessage());
+                    bottomPanel.appendMessage("━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    statusBar.setMessage("执行失败: " + e.getMessage());
+                    bottomPanel.showError(e.getMessage());
+                    editor.markExecResult(execLine, false);
+                    sqlHistory.add(sql);
+                    rightPanel.addHistoryEntry(sql, false, 0,
+                        LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+                }
+            }
+        }.execute();
+    }
+
+    private static class StmtResult {
+        final com.kylin.plsql.core.db.SqlExecutor.SqlResult result;
+        final String stmt;
+        final int line;
+        StmtResult(com.kylin.plsql.core.db.SqlExecutor.SqlResult result, String stmt, int line) {
+            this.result = result; this.stmt = stmt; this.line = line;
+        }
+    }
+
+    private static class SingleResult {
+        final com.kylin.plsql.core.db.SqlExecutor.SqlResult result;
+        final String error;
+        SingleResult(com.kylin.plsql.core.db.SqlExecutor.SqlResult result, String error) {
+            this.result = result; this.error = error;
         }
     }
 
     private void formatSql() {
         Component comp = editorTabs.getSelectedComponent();
         if (comp == null) return;
-        String sql = null;
         boolean isSqlEditor = comp instanceof SqlEditorPanel;
+        String sql;
         if (isSqlEditor) {
             SqlEditorPanel editor = (SqlEditorPanel) comp;
-            sql = editor.getSelectedText();
-            if (sql == null || sql.isBlank()) sql = editor.getText();
+            String sel = editor.getSelectedText();
+            sql = (sel != null && !sel.isBlank()) ? sel : editor.getText();
+            if (sql.isBlank()) return;
+        } else {
+            return;
         }
-        if (sql == null || sql.isBlank()) return;
-        try {
-            String engineName = com.kylin.plsql.core.format.EngineManager.getCurrent().getName();
-            String formatted = com.kylin.plsql.core.format.EngineManager.format(sql);
-            if (isSqlEditor) {
-                ((SqlEditorPanel) comp).replaceSelection(formatted);
+        Component compRef = comp;
+        new SwingWorker<String, Void>() {
+            @Override protected String doInBackground() throws Exception {
+                return com.kylin.plsql.core.format.EngineManager.format(sql);
             }
-            statusBar.setMessage("格式化完成 (" + engineName + ")");
-            ToastManager.show(editorTabs, "格式化完成 - " + engineName, 3000);
-        } catch (Exception ex) {
-            statusBar.setMessage("格式化失败");
-            ToastManager.show(editorTabs, "格式化失败: " + ex.getMessage(), 4000);
-        }
+            @Override protected void done() {
+                try {
+                    String formatted = get();
+                    String engineName = com.kylin.plsql.core.format.EngineManager.getCurrent().getName();
+                    if (isSqlEditor) {
+                        ((SqlEditorPanel) compRef).replaceSelection(formatted);
+                    }
+                    statusBar.setMessage("格式化完成 (" + engineName + ")");
+                    ToastManager.show(editorTabs, "格式化完成 - " + engineName, 3000);
+                } catch (Exception ex) {
+                    statusBar.setMessage("格式化失败");
+                    ToastManager.show(editorTabs, "格式化失败: " + ex.getMessage(), 4000);
+                }
+            }
+        }.execute();
     }
 
     private SqlDialect getCurrentDialect(Component comp) {
@@ -1966,40 +2066,59 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             return;
         }
 
-        String sql = editor.getSelectedText();
-        if (sql == null || sql.isBlank()) sql = editor.getText();
+        String sel = editor.getSelectedText();
+        String sql = (sel != null && !sel.isBlank()) ? sel : editor.getText();
         int qto = connectionManager.getQueryTimeout(connName);
-        boolean closeConn = connectionManager.isAutoCommit(connName);
-        java.sql.Connection conn = null;
-        try {
-            conn = connectionManager.getConnection(connName);
-            var executor = new com.kylin.plsql.core.db.SqlExecutor();
-            var result = executor.execute(conn, "EXPLAIN PLAN FOR " + sql, qto);
-            if (!result.isSuccess()) {
-                bottomPanel.showError("执行计划失败: " + result.error);
-                return;
-            }
-            var planResult = executor.execute(conn, "SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY)");
-            if (planResult.isSuccess()) {
-                bottomPanel.showResult("SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY)", planResult, connName);
-                statusBar.setMessage("执行计划完成");
-            } else {
-                var fallback = executor.execute(conn,
-                    "SELECT OPERATION, OPTIONS, OBJECT_NAME, COST, CARDINALITY, BYTES " +
-                    "FROM PLAN_TABLE ORDER BY ID");
-                if (fallback.isSuccess() && !fallback.rows.isEmpty()) {
-                    bottomPanel.showResult("SELECT OPERATION, OPTIONS, OBJECT_NAME, COST, CARDINALITY, BYTES FROM PLAN_TABLE ORDER BY ID", fallback, connName);
-                    statusBar.setMessage("执行计划(PLAN_TABLE)");
-                } else {
-                    bottomPanel.showError("执行计划失败: " + planResult.error);
+
+        new SwingWorker<ExplainPlanResult, Void>() {
+            @Override protected ExplainPlanResult doInBackground() {
+                boolean closeConn = connectionManager.isAutoCommit(connName);
+                try (java.sql.Connection conn = connectionManager.getConnection(connName)) {
+                    var executor = new com.kylin.plsql.core.db.SqlExecutor();
+                    var result = executor.execute(conn, "EXPLAIN PLAN FOR " + sql, qto);
+                    if (!result.isSuccess()) {
+                        return new ExplainPlanResult(null, "执行计划失败: " + result.error);
+                    }
+                    var planResult = executor.execute(conn, "SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY)");
+                    if (planResult.isSuccess()) {
+                        return new ExplainPlanResult(planResult, "SELECT * FROM TABLE(DBMS_XPLAN.DISPLAY)");
+                    }
+                    var fallback = executor.execute(conn,
+                        "SELECT OPERATION, OPTIONS, OBJECT_NAME, COST, CARDINALITY, BYTES " +
+                        "FROM PLAN_TABLE ORDER BY ID");
+                    if (fallback.isSuccess() && !fallback.rows.isEmpty()) {
+                        return new ExplainPlanResult(fallback, "SELECT OPERATION, OPTIONS, OBJECT_NAME, COST, CARDINALITY, BYTES FROM PLAN_TABLE ORDER BY ID");
+                    }
+                    return new ExplainPlanResult(null, "执行计划失败: " + planResult.error);
+                } catch (Exception e) {
+                    return new ExplainPlanResult(null, "执行计划失败: " + e.getMessage());
                 }
             }
-        } catch (Exception e) {
-            statusBar.setMessage("执行计划失败: " + e.getMessage());
-        } finally {
-            if (closeConn && conn != null) {
-                try { conn.close(); } catch (java.sql.SQLException ignored) {}
+            @Override protected void done() {
+                try {
+                    ExplainPlanResult r = get();
+                    if (r.result != null) {
+                        bottomPanel.showResult(r.sql, r.result, connName);
+                        statusBar.setMessage("执行计划完成");
+                    } else {
+                        bottomPanel.showError(r.error);
+                    }
+                } catch (Exception e) {
+                    statusBar.setMessage("执行计划失败: " + e.getMessage());
+                }
             }
+        }.execute();
+    }
+
+    private static class ExplainPlanResult {
+        final com.kylin.plsql.core.db.SqlExecutor.SqlResult result;
+        final String sql;
+        final String error;
+        ExplainPlanResult(com.kylin.plsql.core.db.SqlExecutor.SqlResult result, String sql) {
+            this.result = result; this.sql = sql; this.error = null;
+        }
+        ExplainPlanResult(String error) {
+            this.result = null; this.sql = null; this.error = error;
         }
     }
 
@@ -2146,6 +2265,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
     private void showEditorTabs() {
         CardLayout cl = (CardLayout) editorPanel.getLayout();
         cl.show(editorPanel, "tabs");
+        editorPanel.revalidate();
     }
 
     void saveWorkspace() {
@@ -2329,53 +2449,71 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                 return;
             }
         }
-        try {
-            if (!new File(filePath).exists()) return;
-            String content = Files.readString(Path.of(filePath));
-            log.debug("openOrSwitchToFile: {} bytes read from {}", content.length(), filePath);
-            String objType = detectObjectType(content);
-            log.debug("openOrSwitchToFile: detected object type = {}", objType);
-            if (objType != null) {
-                log.debug("openOrSwitchToFile: opening in SourceViewerPanel (type={})", objType);
-                SourceViewerPanel viewer = new SourceViewerPanel(connectionManager, null, null,
-                    fileName, objType, content);
-                showEditorTabs();
-                editorTabs.addTab(viewer.getTabTitle(), viewer);
-                int idx = editorTabs.indexOfComponent(viewer);
-                initTabComponent(idx, viewer);
-                editorTabs.setSelectedComponent(viewer);
-                viewer.getTextArea().requestFocusInWindow();
-                saveWorkspace();
-            } else {
-                log.debug("openOrSwitchToFile: opening in SqlEditorPanel (no object type detected)");
-                SqlEditorPanel editor = new SqlEditorPanel(connectionManager, new File(filePath).getName());
-                editor.getTextArea().setSyntaxEditingStyle("text/plsql");
-                editor.setText(content);
-                editor.setFilePath(filePath);
-                editor.resetModified();
-                var connections = configManager.loadConnections();
-                editor.setConnections(connections);
-                editor.setOnExecute(() -> executeActiveEditor());
-                editor.setOnAppendExecute(() -> executeAppendEditor());
-                editor.setOnFormat(this::formatSql);
-                editor.setOnStatusMessage(msg -> {
-                    bottomPanel.showToast(msg);
-                    statusBar.setStatusText(msg);
-                });
-                editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
-                editor.setOnConnectionChange(() -> bottomPanel.refreshConnTree());
-                showEditorTabs();
-                editorTabs.addTab(editor.getTabTitle(), editor);
-                int idx = editorTabs.indexOfComponent(editor);
-                initTabComponent(idx, editor);
-                editorTabs.setSelectedComponent(editor);
-                editor.getTextArea().requestFocusInWindow();
-                installCaretListener(editor);
-                saveWorkspace();
+        new SwingWorker<FileContent, Void>() {
+            @Override protected FileContent doInBackground() {
+                try {
+                    if (!new File(filePath).exists()) return null;
+                    String content = Files.readString(Path.of(filePath));
+                    String objType = detectObjectType(content);
+                    return new FileContent(content, objType);
+                } catch (IOException e) {
+                    return new FileContent(e);
+                }
             }
-        } catch (IOException e) {
-            JOptionPane.showMessageDialog(this, "打开文件失败:\n" + e.getMessage());
-        }
+            @Override protected void done() {
+                try {
+                    FileContent fc = get();
+                    if (fc == null) return;
+                    if (fc.error != null) {
+                        JOptionPane.showMessageDialog(MainFrame.this, "打开文件失败:\n" + fc.error.getMessage());
+                        return;
+                    }
+                    String content = fc.content;
+                    String objType = fc.objType;
+                    log.debug("openOrSwitchToFile: {} bytes read from {}, objType={}", content.length(), filePath, objType);
+                    if (objType != null) {
+                        log.debug("openOrSwitchToFile: opening in SourceViewerPanel (type={})", objType);
+                        SourceViewerPanel viewer = new SourceViewerPanel(connectionManager, null, null,
+                            fileName, objType, content);
+                        showEditorTabs();
+                        editorTabs.addTab(viewer.getTabTitle(), viewer);
+                        int idx = editorTabs.indexOfComponent(viewer);
+                        initTabComponent(idx, viewer);
+                        editorTabs.setSelectedComponent(viewer);
+                        viewer.getTextArea().requestFocusInWindow();
+                        saveWorkspace();
+                    } else {
+                        log.debug("openOrSwitchToFile: opening in SqlEditorPanel (no object type detected)");
+                        SqlEditorPanel editor = new SqlEditorPanel(connectionManager, new File(filePath).getName());
+                        editor.getTextArea().setSyntaxEditingStyle("text/plsql");
+                        editor.setText(content);
+                        editor.setFilePath(filePath);
+                        editor.resetModified();
+                        var connections = configManager.loadConnections();
+                        editor.setConnections(connections);
+                        editor.setOnExecute(() -> executeActiveEditor());
+                        editor.setOnAppendExecute(() -> executeAppendEditor());
+                        editor.setOnFormat(MainFrame.this::formatSql);
+                        editor.setOnStatusMessage(msg -> {
+                            bottomPanel.showToast(msg);
+                            statusBar.setStatusText(msg);
+                        });
+                        editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
+                        editor.setOnConnectionChange(() -> bottomPanel.refreshConnTree());
+                        showEditorTabs();
+                        editorTabs.addTab(editor.getTabTitle(), editor);
+                        int idx = editorTabs.indexOfComponent(editor);
+                        initTabComponent(idx, editor);
+                        editorTabs.setSelectedComponent(editor);
+                        editor.getTextArea().requestFocusInWindow();
+                        installCaretListener(editor);
+                        saveWorkspace();
+                    }
+                } catch (Exception e) {
+                    log.error("openOrSwitchToFile failed", e);
+                }
+            }
+        }.execute();
     }
 
     public ConnectionManager getConnectionManager() { return connectionManager; }

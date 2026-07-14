@@ -333,18 +333,25 @@ public class ConnectionDialog extends JDialog {
         ci.setPassword(new String(passwordField.getPassword()));
 
         setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
-        try {
-            boolean ok = connectionManager.testConnection(ci);
-            if (ok) {
-                JOptionPane.showMessageDialog(this, "连接成功！");
-            } else {
-                JOptionPane.showMessageDialog(this, "连接失败，请检查参数");
+        new SwingWorker<Boolean, Void>() {
+            @Override protected Boolean doInBackground() {
+                return connectionManager.testConnection(ci);
             }
-        } catch (Exception e) {
-            JOptionPane.showMessageDialog(this, "连接失败: " + e.getMessage());
-        } finally {
-            setCursor(Cursor.getDefaultCursor());
-        }
+            @Override protected void done() {
+                try {
+                    boolean ok = get();
+                    if (ok) {
+                        JOptionPane.showMessageDialog(ConnectionDialog.this, "连接成功！");
+                    } else {
+                        JOptionPane.showMessageDialog(ConnectionDialog.this, "连接失败，请检查参数");
+                    }
+                } catch (Exception e) {
+                    JOptionPane.showMessageDialog(ConnectionDialog.this, "连接失败: " + e.getMessage());
+                } finally {
+                    setCursor(Cursor.getDefaultCursor());
+                }
+            }
+        }.execute();
     }
 
     public String getSavedConnName() { return savedConnName; }

@@ -1,72 +1,121 @@
 package com.kylin.plsql.ui.dialog.tools;
 
 import com.kylin.plsql.ui.dialog.common.BaseToolDialog;
-
-import com.kylin.plsql.ui.component.common.ToastManager;
+import com.kylin.plsql.core.format.FormatOptions;
+import com.kylin.plsql.core.format.EngineManager;
+import com.kylin.plsql.core.format.SqlFormatterEngine;
+import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
+import org.fife.ui.rsyntaxtextarea.Theme;
 
 import javax.swing.*;
+import javax.swing.text.JTextComponent;
 import java.awt.*;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
+import java.io.InputStream;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** SQL utility dialog: string escaping, IN clause conversion, unescaping */
 public class SqlToolsDialog extends BaseToolDialog {
     private final JTextArea inputArea;
     private final JTextArea outputArea;
+    private final RSyntaxTextArea fmtInputArea;
+    private final RSyntaxTextArea fmtOutputArea;
     private final JTabbedPane tabbedPane;
     private final JSplitPane[] splitPanes;
+    private final JSplitPane fmtSplitPane;
     private final JToggleButton layoutToggleBtn;
     private final JLabel descLabel;
+    private final JComboBox<SqlFormatterEngine> engineCombo;
+    private final JCheckBox quoteCb;
+    private final JButton toInBtn;
+    private final JButton fromInBtn;
+    private final JButton formatBtn;
+    private final JPanel centerRow;
 
-    public SqlToolsDialog(Frame owner) {
+    private static final String SAMPLE_KEY = "sampleText";
+
+    public SqlToolsDialog(Frame owner, FormatOptions formatOptions, int initialTab) {
         super(owner, "SQL 工具");
         setSizeRatio(0.7);
         centerOnOwner();
 
-        inputArea = new JTextArea();
+        inputArea = new JTextArea(5, 40);
         inputArea.setFont(monoFont());
 
-        outputArea = new JTextArea();
+        outputArea = new JTextArea(5, 40);
         outputArea.setFont(monoFont());
-        outputArea.setEditable(false);
+        outputArea.setEditable(true);
+
+        fmtInputArea = new RSyntaxTextArea(5, 40);
+        fmtInputArea.setSyntaxEditingStyle("text/plsql");
+        fmtInputArea.setCodeFoldingEnabled(true);
+
+        fmtOutputArea = new RSyntaxTextArea(5, 40);
+        fmtOutputArea.setSyntaxEditingStyle("text/plsql");
+        fmtOutputArea.setCodeFoldingEnabled(true);
+
+        installSample(inputArea, "value1\nvalue2\nvalue3");
+        installSample(outputArea, "-- 结果将显示在此处");
+        installSample(fmtInputArea,
+            "select a.id,b.name from users a\nleft join orders b on a.id=b.user_id\nwhere b.status='ACTIVE'\norder by b.create_time desc");
+        installSample(fmtOutputArea, "-- 格式化后的 SQL 将显示在此处");
 
         tabbedPane = new JTabbedPane();
 
-        JPanel escapePanel = buildEscapePanel();
         JPanel inClausePanel = buildInClausePanel();
+        JPanel formatPanel = buildFormatPanel();
+        fmtSplitPane = (JSplitPane) formatPanel.getComponent(0);
         splitPanes = new JSplitPane[]{
-                (JSplitPane) escapePanel.getComponent(0),
-                (JSplitPane) inClausePanel.getComponent(0)
+                (JSplitPane) inClausePanel.getComponent(0),
+                fmtSplitPane
         };
 
-        tabbedPane.addTab("字符转义", escapePanel);
         tabbedPane.addTab("IN 子句转换", inClausePanel);
-        tabbedPane.addChangeListener(e -> updateDesc());
+        tabbedPane.addTab("SQL 格式化", formatPanel);
 
         layoutToggleBtn = new JToggleButton("⇔ 垂直布局");
         layoutToggleBtn.addActionListener(e -> toggleLayout());
 
         descLabel = new JLabel();
-        updateDesc();
 
-        JButton escapeBtn = new JButton("SQL 转义");
-        escapeBtn.addActionListener(e -> outputArea.setText(escapeSql(inputArea.getText())));
-        JButton unescapeBtn = new JButton("SQL 反转义");
-        unescapeBtn.addActionListener(e -> outputArea.setText(unescapeSql(inputArea.getText())));
-        JCheckBox quoteCb = new JCheckBox("带引号");
+        quoteCb = new JCheckBox("带引号");
         quoteCb.setSelected(true);
-        JButton toInBtn = new JButton("> IN 子句");
+        toInBtn = new JButton("> IN 子句");
         toInBtn.addActionListener(e -> outputArea.setText(toInClause(inputArea.getText(), quoteCb.isSelected())));
-        JButton fromInBtn = new JButton("< 还原");
+        fromInBtn = new JButton("< 还原");
         fromInBtn.addActionListener(e -> outputArea.setText(fromInClause(inputArea.getText())));
 
+        engineCombo = new JComboBox<>();
+        for (SqlFormatterEngine e : EngineManager.getEngines()) {
+            engineCombo.addItem(e);
+        }
+        engineCombo.setSelectedItem(EngineManager.getCurrent());
+        engineCombo.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value,
+                    int index, boolean isSelected, boolean cellHasFocus) {
+                Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof SqlFormatterEngine e) setText(e.getDisplayName());
+                return c;
+            }
+        });
+        engineCombo.addActionListener(e -> EngineManager.setCurrent(engineCombo.getSelectedIndex()));
+        engineCombo.setToolTipText("选择格式化引擎");
+
+        formatBtn = new JButton("格式化 (Ctrl+Enter)");
+        formatBtn.addActionListener(e -> doFormat());
+        InputMap im = formatBtn.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+        ActionMap am = formatBtn.getActionMap();
+        im.put(KeyStroke.getKeyStroke("ctrl ENTER"), "fmt");
+        am.put("fmt", new AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { doFormat(); }
+        });
+
         JPanel southPanel = new JPanel(new BorderLayout(4, 0));
-        JPanel centerRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 4, 2));
-        centerRow.add(escapeBtn);
-        centerRow.add(unescapeBtn);
-        centerRow.add(quoteCb);
-        centerRow.add(toInBtn);
-        centerRow.add(fromInBtn);
+        centerRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 4, 2));
+        tabbedPane.addChangeListener(e -> onTabChanged());
+        onTabChanged();
         southPanel.add(descLabel, BorderLayout.WEST);
         southPanel.add(centerRow, BorderLayout.CENTER);
         southPanel.add(layoutToggleBtn, BorderLayout.EAST);
@@ -75,22 +124,35 @@ public class SqlToolsDialog extends BaseToolDialog {
         add(tabbedPane, BorderLayout.CENTER);
         add(southPanel, BorderLayout.SOUTH);
         applyTheme();
+        tabbedPane.setSelectedIndex(initialTab);
+
+        SwingUtilities.invokeLater(() -> tabbedPane.requestFocusInWindow());
     }
 
-    private JPanel buildEscapePanel() {
-        JScrollPane inputScroll = new JScrollPane(inputArea);
-        inputScroll.setBorder(BorderFactory.createTitledBorder("输入"));
-        JScrollPane outputScroll = new JScrollPane(outputArea);
-        outputScroll.setBorder(BorderFactory.createTitledBorder("结果"));
-
-        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
-                inputScroll, outputScroll);
-        split.setResizeWeight(0.5);
-        split.setContinuousLayout(true);
-
-        JPanel panel = new JPanel(new BorderLayout());
-        panel.add(split, BorderLayout.CENTER);
-        return panel;
+    private void installSample(JTextComponent comp, String sample) {
+        comp.putClientProperty(SAMPLE_KEY, sample);
+        comp.setText(sample);
+        comp.setForeground(theme.resolve("fg.muted"));
+        comp.addFocusListener(new FocusAdapter() {
+            @Override
+            public void focusGained(FocusEvent e) {
+                String saved = (String) comp.getClientProperty(SAMPLE_KEY);
+                if (saved != null && saved.equals(comp.getText())) {
+                    comp.setText("");
+                    comp.setForeground(theme.resolve("fg.main"));
+                }
+            }
+            @Override
+            public void focusLost(FocusEvent e) {
+                if (comp.getText().isEmpty()) {
+                    String saved = (String) comp.getClientProperty(SAMPLE_KEY);
+                    if (saved != null) {
+                        comp.setText(saved);
+                        comp.setForeground(theme.resolve("fg.muted"));
+                    }
+                }
+            }
+        });
     }
 
     private JPanel buildInClausePanel() {
@@ -98,23 +160,71 @@ public class SqlToolsDialog extends BaseToolDialog {
         inputScroll.setBorder(BorderFactory.createTitledBorder("输入"));
         JScrollPane outputScroll = new JScrollPane(outputArea);
         outputScroll.setBorder(BorderFactory.createTitledBorder("结果"));
-
         JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
                 inputScroll, outputScroll);
         split.setResizeWeight(0.5);
         split.setContinuousLayout(true);
-
         JPanel panel = new JPanel(new BorderLayout());
         panel.add(split, BorderLayout.CENTER);
         return panel;
     }
 
+    private JPanel buildFormatPanel() {
+        JScrollPane inputScroll = new JScrollPane(fmtInputArea);
+        inputScroll.setBorder(BorderFactory.createTitledBorder("输入 SQL"));
+        JScrollPane outputScroll = new JScrollPane(fmtOutputArea);
+        outputScroll.setBorder(BorderFactory.createTitledBorder("格式化结果"));
+        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
+                inputScroll, outputScroll);
+        split.setResizeWeight(0.5);
+        split.setContinuousLayout(true);
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.add(split, BorderLayout.CENTER);
+        return panel;
+    }
+
+    private void doFormat() {
+        String input = fmtInputArea.getText();
+        String saved = (String) fmtInputArea.getClientProperty(SAMPLE_KEY);
+        if (saved != null && saved.equals(input)) return;
+        if (input == null || input.trim().isEmpty()) return;
+        try {
+            String result = EngineManager.format(input);
+            fmtOutputArea.setText(result);
+            fmtOutputArea.setForeground(theme.resolve("fg.main"));
+        } catch (Exception ex) {
+            fmtOutputArea.setText("格式化失败: " + ex.getMessage());
+        }
+    }
+
+    private void onTabChanged() {
+        updateDesc();
+        updateToolbar();
+        tabbedPane.requestFocusInWindow();
+    }
+
+    private void updateToolbar() {
+        int idx = tabbedPane.getSelectedIndex();
+        centerRow.removeAll();
+        if (idx == 1) {
+            centerRow.add(new JLabel("引擎:"));
+            centerRow.add(engineCombo);
+            centerRow.add(formatBtn);
+        } else {
+            centerRow.add(quoteCb);
+            centerRow.add(toInBtn);
+            centerRow.add(fromInBtn);
+        }
+        centerRow.revalidate();
+        centerRow.repaint();
+    }
+
     private void updateDesc() {
         int idx = tabbedPane.getSelectedIndex();
         if (idx == 0) {
-            descLabel.setText("功能说明：SQL 字符中的单引号转义与反转义");
-        } else {
             descLabel.setText("功能说明：多行值与 IN 子句格式互相转换");
+        } else {
+            descLabel.setText("功能说明：SQL 格式化（支持多引擎切换）");
         }
     }
 
@@ -125,27 +235,44 @@ public class SqlToolsDialog extends BaseToolDialog {
         split.setOrientation(horizontal
                 ? JSplitPane.VERTICAL_SPLIT
                 : JSplitPane.HORIZONTAL_SPLIT);
+        split.setResizeWeight(0.5);
         layoutToggleBtn.setText(horizontal ? "⇕ 水平布局" : "⇔ 垂直布局");
     }
 
     @Override
     protected void applyTheme() {
         super.applyTheme();
-        inputArea.setBackground(theme.resolve("bg.editor"));
-        inputArea.setForeground(theme.resolve("fg.main"));
-        outputArea.setBackground(theme.resolve("bg.editor"));
-        outputArea.setForeground(theme.resolve("fg.main"));
-        descLabel.setForeground(theme.resolve("fg.muted"));
+        Color editorBg = theme.resolve("bg.editor");
+        Color fg = theme.resolve("fg.main");
+        Color muted = theme.resolve("fg.muted");
+        inputArea.setBackground(editorBg);
+        inputArea.setForeground(fg);
+        outputArea.setBackground(editorBg);
+        outputArea.setForeground(fg);
+        descLabel.setForeground(muted);
+        applyRstaTheme(fmtInputArea);
+        applyRstaTheme(fmtOutputArea);
+        if (fmtSplitPane != null) fmtSplitPane.setBackground(theme.resolve("bg.panel"));
     }
 
-    static String escapeSql(String input) {
-        if (input == null || input.isEmpty()) return "";
-        return input.replace("'", "''");
-    }
-
-    static String unescapeSql(String input) {
-        if (input == null || input.isEmpty()) return "";
-        return input.replace("''", "'");
+    private void applyRstaTheme(RSyntaxTextArea area) {
+        Color bg = theme.resolve("bg.panel");
+        boolean dark = bg.getRed() + bg.getGreen() + bg.getBlue() < 382;
+        String path = dark
+                ? "/org/fife/ui/rsyntaxtextarea/themes/dark.xml"
+                : "/org/fife/ui/rsyntaxtextarea/themes/default.xml";
+        try (InputStream is = getClass().getResourceAsStream(path)) {
+            if (is != null) {
+                Theme.load(is).apply(area);
+            }
+        } catch (Exception ignored) {
+            area.setBackground(theme.resolve("bg.editor"));
+            area.setForeground(theme.resolve("fg.main"));
+        }
+        String saved = (String) area.getClientProperty(SAMPLE_KEY);
+        if (saved != null && saved.equals(area.getText())) {
+            area.setForeground(theme.resolve("fg.muted"));
+        }
     }
 
     static String toInClause(String input, boolean quoted) {
