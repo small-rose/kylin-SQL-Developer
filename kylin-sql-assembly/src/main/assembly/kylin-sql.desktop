@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Kylin SQL Developer
+Comment=PL/SQL 格式化和数据库开发工具
+Exec=APP_HOME/kylin-sql.sh
+Icon=APP_HOME/logo/kylin_512x512.png
+Terminal=false
+Categories=Development;Database;
+StartupWMClass=KylinPlSqlApp

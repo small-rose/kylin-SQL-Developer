@@ -79,6 +79,8 @@ public class ConnectionDialog extends JDialog {
         // ── Form panel (scrollable) ──
         JPanel formPanel = new JPanel(new GridBagLayout());
         formPanel.setBorder(BorderFactory.createTitledBorder("连接信息"));
+        JScrollPane formScroll = new JScrollPane(formPanel);
+        formScroll.setBorder(null);
         GridBagConstraints c = new GridBagConstraints();
         c.fill = GridBagConstraints.HORIZONTAL;
         c.insets = new Insets(4, 6, 4, 6);
@@ -156,15 +158,6 @@ public class ConnectionDialog extends JDialog {
         serviceField.setToolTipText("SID 或服务名");
         formPanel.add(serviceField, c);
 
-        // ── 分隔线 ──
-        row++;
-        c.gridx = 0; c.gridy = row; c.gridwidth = 2; c.weightx = 0;
-        c.insets = new Insets(8, 6, 8, 6);
-        JSeparator sep = new JSeparator();
-        sep.setForeground(new Color(0x555555));
-        formPanel.add(sep, c);
-        c.insets = new Insets(4, 6, 4, 6);
-
         // ── 用户名 (required) ──
         row++;
         c.gridx = 0; c.gridy = row; c.gridwidth = 1; c.weightx = 0;
@@ -213,10 +206,17 @@ public class ConnectionDialog extends JDialog {
         actionPanel.add(saveBtn);
         actionPanel.add(closeBtn);
 
-        c.gridx = 0; c.gridy = row; c.gridwidth = 2;
+        c.gridx = 0; c.gridy = row; c.gridwidth = 2; c.weighty = 0;
         formPanel.add(actionPanel, c);
 
-        add(formPanel, BorderLayout.CENTER);
+        // blank filler row to push everything to top
+        row++;
+        c.fill = GridBagConstraints.BOTH;
+        c.gridx = 0; c.gridy = row; c.gridwidth = 2; c.weightx = 0; c.weighty = 1;
+        formPanel.add(Box.createGlue(), c);
+        c.fill = GridBagConstraints.HORIZONTAL;
+
+        add(formScroll, BorderLayout.CENTER);
 
         loadConnections();
         if (selectConnName != null && !selectConnName.isEmpty()) {

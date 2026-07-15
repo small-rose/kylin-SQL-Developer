@@ -26,8 +26,25 @@
             <includes>
                 <include>kylin-sql.sh</include>
                 <include>kylin-sql.bat</include>
+                <include>kylin-sql.vbs</include>
             </includes>
             <fileMode>0755</fileMode>
+        </fileSet>
+        <!-- 桌面集成 -->
+        <fileSet>
+            <directory>src/main/assembly</directory>
+            <outputDirectory>/</outputDirectory>
+            <includes>
+                <include>kylin-sql.desktop</include>
+                <include>install-desktop.sh</include>
+                <include>install-shortcut.vbs</include>
+            </includes>
+            <fileMode>0755</fileMode>
+        </fileSet>
+        <!-- 图标 -->
+        <fileSet>
+            <directory>src/main/assembly/logo</directory>
+            <outputDirectory>/logo</outputDirectory>
         </fileSet>
     </fileSets>
 </assembly>

@@ -1,5 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
+
 set "APP_HOME=%~dp0"
 if "%APP_HOME:~-1%"=="\" set "APP_HOME=%APP_HOME:~0,-1%"
 set BEST_JAVA=
@@ -31,13 +32,8 @@ set BEST_JAVA=!_BJ!
 
 if "%JVM_OPTIONS%"=="" set "JVM_OPTIONS=-Xms256m -Xmx1024m -Dawt.useSystemAAFontSettings=on -Dsun.java2d.dpiaware=true"
 
-echo Using: !BEST_JAVA! (version !BEST_VER!)
-"!BEST_JAVA!" %JVM_OPTIONS% -Dkylin.sql.home="%APP_HOME%" -Duser.home="%USERPROFILE%" -cp "%APP_HOME%\lib\*" com.kylin.plsql.ui.KylinPlSqlApp
-
-if !ERRORLEVEL! NEQ 0 (
-    echo Application exited with code: !ERRORLEVEL!
-    pause
-)
+set "JAVAW=!BEST_JAVA:java.exe=javaw.exe!"
+start "" "!JAVAW!" %JVM_OPTIONS% -Dkylin.sql.home="%APP_HOME%" -Duser.home="%USERPROFILE%" -cp "%APP_HOME%\lib\*" com.kylin.plsql.ui.KylinPlSqlApp
 exit /b 0
 
 :trim
