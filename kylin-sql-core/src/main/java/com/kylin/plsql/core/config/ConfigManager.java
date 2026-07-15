@@ -2,7 +2,9 @@ package com.kylin.plsql.core.config;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonSyntaxException;
 import com.google.gson.reflect.TypeToken;
+import com.google.gson.stream.JsonReader;
 import com.kylin.plsql.core.db.ConnectionInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,6 +52,7 @@ public class ConfigManager {
         public java.util.List<String> treeExpandedPaths;      // flat list of expanded tree path strings
         public Map<String, List<String>> hiddenSchemas;        // connName → hidden schema names
         public java.util.List<String> sqlHistory;              // SQL execution history
+        public int currentEngineIndex;                         // selected formatting engine index
     }
 
     public static class SavedFileRecord {
@@ -144,12 +147,27 @@ public class ConfigManager {
     }
 
     public void saveWorkspace(WorkspaceState state) {
-        File file = configPath.resolve(WORKSPACE_FILE).toFile();
-        try (Writer w = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8)) {
+        Path target = configPath.resolve(WORKSPACE_FILE);
+        Path tmp = configPath.resolve(WORKSPACE_FILE + ".tmp");
+        try (Writer w = new OutputStreamWriter(new FileOutputStream(tmp.toFile()), StandardCharsets.UTF_8)) {
             gson.toJson(state, w);
+            w.flush();
+            try {
+                Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+                return;
+            } catch (IOException ignored) {}
+            try {
+                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+                return;
+            } catch (IOException ignored) {}
+            // final fallback: write directly (antivirus file lock workaround)
+            try (Writer w2 = new OutputStreamWriter(new FileOutputStream(target.toFile()), StandardCharsets.UTF_8)) {
+                gson.toJson(state, w2);
+            }
         } catch (IOException e) {
-            log.error("保存工作空间失败", e);
+            log.warn("保存工作空间失败: {}", e.getMessage());
         }
+        try { Files.deleteIfExists(tmp); } catch (IOException ignored) {}
     }
 
     public WorkspaceState loadWorkspace() {
@@ -160,6 +178,16 @@ public class ConfigManager {
             return s != null ? s : new WorkspaceState();
         } catch (IOException e) {
             log.error("加载工作空间失败", e);
+            return new WorkspaceState();
+        } catch (JsonSyntaxException e) {
+            log.warn("工作空间文件损坏: {}, 尝试 lenient 模式修复", e.getMessage());
+            try (Reader r2 = new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8)) {
+                JsonReader jr = new JsonReader(r2);
+                jr.setLenient(true);
+                WorkspaceState s = gson.fromJson(jr, WorkspaceState.class);
+                if (s != null) return s;
+            } catch (Exception ignored) {}
+            log.warn("工作空间文件 {} 已损坏且无法自动修复, 请手动删除此文件后重启应用", file.getAbsolutePath());
             return new WorkspaceState();
         }
     }
@@ -269,6 +297,26 @@ public class ConfigManager {
         setPreference("autoSavePath", path);
     }
 
+    // ── Splash screen ──
+
+    public int getSplashMinDuration() {
+        try { return Integer.parseInt(getPreference("splashMinDuration", "2000")); }
+        catch (Exception e) { return 2000; }
+    }
+
+    public void setSplashMinDuration(int ms) {
+        setPreference("splashMinDuration", String.valueOf(ms));
+    }
+
+    public int getSplashMaxDuration() {
+        try { return Integer.parseInt(getPreference("splashMaxDuration", "10000")); }
+        catch (Exception e) { return 10000; }
+    }
+
+    public void setSplashMaxDuration(int ms) {
+        setPreference("splashMaxDuration", String.valueOf(ms));
+    }
+
     public java.util.List<String> getOpenFolders() {
         String json = getPreference("openFolders", "[]");
         try {
@@ -294,7 +342,16 @@ public class ConfigManager {
             try {
                 Type type = new TypeToken<List<DbMetadataConfig>>() {}.getType();
                 List<DbMetadataConfig> list = gson.fromJson(json, type);
-                if (list != null) { metadataConfigs = list; return list; }
+                if (list != null) {
+                    // 迁移：如果全部 disabled，重置为默认（现在默认 enabled=true）
+                    boolean anyEnabled = list.stream().anyMatch(DbMetadataConfig::isEnabled);
+                    if (!anyEnabled) {
+                        metadataConfigs = DbMetadataConfig.createDefaults();
+                        saveMetadataConfigs(metadataConfigs);
+                        return metadataConfigs;
+                    }
+                    metadataConfigs = list; return list;
+                }
             } catch (Exception e) {
                 log.warn("解析 metadataConfigs 失败，使用默认配置", e);
             }

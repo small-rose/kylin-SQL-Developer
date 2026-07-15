@@ -320,21 +320,26 @@ public class RightPanel extends JPanel {
                 "永久删除文件",
                 JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
             if (result != JOptionPane.YES_OPTION) return;
-
-            try {
-                File file = new File(rec.filePath);
-                if (file.exists() && !file.delete()) {
-                    JOptionPane.showMessageDialog(RightPanel.this,
-                        "删除文件失败: " + rec.filePath);
-                    return;
+            RightPanel panel = RightPanel.this;
+            new SwingWorker<Void, Void>() {
+                @Override protected Void doInBackground() throws Exception {
+                    File file = new File(rec.filePath);
+                    if (file.exists() && !file.delete()) {
+                        throw new Exception("删除文件失败: " + rec.filePath);
+                    }
+                    return null;
                 }
-            } catch (Exception ex) {
-                JOptionPane.showMessageDialog(RightPanel.this,
-                    "删除文件失败: " + ex.getMessage());
-                return;
-            }
-            configManager.removeFileRecord(rec.filePath);
-            refresh();
+                @Override protected void done() {
+                    try {
+                        get();
+                        configManager.removeFileRecord(rec.filePath);
+                        refresh();
+                    } catch (Exception ex) {
+                        JOptionPane.showMessageDialog(panel,
+                            "删除文件失败: " + ex.getMessage());
+                    }
+                }
+            }.execute();
         }
 
         void applyTheme() {

@@ -14,7 +14,7 @@ import java.nio.charset.StandardCharsets;
 
 public class LogViewerDialog extends JDialog {
     private static final File LOG_FILE = new File(
-            System.getProperty("user.home") + "/.kylin-plsql/logs/kylin-plsql.log");
+            System.getProperty("user.home") + "/.kylin-sql/logs/kylin-sql.log");
 
     private final JTextArea logArea = new JTextArea();
     private final JLabel statusLabel = new JLabel(" ");
@@ -30,12 +30,15 @@ public class LogViewerDialog extends JDialog {
         setSize(800, 500);
         setLocationRelativeTo(owner);
         initUI();
-        reloadLog();
+        new SwingWorker<Void, Void>() {
+            @Override protected Void doInBackground() { reloadLog(); return null; }
+            @Override protected void done() { logArea.setCaretPosition(logArea.getDocument().getLength()); }
+        }.execute();
     }
 
     private void initUI() {
         logArea.setEditable(false);
-        logArea.setFont(new Font("Monospaced", Font.PLAIN, 12));
+        logArea.setFont(new Font("Microsoft YaHei", Font.PLAIN, 12));
         logArea.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
 
         filterField.setToolTipText("过滤关键字 (输入后自动筛选)");

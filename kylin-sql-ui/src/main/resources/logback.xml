@@ -1,14 +1,15 @@
 <configuration scan="true" scanPeriod="30 seconds">
-    <property name="LOG_HOME" value="${user.home}/.kylin-plsql/logs" />
+    <property name="LOG_HOME" value="${user.home}/.kylin-sql/logs" />
     <property name="LOG_PATTERN" value="%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n" />
 
     <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOG_HOME}/kylin-plsql.log</file>
+        <file>${LOG_HOME}/kylin-sql.log</file>
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>${LOG_HOME}/kylin-plsql.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <fileNamePattern>${LOG_HOME}/kylin-sql.%d{yyyy-MM-dd}.log</fileNamePattern>
             <maxHistory>30</maxHistory>
         </rollingPolicy>
         <encoder>
+            <charset>UTF-8</charset>
             <pattern>${LOG_PATTERN}</pattern>
         </encoder>
     </appender>

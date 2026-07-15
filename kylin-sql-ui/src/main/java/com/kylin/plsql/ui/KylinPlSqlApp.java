@@ -6,6 +6,7 @@ import com.kylin.plsql.core.config.AppTheme;
 import com.kylin.plsql.core.config.ConfigManager;
 import com.kylin.plsql.core.config.ThemeManager;
 import com.kylin.plsql.ui.component.common.PlSqlTokenMaker;
+import com.kylin.plsql.ui.component.common.SplashScreen;
 import org.fife.ui.rsyntaxtextarea.AbstractTokenMakerFactory;
 import org.fife.ui.rsyntaxtextarea.TokenMakerFactory;
 import org.slf4j.Logger;
@@ -57,8 +58,9 @@ public class KylinPlSqlApp {
         }
 
         SwingUtilities.invokeLater(() -> {
-            MainFrame frame = new MainFrame(config);
-            frame.setVisible(true);
+            SplashScreen splash = new SplashScreen();
+            splash.setVisible(true);
+            MainFrame.buildUI(config, splash);
         });
     }
 }

@@ -48,6 +48,24 @@ SqlFormatter.format(source, options, dialect)
 - 当前会话：格式化引擎完整重写，Phase 1-3 完成
 - 前一阶段：SqlToolsDialog 改进（IN 子句/转义/复制按钮/Toast）
 - 前一阶段：MainFrame menu bar WindowFocusListener 修复
+
+## 操作规范
+
+### Edit 范围最小化
+用 edit 工具时，`oldString` 必须精确匹配**要改的最小局部**，不要包含不相关的周围代码。避免因替换范围过大而吞掉相邻的 listener、import 等逻辑。
+
+例子：
+- ❌ `oldString` 包含整个菜单块（5 行），只为了改其中 1 行 → 可能误删周围代码
+- ✅ `oldString` 只包含目标行 + 前后 1 行上下文（最多 3 行）
+
+### 改完后检查"邻居"
+改完某段代码后，扫一眼其前后 10 行，确认没有意外影响到无关代码（如少删了 ActionListener、import、大括号配对）。
+
+### 编译测试
+每次改完必须 `mvn compile` 确认通过。若编译报错"找不到符号"，优先怀疑是误删了 import 或 listener 绑定。
+## 待办
+- **工具栏/菜单 SVG 图标锯齿感** — 2560×1600 高分屏下 16×16 图标有锯齿。`IconUtil.menuIcon()` 渲染质量不足，SVGSalamander 16×16 抗锯齿效果有限。`SmoothImageIcon`（重写 paintIcon 设双线性插值）会导致界面白屏，原因未明。需后续排查方案：改用 `FlatSVGIcon`（`flatlaf-extras`）或升级渲染方式。
+
 - **Session 2026-07-13 自动补全：**
   - 将自动补全延迟设置移入 autosave 面板（删除独立节点/面板）
   - `AutoActivationListener` 始终未触发 → 改用 `SqlEditorPanel` 内 `DocumentListener` 直接调用 `ac.doCompletion()`

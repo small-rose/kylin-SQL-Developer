@@ -168,7 +168,7 @@ public class SqlFormatter {
     }
 
     // Original formatter renamed to formatSimple
-    private static String formatSimple(String source, FormatOptions options) {
+    public static String formatSimple(String source, FormatOptions options) {
         try {
             var input = CharStreams.fromString(source);
             var lexer = new PlSqlLexer(input);

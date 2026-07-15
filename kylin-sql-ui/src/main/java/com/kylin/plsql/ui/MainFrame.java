@@ -28,6 +28,7 @@ import com.kylin.plsql.ui.component.left.LeftPanel;
 import com.kylin.plsql.ui.component.left.LocalFileBrowser;
 import com.kylin.plsql.ui.component.left.ObjectBrowser;
 import com.kylin.plsql.ui.component.right.RightPanel;
+import com.kylin.plsql.ui.dialog.common.AboutDialog;
 import com.kylin.plsql.ui.dialog.connection.ConnectionDialog;
 import com.kylin.plsql.ui.dialog.navigation.CallHierarchyDialog;
 import com.kylin.plsql.ui.dialog.navigation.GlobalSearchDialog;
@@ -77,6 +78,7 @@ public class MainFrame extends JFrame {
     private LocalFileBrowser fileBrowser;
     private final JSplitPane[] leftSplitRef = new JSplitPane[1];
     private final JSplitPane[] mainSplitRef = new JSplitPane[1];
+    private JPanel bottomWrapper;
     private JPanel editorPanel;
     private JTabbedPane editorTabs;
     private WelcomePanel welcomePanel;
@@ -93,6 +95,7 @@ public class MainFrame extends JFrame {
     private JMenuBar menuBar;
     private boolean caseModeIsUpper = true;
     private JButton caseBtn;
+    private JComboBox<com.kylin.plsql.core.format.SqlFormatterEngine> engineCombo;
 
     // ── tab context menu support ──
     private JPanel tabContainer;
@@ -116,10 +119,8 @@ public class MainFrame extends JFrame {
         this.configManager = configManager;
         this.connectionManager = new ConnectionManager();
         consoleCounter = 1;
-        com.kylin.plsql.core.format.EngineManager.registerCustomEngine(formatOptions);
+        com.kylin.plsql.core.format.EngineManager.initEngines(formatOptions);
         initComponents();
-        layoutComponents();
-        setupMenu();
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
@@ -128,26 +129,122 @@ public class MainFrame extends JFrame {
             }
         });
         setExtendedState(JFrame.MAXIMIZED_BOTH);
-        javax.swing.SwingUtilities.invokeLater(() -> {
-            loadSavedConnections();
-            boolean restored = tryRestoreWorkspace();
-            if (!restored) showWelcome();
-            bottomPanel.refreshConnTree();
-            restartAutoSaveTimer();
-            statusBar.startMemoryMonitor();
-            startConnectionMonitor();
-            reapplyTheme();
-            // 工作区恢复后重设分隔线，防止编辑器右侧留空白
-            if (leftSplitRef[0] != null) leftSplitRef[0].setDividerLocation(250);
-            if (mainSplitRef[0] != null) {
-                int w = mainSplitRef[0].getWidth();
-                int rightW = rightPanel.getPreferredSize().width;
-                mainSplitRef[0].setDividerLocation(Math.max(w - rightW, w / 2));
+        java.util.List<Image> icons = new java.util.ArrayList<>();
+        // title bar: kylin_32x32.png directly
+        java.net.URL icon32 = MainFrame.class.getResource("/logo/kylin_32x32.png");
+        if (icon32 != null) {
+            try {
+                BufferedImage img = javax.imageio.ImageIO.read(icon32);
+                if (img != null) icons.add(img);
+            } catch (java.io.IOException ignored) {}
+        }
+        // taskbar/alt-tab: kylin_512x512.png at multiple sizes
+        java.net.URL icon512 = MainFrame.class.getResource("/logo/kylin_512x512.png");
+        if (icon512 != null) {
+            try {
+                BufferedImage src = javax.imageio.ImageIO.read(icon512);
+                if (src != null) {
+                    int[] sizes = {48, 64, 128, 256};
+                    for (int s : sizes) {
+                        BufferedImage scaled = new BufferedImage(s, s, BufferedImage.TYPE_INT_ARGB);
+                        Graphics2D g = scaled.createGraphics();
+                        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                        g.drawImage(src, 0, 0, s, s, null);
+                        g.dispose();
+                        icons.add(scaled);
+                    }
+                }
+            } catch (java.io.IOException ignored) {}
+        }
+        if (!icons.isEmpty()) setIconImages(icons);
+    }
+
+    /** kylin_512x512.png 裁边 + 放大 2x，去除内边距使 logo 更饱满。 */
+    public static MainFrame buildUI(ConfigManager configManager, com.kylin.plsql.ui.component.common.SplashScreen splash) {
+        MainFrame frame = new MainFrame(configManager);
+        long startTime = System.currentTimeMillis();
+        int minDuration = configManager.getSplashMinDuration();
+        int maxDuration = configManager.getSplashMaxDuration();
+
+        javax.swing.Timer watchdog = new javax.swing.Timer(maxDuration, e -> {
+            if (splash.isVisible()) {
+                splash.setProgress(95, "启动超时，强制完成...");
+                try {
+                    javax.swing.SwingUtilities.invokeAndWait(frame::finishInit);
+                } catch (Exception ignored) {}
+                splash.setProgress(100, "启动完成");
+                splash.close();
+                frame.setVisible(true);
+                frame.finishLayout();
             }
         });
+        watchdog.setRepeats(false);
+        watchdog.start();
+
+        new Thread(() -> {
+            try {
+                splash.setProgress(5, "正在初始化界面...");
+                javax.swing.SwingUtilities.invokeAndWait(() -> { frame.setupMenu(); frame.buildToolbar(); });
+
+                splash.setProgress(25, "正在构建编辑区...");
+                javax.swing.SwingUtilities.invokeAndWait(frame::buildPanels);
+
+                splash.setProgress(50, "正在构建输出面板...");
+                javax.swing.SwingUtilities.invokeAndWait(frame::buildBottomPanel);
+
+                splash.setProgress(75, "正在组装界面...");
+                javax.swing.SwingUtilities.invokeAndWait(frame::buildAssembly);
+
+                splash.setProgress(90, "正在启动...");
+
+                watchdog.stop();
+                long elapsed = System.currentTimeMillis() - startTime;
+                if (elapsed < minDuration) {
+                    Thread.sleep(minDuration - elapsed);
+                }
+
+                splash.setProgress(95, "正在完成初始化...");
+                javax.swing.SwingUtilities.invokeAndWait(frame::finishInit);
+
+                splash.setProgress(100, "启动完成");
+                javax.swing.SwingUtilities.invokeAndWait(() -> {
+                    splash.close();
+                    frame.setVisible(true);
+                });
+
+                javax.swing.SwingUtilities.invokeAndWait(frame::finishLayout);
+            } catch (Exception e) {
+                splash.setStatus("启动失败: " + e.getMessage());
+                log.error("启动失败", e);
+            }
+        }, "splash-builder").start();
+        return frame;
+    }
+
+    private void finishInit() {
+        loadSavedConnections();
+        boolean restored = tryRestoreWorkspace();
+        if (!restored) showWelcome();
+        var cur = com.kylin.plsql.core.format.EngineManager.getCurrent();
+        if (cur != null && engineCombo != null) engineCombo.setSelectedItem(cur);
+        bottomPanel.refreshConnTree();
+        restartAutoSaveTimer();
+        statusBar.startMemoryMonitor();
+        startConnectionMonitor();
+    }
+
+    private void finishLayout() {
+        reapplyTheme();
+        if (leftSplitRef[0] != null) leftSplitRef[0].setDividerLocation(250);
+        if (mainSplitRef[0] != null) {
+            int w = mainSplitRef[0].getWidth();
+            int rightW = rightPanel.getPreferredSize().width;
+            mainSplitRef[0].setDividerLocation(Math.max(w - rightW, w / 2));
+        }
     }
 
     private void initComponents() {
+        setLayout(new BorderLayout());
         setTitle("Kylin SQL Developer");
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         setMinimumSize(new Dimension(900, 600));
@@ -157,8 +254,13 @@ public class MainFrame extends JFrame {
     }
 
     private void layoutComponents() {
-        setLayout(new BorderLayout());
+        buildToolbar();
+        buildPanels();
+        buildBottomPanel();
+        buildAssembly();
+    }
 
+    private void buildToolbar() {
         toolbar = new JToolBar();
         toolbar.setFloatable(false);
         toolbar.setBackground(ThemeManager.getInstance().resolve("bg.toolbar"));
@@ -179,6 +281,28 @@ public class MainFrame extends JFrame {
         JButton execBtn = tb("execute", "执行", "执行 (F8)", e -> executeActiveEditor());
         execBtn.setForeground(new Color(0x5CB85C));
         toolbar.add(execBtn);
+
+        engineCombo = new JComboBox<>();
+        for (var e : com.kylin.plsql.core.format.EngineManager.getEngines()) {
+            engineCombo.addItem(e);
+        }
+        engineCombo.setSelectedItem(com.kylin.plsql.core.format.EngineManager.getCurrent());
+        engineCombo.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value,
+                    int index, boolean isSelected, boolean cellHasFocus) {
+                Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (value instanceof com.kylin.plsql.core.format.SqlFormatterEngine e) setText(e.getDisplayName());
+                return c;
+            }
+        });
+        engineCombo.addActionListener(e -> {
+            com.kylin.plsql.core.format.EngineManager.setCurrent(engineCombo.getSelectedIndex());
+        });
+        engineCombo.setToolTipText("选择格式化引擎");
+        engineCombo.setPreferredSize(new java.awt.Dimension(120, engineCombo.getPreferredSize().height));
+        engineCombo.setMaximumSize(new java.awt.Dimension(120, engineCombo.getPreferredSize().height));
+        toolbar.add(engineCombo);
 
         JButton formatBtn = tb("format", "格式化", "格式化 (Ctrl+Shift+F)", e -> formatSql());
         toolbar.add(formatBtn);
@@ -204,7 +328,9 @@ public class MainFrame extends JFrame {
         toolbar.add(locateBtn);
 
         add(toolbar, BorderLayout.NORTH);
+    }
 
+    private void buildPanels() {
         objectBrowser = new ObjectBrowser(new ObjectBrowser.Callback() {
             @Override
             public void onObjectAction(String connName, String schema, String objectType, String objectName, String action) {
@@ -226,19 +352,29 @@ public class MainFrame extends JFrame {
             }
             @Override
             public void onSyncProgress(String connName, int percent) {
-                statusBar.setSyncProgress("刷新元数据: " + connName, percent);
+                statusBar.setSyncProgress("加载元数据: " + connName, percent);
+                if (java.awt.Taskbar.isTaskbarSupported()) {
+                    try {
+                        java.awt.Taskbar.getTaskbar().setProgressValue(percent);
+                    } catch (Exception ignored) {}
+                }
             }
             @Override
             public void onSyncComplete(String connName) {
-                // 刷新完成
-                statusBar.setMessage(connName + " 刷新完成");
+                statusBar.setMessage(connName + " 加载完成");
                 javax.swing.Timer t = new javax.swing.Timer(4000, ev -> statusBar.hideSyncProgress());
                 t.setRepeats(false);
                 t.start();
+                if (java.awt.Taskbar.isTaskbarSupported()) {
+                    try { java.awt.Taskbar.getTaskbar().setProgressValue(0); } catch (Exception ignored) {}
+                }
             }
             @Override
             public void onSyncError(String connName, String message) {
                 statusBar.hideSyncProgress();
+                if (java.awt.Taskbar.isTaskbarSupported()) {
+                    try { java.awt.Taskbar.getTaskbar().setProgressValue(0); } catch (Exception ignored) {}
+                }
                 statusBar.setMessage(connName + " 刷新失败: " + message);
                 JOptionPane.showMessageDialog(MainFrame.this,
                     "连接 '" + connName + "' 失败:\n" + message,
@@ -331,14 +467,9 @@ public class MainFrame extends JFrame {
         }, filePath -> {
             openOrSwitchToFile(filePath);
         });
-        leftSplitRef[0] = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPanel, editorPanel);
-        leftSplitRef[0].setResizeWeight(0);
-        JSplitPane leftSplit = leftSplitRef[0];
+    }
 
-        JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSplit, rightPanel);
-        mainSplitRef[0] = mainSplit;
-        mainSplit.setResizeWeight(1.0);
-
+    private void buildBottomPanel() {
         bottomPanel = new BottomPanel();
         bottomPanel.setOnReopenClosedTab(this::reopenClosedTab);
         bottomPanel.setOnRefresh(() -> bottomPanel.refreshConnTree());
@@ -431,7 +562,7 @@ public class MainFrame extends JFrame {
             }.execute();
         });
 
-        JPanel bottomWrapper = new JPanel(new BorderLayout());
+        bottomWrapper = new JPanel(new BorderLayout());
         bottomWrapper.setBorder(null);
         bottomWrapper.add(bottomPanel, BorderLayout.CENTER);
         bottomWrapper.add(statusBar, BorderLayout.SOUTH);
@@ -450,6 +581,15 @@ public class MainFrame extends JFrame {
         statusBar.setOnEncodingChange(cs -> {
             statusBar.setMessage("编码已更改: " + cs);
         });
+    }
+
+    private void buildAssembly() {
+        leftSplitRef[0] = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftPanel, editorPanel);
+        leftSplitRef[0].setResizeWeight(0);
+
+        JSplitPane mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, leftSplitRef[0], rightPanel);
+        mainSplitRef[0] = mainSplit;
+        mainSplit.setResizeWeight(1.0);
 
         // Ctrl+Shift+F10 to execute active editor
         ((JComponent) getContentPane()).getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(
@@ -457,10 +597,6 @@ public class MainFrame extends JFrame {
         ((JComponent) getContentPane()).getActionMap().put("executeActive", new AbstractAction() {
             @Override public void actionPerformed(java.awt.event.ActionEvent e) { executeActiveEditor(); }
         });
-        // Ctrl+P triggers global search.
-        // Backup: KeyEventPostProcessor catches Ctrl+P even if consumed by text area's KeymapWrapper.
-        // The "none" binding in text areas (SqlEditorPanel, SourceViewerPanel) prevents consumption normally;
-        // this post-processor handles any remaining cases.
 
         editorTabs.addChangeListener(e -> {
             Component comp = editorTabs.getSelectedComponent();
@@ -489,7 +625,6 @@ public class MainFrame extends JFrame {
         add(mainSplit, BorderLayout.CENTER);
         add(bottomWrapper, BorderLayout.SOUTH);
 
-        // 延迟设置 divider 位置，确保 JSplitPane 已完成布局
         SwingUtilities.invokeLater(() -> {
             if (leftSplitRef[0] != null) leftSplitRef[0].setDividerLocation(250);
             if (mainSplitRef[0] != null) {
@@ -569,7 +704,7 @@ public class MainFrame extends JFrame {
         }
     }
 
-    private JLabel logoLabel;
+
 
     private void setupMenu() {
         Color mc = ThemeManager.getInstance().resolve("bg.toolbar");
@@ -588,12 +723,6 @@ public class MainFrame extends JFrame {
         };
         menuBar.setBackground(mc);
         menuBar.setOpaque(true);
-
-        // App logo
-        logoLabel = new JLabel();
-        logoLabel.setBorder(BorderFactory.createEmptyBorder(0, 1, 0, 4));
-        updateLogoIcon();
-        menuBar.add(logoLabel);
 
         JMenu fileMenu = new JMenu("文件");
         JMenuItem newItem = new JMenuItem("新建 SQL 文件");
@@ -793,6 +922,7 @@ public class MainFrame extends JFrame {
         helpMenu.addSeparator();
         JMenuItem aboutItem = new JMenuItem("关于");
         aboutItem.setIcon(IconUtil.menuIcon("help"));
+        aboutItem.addActionListener(e -> new AboutDialog(MainFrame.this).setVisible(true));
         helpMenu.add(aboutItem);
         menuBar.add(helpMenu);
 
@@ -1503,8 +1633,13 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
     }
 
     private void saveLocalHistory(SqlEditorPanel editor) {
-        String name = editor.getFilePath() != null ? editor.getFilePath() : editor.getTabTitle();
-        saveHistorySnapshot(name, editor.getText());
+        String key = editor.getFilePath() != null ? editor.getFilePath() : editor.getTabTitle();
+        String content = editor.getText();
+        saveHistorySnapshotAsync(key, content);
+    }
+
+    private void saveHistorySnapshotAsync(String key, String content) {
+        new Thread(() -> saveHistorySnapshot(key, content), "history-save").start();
     }
 
     private void saveHistorySnapshot(String key, String content) {
@@ -1548,12 +1683,20 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             "选择要查看的版本:", "本地历史",
             JOptionPane.PLAIN_MESSAGE, null, display, display[0]);
         if (sel == null) return;
-        try {
-            String content = Files.readString(dir.toPath().resolve(sel + ".sql"));
-            openInNewEditor("-- " + name + " @" + sel + "\n\n" + content, null);
-        } catch (IOException ex) {
-            log.warn("read local history failed", ex);
-        }
+        MainFrame frame = this;
+        new SwingWorker<String, Void>() {
+            @Override protected String doInBackground() throws Exception {
+                return Files.readString(dir.toPath().resolve(sel + ".sql"));
+            }
+            @Override protected void done() {
+                try {
+                    String content = get();
+                    openInNewEditor("-- " + name + " @" + sel + "\n\n" + content, null);
+                } catch (Exception ex) {
+                    log.warn("read local history failed", ex);
+                }
+            }
+        }.execute();
     }
 
     private void diffLocalHistory(Component comp) {
@@ -1574,13 +1717,22 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             return;
         }
         java.util.Arrays.sort(files, (a, b) -> b.getName().compareTo(a.getName()));
-        try {
-            String previous = Files.readString(files[0].toPath());
-            String diff = simpleDiff(current, previous);
-            openInNewEditor("-- 当前 vs " + files[0].getName().replace(".sql","") + "\n\n" + diff, null);
-        } catch (IOException ex) {
-            log.warn("diffLocalHistory failed", ex);
-        }
+        String currentRef = current;
+        File latestFile = files[0];
+        new SwingWorker<String, Void>() {
+            @Override protected String doInBackground() throws Exception {
+                String previous = Files.readString(latestFile.toPath());
+                return simpleDiff(currentRef, previous);
+            }
+            @Override protected void done() {
+                try {
+                    String diff = get();
+                    openInNewEditor("-- 当前 vs " + latestFile.getName().replace(".sql","") + "\n\n" + diff, null);
+                } catch (Exception ex) {
+                    log.warn("diffLocalHistory failed", ex);
+                }
+            }
+        }.execute();
     }
 
     private void restoreLocalHistory(Component comp) {
@@ -1599,17 +1751,25 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             "选择要恢复的版本:", "恢复本地历史",
             JOptionPane.PLAIN_MESSAGE, null, display, display[0]);
         if (sel == null) return;
-        try {
-            String content = Files.readString(dir.toPath().resolve(sel + ".sql"));
-            if (comp instanceof SqlEditorPanel ep) {
-                ep.setText(content);
-            } else if (comp instanceof SourceViewerPanel sv) {
-                sv.getTextArea().setText(content);
+        Component compRef = comp;
+        new SwingWorker<String, Void>() {
+            @Override protected String doInBackground() throws Exception {
+                return Files.readString(dir.toPath().resolve(sel + ".sql"));
             }
-            statusBar.setMessage("已恢复到: " + sel);
-        } catch (IOException ex) {
-            log.warn("restoreLocalHistory failed", ex);
-        }
+            @Override protected void done() {
+                try {
+                    String content = get();
+                    if (compRef instanceof SqlEditorPanel ep) {
+                        ep.setText(content);
+                    } else if (compRef instanceof SourceViewerPanel sv) {
+                        sv.getTextArea().setText(content);
+                    }
+                    statusBar.setMessage("已恢复到: " + sel);
+                } catch (Exception ex) {
+                    log.warn("restoreLocalHistory failed", ex);
+                }
+            }
+        }.execute();
     }
 
     private String getHistoryKey(Component comp) {
@@ -2407,6 +2567,8 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         state.hiddenSchemas = objectBrowser.getHiddenSchemas();
         // 保存 SQL 执行历史
         state.sqlHistory = sqlHistory.snapshot();
+        state.currentEngineIndex = com.kylin.plsql.core.format.EngineManager.getEngines().indexOf(
+            com.kylin.plsql.core.format.EngineManager.getCurrent());
         configManager.saveWorkspace(state);
         bottomPanel.refreshConnTree();
     }
@@ -2486,6 +2648,12 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         if (state.sqlHistory != null) {
             sqlHistory.loadFrom(state.sqlHistory);
         }
+        // 恢复格式化引擎选择
+        int engineIdx = state.currentEngineIndex;
+        if (engineIdx >= 0 && engineIdx < com.kylin.plsql.core.format.EngineManager.getEngines().size()) {
+            com.kylin.plsql.core.format.EngineManager.setCurrent(engineIdx);
+        }
+
         // 恢复上次活跃标签（作为后备）
         int idx = state.lastActiveIndex;
         if (idx >= 0 && idx < editorTabs.getTabCount()) {
@@ -2617,7 +2785,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                         log.debug("openOrSwitchToFile: opening in SourceViewerPanel (type={})", objType);
                         SourceViewerPanel viewer = new SourceViewerPanel(connectionManager, null, null,
                             fileName, objType, content);
-                        saveHistorySnapshot(filePath, content);
+                        saveHistorySnapshotAsync(filePath, content);
                         showEditorTabs();
                         editorTabs.addTab(viewer.getTabTitle(), viewer);
                         int idx = editorTabs.indexOfComponent(viewer);
@@ -2631,7 +2799,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                         editor.getTextArea().setSyntaxEditingStyle("text/plsql");
                         editor.setText(content);
                         editor.setFilePath(filePath);
-                        saveHistorySnapshot(filePath, content);
+                        saveHistorySnapshotAsync(filePath, content);
                         editor.resetModified();
                         var connections = configManager.loadConnections();
                         editor.setConnections(connections);
@@ -2805,7 +2973,6 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         bottomPanel.applyTheme();
         statusBar.applyTheme();
         if (welcomePanel != null) welcomePanel.applyTheme();
-        updateLogoIcon();
 
         // Update tree cell renderer UI to pick up new L&F colors
         if (objectBrowser != null) {
@@ -2815,38 +2982,6 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
 
         revalidate();
         repaint();
-    }
-
-    private void updateLogoIcon() {
-        logoLabel.setIcon(makeAppLogoIcon());
-    }
-
-    private static Icon makeAppLogoIcon() {
-        Font font = new Font("Segoe UI", Font.BOLD, 10);
-        BufferedImage tmp = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
-        FontMetrics fm = tmp.createGraphics().getFontMetrics(font);
-        String kylin = "K", sql = "Sql";
-        int padX = 4, padY = 2;
-        int kw = fm.stringWidth(kylin) + padX * 2;
-        int sw = fm.stringWidth(sql) + padX * 2;
-        int bh = fm.getHeight() + padY * 2;
-        BufferedImage img = new BufferedImage(kw + sw, bh, BufferedImage.TYPE_INT_ARGB);
-        Graphics2D g = img.createGraphics();
-        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g.setFont(font);
-        g.setColor(new Color(0x337AB7));
-        g.fillRoundRect(0, 0, kw, bh, 4, 4);
-        g.fillRect(kw - 2, 0, 2, bh);
-        g.setColor(Color.WHITE);
-        fm = g.getFontMetrics();
-        g.drawString(kylin, padX, (bh + fm.getAscent()) / 2 - 1);
-        g.setColor(new Color(0xD9534F));
-        g.fillRoundRect(kw, 0, sw, bh, 4, 4);
-        g.fillRect(kw, 0, 2, bh);
-        g.setColor(Color.WHITE);
-        g.drawString(sql, kw + padX, (bh + fm.getAscent()) / 2 - 1);
-        g.dispose();
-        return new ImageIcon(img);
     }
 
     private static JButton tb(String iconName, String fallback, String tip, java.awt.event.ActionListener action) {

@@ -56,8 +56,10 @@ public class ConnectionInfo {
     }
 
     public String getDriverClass() {
-        if (useUrl && jdbcUrl != null) {
-            return detectDriverFromUrl(jdbcUrl);
+        if (useUrl && jdbcUrl != null && !jdbcUrl.isBlank()) {
+            String fromUrl = detectDriverFromUrl(jdbcUrl);
+            if (!fromUrl.isEmpty()) return fromUrl;
+            // URL 检测失败时降级到 dbType 字段
         }
         if ("oceanbase".equalsIgnoreCase(dbType)) {
             return "com.oceanbase.jdbc.Driver";

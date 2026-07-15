@@ -17,6 +17,7 @@ public class IconUtil {
 
     private static final SVGUniverse svgUniverse = new SVGUniverse();
     private static final int SIZE = 16;
+
     public static ImageIcon menuIcon(String name) {
         return loadButtonIcon(name, getColorForIcon(name));
     }

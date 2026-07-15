@@ -165,6 +165,11 @@ public class SettingsDialog extends JDialog {
     private JPanel cardPanel;
     private CardLayout cardLayout;
     private JTextField autocompleteDelayField;
+    private JSpinner autoIntervalSpinner;
+    private JComboBox<String> autoUnitCombo;
+    private JTextField autoPathField;
+    private JTextField splashMinField;
+    private JTextField splashMaxField;
     private JTree metadataTree;
     private DefaultTreeModel metadataTreeModel;
     private JTable typeTable;
@@ -353,7 +358,7 @@ public class SettingsDialog extends JDialog {
         // Build and register all card panels
         cardPanel.add(buildSqlFormatPanel(), "sqlFormat");
         cardPanel.add(buildThemePanel(), "theme");
-        cardPanel.add(buildAutosavePanel(), "autosave");
+        cardPanel.add(buildCommonPanel(), "common");
         cardPanel.add(buildMetadataPanel(), "metadata");
 
         settingsTree.addTreeSelectionListener(e -> {
@@ -419,7 +424,7 @@ public class SettingsDialog extends JDialog {
     private JTree buildSettingsTree() {
         DefaultMutableTreeNode root = new DefaultMutableTreeNode("设置");
         root.add(new DefaultMutableTreeNode("主题个性化"));
-        root.add(new DefaultMutableTreeNode("自动保存"));
+        root.add(new DefaultMutableTreeNode("常用配置"));
         root.add(new DefaultMutableTreeNode("元数据配置"));
         root.add(new DefaultMutableTreeNode("SQL 格式化"));
 
@@ -437,7 +442,7 @@ public class SettingsDialog extends JDialog {
         return switch (label) {
             case "SQL 格式化" -> "sqlFormat";
             case "主题个性化" -> "theme";
-            case "自动保存" -> "autosave";
+            case "常用配置" -> "common";
             case "元数据配置" -> "metadata";
             default -> null;
         };
@@ -1185,9 +1190,9 @@ public class SettingsDialog extends JDialog {
         return wrapper;
     }
 
-    // ── Autosave panel (保留原有功能) ──
+    // ── Common panel (自动保存 + 启动画面等常用设置) ──
 
-    private JPanel buildAutosavePanel() {
+    private JPanel buildCommonPanel() {
         JPanel grid = new JPanel(new GridBagLayout());
         grid.setBorder(BorderFactory.createEmptyBorder(12, 12, 12, 12));
         GridBagConstraints c = new GridBagConstraints();
@@ -1195,50 +1200,84 @@ public class SettingsDialog extends JDialog {
         c.insets = new Insets(4, 6, 4, 6);
         c.gridx = 0; c.weightx = 0;
 
-        JLabel header = new JLabel("自动保存设置");
-        header.setFont(header.getFont().deriveFont(Font.BOLD, 14f));
+        // ── Section 1: 自动保存 ──
         GridBagConstraints hc = new GridBagConstraints();
         hc.gridx = 0; hc.gridy = 0; hc.gridwidth = 3; hc.weightx = 1;
-        hc.insets = new Insets(0, 0, 12, 0); hc.anchor = GridBagConstraints.WEST;
-        grid.add(header, hc);
+        hc.insets = new Insets(0, 0, 8, 0); hc.anchor = GridBagConstraints.WEST;
+        JLabel autoHeader = new JLabel("自动保存");
+        autoHeader.setFont(autoHeader.getFont().deriveFont(Font.BOLD, 14f));
+        grid.add(autoHeader, hc);
 
         int row = 1;
         c.gridy = row; c.gridwidth = 1;
         grid.add(new JLabel("自动保存间隔:"), c);
         c.gridx = 1; c.weightx = 1;
-        int interval = 30;
-        try { interval = Integer.parseInt(configManager.getPreference("autosave.interval", "30")); } catch (Exception ignored) {}
-        var intervalSpinner = new JSpinner(new SpinnerNumberModel(interval, 5, 3600, 5));
-        grid.add(intervalSpinner, c);
+        int interval = configManager.getAutoSaveInterval();
+        autoIntervalSpinner = new JSpinner(new SpinnerNumberModel(interval, 1, 3600, 1));
+        grid.add(autoIntervalSpinner, c);
         c.gridx = 2; c.weightx = 0;
-        var unitCombo = new JComboBox<>(FORMAT_UNITS);
-        String unit = configManager.getPreference("autosave.unit", "seconds");
-        unitCombo.setSelectedIndex(unit.equals("hours") ? 2 : unit.equals("minutes") ? 1 : 0);
-        grid.add(unitCombo, c);
+        autoUnitCombo = new JComboBox<>(new String[]{"秒", "分", "小时"});
+        String unit = configManager.getAutoSaveUnit();
+        autoUnitCombo.setSelectedIndex(unit.equals("hours") ? 2 : unit.equals("minutes") ? 1 : 0);
+        grid.add(autoUnitCombo, c);
 
         row++;
         c.gridy = row; c.gridx = 0; c.weightx = 0;
         grid.add(new JLabel("自动保存路径:"), c);
         c.gridx = 1; c.weightx = 1;
-        var pathField = new JTextField(configManager.getPreference("autosave.path",
-            configManager.getConfigPath().resolve("auto-save").toAbsolutePath().toString()));
-        grid.add(pathField, c);
+        autoPathField = new JTextField(configManager.getAutoSavePath());
+        grid.add(autoPathField, c);
         c.gridx = 2; c.weightx = 0;
         var browseBtn = new JButton("浏览...");
         browseBtn.addActionListener(e -> {
             JFileChooser chooser = new JFileChooser();
             chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
             if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
-                pathField.setText(chooser.getSelectedFile().getAbsolutePath());
+                autoPathField.setText(chooser.getSelectedFile().getAbsolutePath());
             }
         });
         grid.add(browseBtn, c);
 
+        // ── Section 2: 启动画面 ──
+        row += 2;
+        hc.gridy = row;
+        hc.insets = new Insets(12, 0, 8, 0);
+        JLabel splashHeader = new JLabel("启动画面");
+        splashHeader.setFont(splashHeader.getFont().deriveFont(Font.BOLD, 14f));
+        grid.add(splashHeader, hc);
+
+        row++;
+        c.gridy = row; c.gridx = 0; c.gridwidth = 1; c.weightx = 0;
+        c.insets = new Insets(4, 6, 4, 6);
+        grid.add(new JLabel("最短停留(毫秒):"), c);
+        c.gridx = 1; c.weightx = 1;
+        splashMinField = new JTextField(String.valueOf(configManager.getSplashMinDuration()), 10);
+        splashMinField.setToolTipText("启动画面至少显示的时间，用于观察启动过程");
+        grid.add(splashMinField, c);
+
         row++;
         c.gridy = row; c.gridx = 0; c.weightx = 0;
-        grid.add(new JLabel("自动补全延迟(毫秒):"), c);
+        grid.add(new JLabel("最长等待(毫秒):"), c);
+        c.gridx = 1; c.weightx = 1;
+        splashMaxField = new JTextField(String.valueOf(configManager.getSplashMaxDuration()), 10);
+        splashMaxField.setToolTipText("超过此时间强制关闭启动画面，防止卡死");
+        grid.add(splashMaxField, c);
+
+        // ── Section 3: 自动补全 ──
+        row += 2;
+        hc.gridy = row;
+        hc.insets = new Insets(12, 0, 8, 0);
+        JLabel acHeader = new JLabel("自动补全");
+        acHeader.setFont(acHeader.getFont().deriveFont(Font.BOLD, 14f));
+        grid.add(acHeader, hc);
+
+        row++;
+        c.gridy = row; c.gridx = 0; c.gridwidth = 1; c.weightx = 0;
+        c.insets = new Insets(4, 6, 4, 6);
+        grid.add(new JLabel("补全延迟(毫秒):"), c);
         c.gridx = 1; c.weightx = 1;
         autocompleteDelayField = new JTextField(configManager.getPreference("autocomplete.delay", "300"), 10);
+        autocompleteDelayField.setToolTipText("输入后等待多少毫秒触发自动补全");
         grid.add(autocompleteDelayField, c);
 
         applyPanelTheme(grid);
@@ -1440,6 +1479,26 @@ public class SettingsDialog extends JDialog {
         configManager.setPreference("format.maxWidth", String.valueOf(workingOptions.getMaxLineWidth()));
         configManager.setPreference("format.lineEnding", workingOptions.getLineEnding());
         if (autocompleteDelayField != null) configManager.setPreference("autocomplete.delay", autocompleteDelayField.getText());
+        // 常用配置 - 自动保存
+        if (autoIntervalSpinner != null) {
+            configManager.setAutoSaveInterval((Integer) autoIntervalSpinner.getValue());
+        }
+        if (autoUnitCombo != null) {
+            int idx = autoUnitCombo.getSelectedIndex();
+            configManager.setAutoSaveUnit(idx == 2 ? "hours" : idx == 1 ? "minutes" : "seconds");
+        }
+        if (autoPathField != null) {
+            configManager.setAutoSavePath(autoPathField.getText());
+        }
+        // 常用配置 - 启动画面
+        if (splashMinField != null) {
+            try { configManager.setSplashMinDuration(Integer.parseInt(splashMinField.getText())); }
+            catch (NumberFormatException ignored) {}
+        }
+        if (splashMaxField != null) {
+            try { configManager.setSplashMaxDuration(Integer.parseInt(splashMaxField.getText())); }
+            catch (NumberFormatException ignored) {}
+        }
         // Apply color overrides immediately
         if (owner instanceof MainFrame) {
             ((MainFrame) owner).reapplyTheme();

@@ -2,6 +2,8 @@ package com.kylin.plsql.core.cache;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonSyntaxException;
+import com.google.gson.stream.JsonReader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -58,7 +60,7 @@ public class MetadataCache {
         baseDir = Paths.get(home, ".kylin-sql", "cache");
         gson = new GsonBuilder().setPrettyPrinting().create();
         try { Files.createDirectories(baseDir); } catch (IOException e) {
-            log.warn("\u521B\u5EFA\u7F13\u5B58\u76EE\u5F55\u5931\u8D25: {}", e.getMessage());
+            log.warn("创建缓存目录失败: {}", e.getMessage());
         }
     }
 
@@ -80,7 +82,21 @@ public class MetadataCache {
             try (Reader r = new InputStreamReader(new FileInputStream(f), StandardCharsets.UTF_8)) {
                 cc = gson.fromJson(r, CachedConnection.class);
             } catch (IOException e) {
-                log.debug("\u8BFB\u53D6\u7F13\u5B58\u5931\u8D25 {}: {}", connName, e.getMessage());
+                log.debug("读取缓存失败 {}: {}", connName, e.getMessage());
+            } catch (JsonSyntaxException e) {
+                log.warn("缓存文件损坏 {}: {}, 尝试 lenient 模式修复", connName, e.getMessage());
+                try (Reader r2 = new InputStreamReader(new FileInputStream(f), StandardCharsets.UTF_8)) {
+                    JsonReader jr = new JsonReader(r2);
+                    jr.setLenient(true);
+                    cc = gson.fromJson(jr, CachedConnection.class);
+                    if (cc != null) {
+                        log.info("lenient 模式修复成功, 重写缓存");
+                        save(connName);
+                    }
+                } catch (Exception e2) {
+                    log.warn("元数据缓存文件损坏且 lenient 修复失败 ({}), 自动删除重建", e2.getMessage());
+                    try { Files.deleteIfExists(f.toPath()); } catch (IOException ignored) {}
+                }
             }
         }
         if (cc == null) {
@@ -97,11 +113,25 @@ public class MetadataCache {
         cc.cachedAt = System.currentTimeMillis();
         try {
             Files.createDirectories(connDir(connName));
-            try (Writer w = new OutputStreamWriter(new FileOutputStream(cacheFile(connName).toFile()), StandardCharsets.UTF_8)) {
+            Path target = cacheFile(connName);
+            Path tmp = target.resolveSibling(target.getFileName() + ".tmp");
+            try (Writer w = new OutputStreamWriter(new FileOutputStream(tmp.toFile()), StandardCharsets.UTF_8)) {
                 gson.toJson(cc, w);
+                w.flush();
+            }
+            try {
+                Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+                return;
+            } catch (IOException ignored) {}
+            try {
+                Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
+                return;
+            } catch (IOException ignored) {}
+            try (Writer w2 = new OutputStreamWriter(new FileOutputStream(target.toFile()), StandardCharsets.UTF_8)) {
+                gson.toJson(cc, w2);
             }
         } catch (IOException e) {
-            log.warn("\u4FDD\u5B58\u7F13\u5B58\u5931\u8D25 {}: {}", connName, e.getMessage());
+            log.debug("保存缓存失败 {}: {}", connName, e.getMessage());
         }
     }
 
@@ -114,6 +144,10 @@ public class MetadataCache {
 
     public String getDbProduct(String connName) {
         return load(connName).dbProduct;
+    }
+
+    public void setDbProduct(String connName, String dbProduct) {
+        load(connName).dbProduct = dbProduct;
     }
 
     public List<String> getSchemas(String connName) {
@@ -133,12 +167,14 @@ public class MetadataCache {
         CachedConnection cc = load(connName);
         cc.dbProduct = dbProduct;
         for (String s : schemas) cc.objects.putIfAbsent(s, new LinkedHashMap<>());
-        save(connName);
     }
 
     public void putObjects(String connName, String schema, String type, List<String> objects) {
         CachedConnection cc = load(connName);
         cc.objects.computeIfAbsent(schema, k -> new LinkedHashMap<>()).put(type, objects);
+    }
+
+    public void flush(String connName) {
         save(connName);
     }
 
@@ -157,7 +193,6 @@ public class MetadataCache {
 
     public void putTableComment(String connName, String schema, String table, String comment) {
         load(connName).tableComments.put(schema + "." + table, comment);
-        save(connName);
     }
 
     public String getDDL(String connName, String schema, String table) {

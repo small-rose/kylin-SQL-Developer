@@ -110,7 +110,7 @@ public class DbMetadataConfig {
             new CustomColumn("状态", "SELECT status FROM all_objects WHERE owner = ? AND object_name = ? AND object_type = ?"),
             new CustomColumn("创建时间", "SELECT created FROM all_objects WHERE owner = ? AND object_name = ? AND object_type = ?")
         );
-        return new DbMetadataConfig("oracle", "Oracle", false, types, new ArrayList<>(cols));
+        return new DbMetadataConfig("oracle", "Oracle", true, types, new ArrayList<>(cols));
     }
 
     public static DbMetadataConfig createOceanBaseDefault() {
@@ -125,7 +125,7 @@ public class DbMetadataConfig {
             new TypeDef("过程", "PROCEDURE", "SELECT object_name FROM all_objects WHERE owner = ? AND object_type = 'PROCEDURE' ORDER BY object_name", false),
             new TypeDef("包", "PACKAGE",     "SELECT DISTINCT object_name FROM all_procedures WHERE owner = ? AND object_type IN ('PACKAGE','PACKAGE BODY') ORDER BY object_name", true)
         );
-        return new DbMetadataConfig("oceanbase", "OceanBase", false, types, new ArrayList<>());
+        return new DbMetadataConfig("oceanbase", "OceanBase", true, types, new ArrayList<>());
     }
 
     public static DbMetadataConfig createMySQLDefault() {
@@ -136,7 +136,7 @@ public class DbMetadataConfig {
             new TypeDef("函数", "FUNCTION",  "SELECT routine_name FROM information_schema.routines WHERE routine_schema = ? AND routine_type = 'FUNCTION' ORDER BY routine_name", false),
             new TypeDef("过程", "PROCEDURE", "SELECT routine_name FROM information_schema.routines WHERE routine_schema = ? AND routine_type = 'PROCEDURE' ORDER BY routine_name", false)
         );
-        return new DbMetadataConfig("mysql", "MySQL", false, types, new ArrayList<>());
+        return new DbMetadataConfig("mysql", "MySQL", true, types, new ArrayList<>());
     }
 
     public static DbMetadataConfig createPostgreSQLDefault() {
@@ -149,7 +149,7 @@ public class DbMetadataConfig {
             new TypeDef("函数", "FUNCTION",  "SELECT routine_name FROM information_schema.routines WHERE routine_schema = ? AND routine_type = 'FUNCTION' ORDER BY routine_name", false),
             new TypeDef("过程", "PROCEDURE", "SELECT routine_name FROM information_schema.routines WHERE routine_schema = ? AND routine_type = 'PROCEDURE' ORDER BY routine_name", false)
         );
-        return new DbMetadataConfig("postgresql", "PostgreSQL", false, types, new ArrayList<>());
+        return new DbMetadataConfig("postgresql", "PostgreSQL", true, types, new ArrayList<>());
     }
 
     public static List<DbMetadataConfig> createDefaults() {

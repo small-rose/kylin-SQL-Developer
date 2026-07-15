@@ -352,15 +352,39 @@ public class ObjectBrowser extends JPanel {
                     DefaultMutableTreeNode first = (DefaultMutableTreeNode) node.getChildAt(0);
                     if ("加载中...".equals(first.getUserObject())) {
                         DefaultMutableTreeNode nodeRef = node;
-                        new SwingWorker<Void, Void>() {
-                            @Override
-                            protected Void doInBackground() {
-                                loadConnection(nodeRef);
+                        ConnHolder h = (ConnHolder) node.getUserObject();
+                        String cname = h.info.getName();
+                        log.warn("[DEBUG] treeWillExpand: 开始展开连接 {}", cname);
+                        callback.onSyncProgress(cname, 0);
+                        new SwingWorker<Void, Integer>() {
+                            @Override protected Void doInBackground() {
+                                log.warn("[DEBUG] doInBackground: 开始加载 {}", cname);
+                                loadConnectionData(nodeRef, pct -> publish(pct));
+                                log.warn("[DEBUG] doInBackground: loadConnectionData 完成");
                                 return null;
                             }
-                            @Override
-                            protected void done() {
-                                treeModel.reload(nodeRef);
+                            @Override protected void process(java.util.List<Integer> chunks) {
+                                callback.onSyncProgress(cname, chunks.get(chunks.size() - 1));
+                            }
+                            @Override protected void done() {
+                                log.warn("[DEBUG] done() 开始执行 for {}", cname);
+                                try {
+                                    rebuildConnectionTreeFromCache(nodeRef);
+                                    boolean hasMeta = MetadataCache.getInstance().hasMetadata(cname);
+                                    log.warn("[DEBUG] hasMetadata({}) = {}", cname, hasMeta);
+                                    callback.onSyncComplete(cname);
+                                    if (!hasMeta) {
+                                        callback.onSyncError(cname, "连接失败，请检查配置");
+                                    }
+                                } catch (Exception ex) {
+                                    log.warn("[DEBUG] done() 捕获异常: {}: {}", ex.getClass().getName(), ex.getMessage());
+                                    log.error("展开连接 '{}' 异常", cname, ex);
+                                    nodeRef.removeAllChildren();
+                                    nodeRef.add(new DefaultMutableTreeNode("加载失败"));
+                                    treeModel.reload(nodeRef);
+                                    callback.onSyncError(cname, "加载异常");
+                                }
+                                log.warn("[DEBUG] done() 执行完毕 for {}", cname);
                             }
                         }.execute();
                     }
@@ -450,6 +474,27 @@ public class ObjectBrowser extends JPanel {
         String dbType;
         ConnHolder(ConnectionInfo info, boolean expanded) { this.info = info; this.expanded = expanded; }
         @Override public String toString() { return info.getName(); }
+    }
+
+    /** Infer dbProduct from ConnectionInfo.dbType → JDBC URL → "oracle" default. */
+    private static String inferDbProduct(ConnHolder h) {
+        if (h.dbType != null) return h.dbType;
+        MetadataCache cache = MetadataCache.getInstance();
+        String cached = cache.getDbProduct(h.info.getName());
+        if (cached != null) return cached;
+        String fromInfo = h.info.getDbType();
+        if (fromInfo != null && !fromInfo.isBlank()) return fromInfo.toLowerCase();
+        String url = h.info.getJdbcUrl();
+        if (url != null) {
+            String u = url.toLowerCase();
+            if (u.startsWith("jdbc:oceanbase:")) return "oceanbase";
+            if (u.startsWith("jdbc:postgresql:")) return "postgresql";
+            if (u.startsWith("jdbc:mysql:")) return "mysql";
+            if (u.startsWith("jdbc:mariadb:")) return "mariadb";
+            if (u.startsWith("jdbc:oracle:")) return "oracle";
+            if (u.contains("edb")) return "edb";
+        }
+        return "oracle";
     }
 
     private String getConnName(DefaultMutableTreeNode node) {
@@ -595,11 +640,30 @@ public class ObjectBrowser extends JPanel {
         root.removeAllChildren();
         for (ConnectionInfo info : connections) {
             boolean expanded = cm.isConnected(info.getName());
+            log.warn("[DEBUG] loadAll: {} expanded={} hasCache={}", info.getName(), expanded,
+            MetadataCache.getInstance().hasMetadata(info.getName()));
             DefaultMutableTreeNode connNode = new DefaultMutableTreeNode(new ConnHolder(info, expanded));
-            connNode.add(new DefaultMutableTreeNode("加载中..."));
             root.add(connNode);
             if (expanded) {
                 loadConnection(connNode);
+            } else if (MetadataCache.getInstance().hasMetadata(info.getName())) {
+                // Lightweight cache load — tree only, no JDBC
+                MetadataCache mc = MetadataCache.getInstance();
+                ConnHolder ch = (ConnHolder) connNode.getUserObject();
+                ch.dbType = mc.getDbProduct(info.getName());
+                if (ch.dbType == null) {
+                    ch.dbType = inferDbProduct(ch);
+                    mc.setDbProduct(info.getName(), ch.dbType);
+                }
+                List<String> schemasList = mc.getSchemas(info.getName());
+                if (schemasList != null) {
+                    connFullSchemas.put(info.getName(), new ArrayList<>(schemasList));
+                    initHiddenSchemas(ch, schemasList);
+                }
+                rebuildConnectionTreeFromCache(connNode);
+            } else {
+                connNode.add(new DefaultMutableTreeNode("加载中..."));
+                log.warn("[DEBUG] loadAll: 添加了 加载中... 到 {}", info.getName());
             }
         }
         treeModel.reload();
@@ -720,12 +784,14 @@ public class ObjectBrowser extends JPanel {
                         for (ObjectType ot : types) {
                             if (!"SCHEMA".equals(ot.typeCode)) queryTypeCount++;
                         }
+                        int qto = cm.getQueryTimeout(cname);
+                        if (qto <= 0) qto = 30;
                         int totalOps = schemas.size() * queryTypeCount;
                         int doneOps = 0;
                         for (String schema : schemas) {
                             for (ObjectType ot : types) {
                                 if ("SCHEMA".equals(ot.typeCode)) continue;
-                                List<String> objects = queryObjects(conn, ot, schema);
+                                List<String> objects = queryObjects(conn, ot, schema, qto);
                                 mc.putObjects(cname, schema, ot.typeCode, objects);
                                 doneOps++;
                                 int pct = Math.min(95, 10 + doneOps * 85 / totalOps);
@@ -870,40 +936,37 @@ public class ObjectBrowser extends JPanel {
 
     // ── Load connection schema tree (cache-aware) ──
 
-    private void loadConnection(DefaultMutableTreeNode connNode) {
+    /** JDBC/cache queries only, no tree model operations. Safe from any thread. */
+    private boolean loadConnectionData(DefaultMutableTreeNode connNode) {
+        return loadConnectionData(connNode, pct -> {});
+    }
+
+    private boolean loadConnectionData(DefaultMutableTreeNode connNode, java.util.function.IntConsumer progress) {
         ConnHolder h = (ConnHolder) connNode.getUserObject();
         String name = h.info.getName();
-        connNode.removeAllChildren();
-
         MetadataCache cache = MetadataCache.getInstance();
 
-        // ── Try cache first ──
+        // ── Cache hit ──
         if (cache.hasMetadata(name)) {
-            String dbProduct = cache.getDbProduct(name);
-            h.dbType = dbProduct;
-            List<String> schemas = cache.getSchemas(name);
-            connFullSchemas.put(name, new ArrayList<>(schemas));
-            initHiddenSchemas(h, schemas);
-            if (schemas.isEmpty()) {
-                connNode.add(new DefaultMutableTreeNode("(无 schema)"));
-                treeModel.reload(connNode);
-            } else {
-                rebuildConnectionNode(connNode);
-                ensureTableCommentsLoaded(name, dbProduct, schemas, h.info);
+            h.dbType = cache.getDbProduct(name);
+            if (h.dbType == null) {
+                h.dbType = inferDbProduct(h);
+                cache.setDbProduct(name, h.dbType);
             }
-            return;
+            List<String> schemasList = cache.getSchemas(name);
+            if (schemasList == null) return false;
+            connFullSchemas.put(name, new ArrayList<>(schemasList));
+            initHiddenSchemas(h, schemasList);
+            ensureTableCommentsLoaded(name, h.dbType, schemasList, h.info);
+            cache.flush(name);
+            return true;
         }
 
         // ── Cache miss: query DB ──
         if (!cm.isConnected(name)) {
-            try {
-                cm.connect(h.info);
-            } catch (Exception e) {
+            try { cm.connect(h.info); } catch (Exception e) {
                 log.warn("自动连接 '{}' 失败: {}", name, e.getMessage());
-                connNode.add(new DefaultMutableTreeNode("连接失败: " + e.getMessage()));
-                treeModel.reload(connNode);
-                callback.onSyncError(name, e.getMessage());
-                return;
+                return false;
             }
         }
 
@@ -911,39 +974,115 @@ public class ObjectBrowser extends JPanel {
             String dbProduct = conn.getMetaData().getDatabaseProductName().toLowerCase();
             h.dbType = dbProduct;
             boolean isOracleLike = dbProduct.contains("oracle") || dbProduct.contains("oceanbase");
-            List<ObjectType> types = detectTypes(dbProduct);
-            java.util.Set<String> schemas = collectSchemas(conn, isOracleLike);
+            int qTimeout = cm.getQueryTimeout(name);
+            log.warn("[DEBUG] loadConnectionData: dbProduct={} qTimeout={}", dbProduct, qTimeout);
 
-            // Save schemas to cache
+            List<ObjectType> types = detectTypes(dbProduct);
+            progress.accept(5);
+            log.warn("[DEBUG] loadConnectionData: 开始 collectSchemas...");
+            java.util.Set<String> schemas = collectSchemas(conn, isOracleLike);
+            log.warn("[DEBUG] loadConnectionData: collectSchemas 完成, schemas={}", schemas);
+
             cache.putSchemas(name, dbProduct, schemas);
             java.util.List<String> schemaList = new ArrayList<>(schemas);
             connFullSchemas.put(name, schemaList);
             initHiddenSchemas(h, schemaList);
 
             if (!schemas.isEmpty()) {
+                int queryTypeCount = 0;
+                for (ObjectType ot : types) {
+                    if (!"SCHEMA".equals(ot.typeCode)) queryTypeCount++;
+                }
+                int totalOps = schemas.size() * queryTypeCount;
+                int doneOps = 0;
                 for (String schema : schemas) {
+                    log.warn("[DEBUG] loadConnectionData: schema {}/{}: {}", doneOps / Math.max(queryTypeCount, 1) + 1, schemas.size(), schema);
                     for (ObjectType ot : types) {
                         if ("SCHEMA".equals(ot.typeCode)) continue;
-                        List<String> objects = queryObjects(conn, ot, schema);
+                        log.warn("[DEBUG] loadConnectionData:   query {} in {}", ot.typeCode, schema);
+                        List<String> objects = queryObjects(conn, ot, schema, qTimeout);
+                        log.warn("[DEBUG] loadConnectionData:   {} in {} -> {} objects", ot.typeCode, schema, objects != null ? objects.size() : 0);
                         cache.putObjects(name, schema, ot.typeCode, objects);
+                        doneOps++;
+                        int pct = Math.min(95, 10 + doneOps * 85 / totalOps);
+                        progress.accept(pct);
                     }
-                    loadTableComments(conn, name, dbProduct, schema);
+                    log.warn("[DEBUG] loadConnectionData:   loadTableComments {}", schema);
+                    loadTableComments(conn, name, dbProduct, schema, qTimeout);
                 }
-                rebuildConnectionNode(connNode);
-            } else {
-                connNode.add(new DefaultMutableTreeNode("(无 schema)"));
-                treeModel.reload(connNode);
             }
+            cache.flush(name);
+            progress.accept(100);
+            log.warn("[DEBUG] loadConnectionData: 全部完成, return true");
+            return true;
         } catch (SQLException e) {
             log.error("加载连接 '{}' 失败", name, e);
-            connNode.add(new DefaultMutableTreeNode("加载失败: " + e.getMessage()));
-            treeModel.reload(connNode);
-            callback.onSyncError(name, e.getMessage());
+            return false;
         }
     }
 
+    /** Synchronous load (backward compat): data + tree ops on caller thread. */
+    private void loadConnection(DefaultMutableTreeNode connNode) {
+        connNode.removeAllChildren();
+        if (!loadConnectionData(connNode)) {
+            ConnHolder h = (ConnHolder) connNode.getUserObject();
+            connNode.add(new DefaultMutableTreeNode("加载失败"));
+            treeModel.reload(connNode);
+            javax.swing.SwingUtilities.invokeLater(() ->
+                callback.onSyncError(h.info.getName(), "连接失败，请检查配置"));
+            return;
+        }
+        rebuildConnectionTreeFromCache(connNode);
+    }
+
+    private void rebuildConnectionTreeFromCache(DefaultMutableTreeNode connNode) {
+        ConnHolder h = (ConnHolder) connNode.getUserObject();
+        String name = h.info.getName();
+        log.warn("[DEBUG] rebuildConnectionTreeFromCache: {}", name);
+        MetadataCache cache = MetadataCache.getInstance();
+        if (!cache.hasMetadata(name)) {
+            log.warn("[DEBUG] rebuildConnectionTreeFromCache: 无缓存，显示 加载失败");
+            connNode.removeAllChildren();
+            connNode.add(new DefaultMutableTreeNode("加载失败"));
+            treeModel.reload(connNode);
+            return;
+        }
+        List<String> schemas = connFullSchemas.get(name);
+        log.warn("[DEBUG] rebuildConnectionTreeFromCache: schemas={}", schemas);
+        if (schemas == null || schemas.isEmpty()) {
+            log.warn("[DEBUG] rebuildConnectionTreeFromCache: schemas为空，显示 (无 schema)");
+            connNode.removeAllChildren();
+            connNode.add(new DefaultMutableTreeNode("(无 schema)"));
+            treeModel.reload(connNode);
+            return;
+        }
+        rebuildConnectionNode(connNode);
+    }
+
+    /** Async load: JDBC in background, tree ops on EDT. */
+    private void loadConnectionAsync(DefaultMutableTreeNode connNode) {
+        loadConnectionAsync(connNode, null);
+    }
+
+    private void loadConnectionAsync(DefaultMutableTreeNode connNode, Runnable onDone) {
+        connNode.removeAllChildren();
+        connNode.add(new DefaultMutableTreeNode("加载中..."));
+        treeModel.reload(connNode);
+        DefaultMutableTreeNode nodeRef = connNode;
+        new SwingWorker<Void, Void>() {
+            @Override protected Void doInBackground() {
+                loadConnectionData(nodeRef);
+                return null;
+            }
+            @Override protected void done() {
+                rebuildConnectionTreeFromCache(nodeRef);
+                if (onDone != null) onDone.run();
+            }
+        }.execute();
+    }
+
     /** Bulk-load table/view comments into cache for a single schema. */
-    private void loadTableComments(Connection conn, String connName, String dbProduct, String schema) {
+    private void loadTableComments(Connection conn, String connName, String dbProduct, String schema, int timeout) {
         MetadataCache cache = MetadataCache.getInstance();
         boolean isOracleLike = dbProduct.contains("oracle") || dbProduct.contains("oceanbase");
         String sql;
@@ -956,6 +1095,7 @@ public class ObjectBrowser extends JPanel {
                   " UNION SELECT viewname, obj_description((schemaname||'.'||viewname)::regclass, 'pg_class') FROM pg_catalog.pg_views WHERE schemaname = ?";
         }
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            if (timeout > 0) ps.setQueryTimeout(timeout);
             ps.setString(1, schema);
             if (!isOracleLike && !dbProduct.contains("mysql") && !dbProduct.contains("mariadb")) {
                 ps.setString(2, schema);
@@ -993,8 +1133,10 @@ public class ObjectBrowser extends JPanel {
         try {
             if (!cm.isConnected(connName)) cm.connect(connInfo);
             try (Connection conn = cm.getConnection(connName)) {
+                int qto = cm.getQueryTimeout(connName);
+                if (qto <= 0) qto = 30;
                 for (String schema : schemas) {
-                    loadTableComments(conn, connName, dbProduct, schema);
+                    loadTableComments(conn, connName, dbProduct, schema, qto);
                 }
             }
         } catch (Exception e) {
@@ -1006,15 +1148,18 @@ public class ObjectBrowser extends JPanel {
         ConnHolder h = (ConnHolder) connNode.getUserObject();
         String name = h.info.getName();
         java.util.List<String> all = connFullSchemas.get(name);
-        if (all == null) return;
+        log.warn("[DEBUG] rebuildConnectionNode: {} schemas={}", name, all);
+        if (all == null) { log.warn("[DEBUG] rebuildConnectionNode: all == null, 直接 return"); return; }
         java.util.Set<String> hidden = connHiddenSchemas.getOrDefault(name, java.util.Collections.emptySet());
         String dbProduct = h.dbType;
         if (dbProduct == null) {
-            MetadataCache m = MetadataCache.getInstance();
-            if (m.hasMetadata(name)) dbProduct = m.getDbProduct(name);
+            dbProduct = inferDbProduct(h);
+            h.dbType = dbProduct;
         }
+        log.warn("[DEBUG] rebuildConnectionNode: dbProduct={}", dbProduct);
         java.util.List<ObjectType> types = detectTypes(dbProduct);
         MetadataCache cache = MetadataCache.getInstance();
+        log.warn("[DEBUG] rebuildConnectionNode: 移除所有子节点...");
         connNode.removeAllChildren();
         for (String schema : all) {
             if (hidden.contains(schema)) continue;
@@ -1034,8 +1179,10 @@ public class ObjectBrowser extends JPanel {
                 }
             }
         }
+        log.warn("[DEBUG] rebuildConnectionNode: 调用 treeModel.reload(connNode)");
         treeModel.reload(connNode);
         TreePath connPath = new TreePath(connNode.getPath());
+        log.warn("[DEBUG] rebuildConnectionNode: 调用 tree.expandPath");
         tree.expandPath(connPath);
         // Auto-expand default schema if configured
         String defSchema = h.info.getSchema();
@@ -1082,7 +1229,7 @@ public class ObjectBrowser extends JPanel {
 
     // ── Object queries ──
 
-    private List<String> queryObjects(Connection conn, ObjectType type, String schema) {
+    private List<String> queryObjects(Connection conn, ObjectType type, String schema, int timeout) {
         // FIXED_LIST type: return predefined values directly
         if (type.fixedValues != null) {
             return new ArrayList<>(type.fixedValues);
@@ -1090,13 +1237,15 @@ public class ObjectBrowser extends JPanel {
         List<String> names = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(type.querySql)) {
             ps.setString(1, schema);
+            if (timeout > 0) ps.setQueryTimeout(timeout);
             try (ResultSet rs = ps.executeQuery()) { while (rs.next()) names.add(rs.getString(1)); }
-        } catch (SQLException e) { log.debug("query {} {} failed: {}", type.label, schema, e.getMessage()); }
+        } catch (SQLException e) { log.warn("query {} {} failed: {}", type.label, schema, e.getMessage()); }
         java.util.Collections.sort(names);
         return names;
     }
 
     private List<ObjectType> detectTypes(String dbProduct) {
+        if (dbProduct == null) dbProduct = "";
         // Check metadata config first
         if (configManager != null) {
             String key = dbProductToKey(dbProduct);
@@ -1124,6 +1273,7 @@ public class ObjectBrowser extends JPanel {
     }
 
     private static String dbProductToKey(String dbProduct) {
+        if (dbProduct == null) return "oracle";
         if (dbProduct.contains("mysql") || dbProduct.contains("mariadb")) return "mysql";
         if (dbProduct.contains("postgresql") || dbProduct.contains("edb")) return "postgresql";
         if (dbProduct.contains("oceanbase")) return "oceanbase";
@@ -1211,16 +1361,19 @@ public class ObjectBrowser extends JPanel {
             boolean connected = cm.isConnected(cname);
 
             if (!connected) {
-                menu.add(menuItem("连接", "connect", () -> { loadConnection(node); tree.expandPath(path); }));
+                menu.add(menuItem("连接", "connect", () -> loadConnectionAsync(node, () -> tree.expandPath(path))));
             } else {
-                menu.add(menuItem("断开", "connect", () -> { cm.disconnect(cname); loadAll(cm, getConnInfos()); }));
+                menu.add(menuItem("断开", "connect", () -> {
+                    cm.disconnect(cname);
+                    MetadataCache.getInstance().clearConnection(cname);
+                    node.removeAllChildren();
+                    node.add(new DefaultMutableTreeNode("(未连接)"));
+                    treeModel.reload(node);
+                }));
             }
             menu.addSeparator();
             menu.add(menuItem("属性", "info", () -> callback.onConnectionProperties(cname)));
-            menu.add(menuItem("刷新", "refresh", () -> {
-                MetadataCache.getInstance().clearConnection(cname);
-                loadConnection(node);
-            }));
+            menu.add(menuItem("刷新", "refresh", () -> refreshSelected()));
             menu.addSeparator();
             menu.add(menuItem("新建 SQL 编辑器", "new", () -> callback.onNewSqlEditor(cname)));
         } else if (level == 4) {
