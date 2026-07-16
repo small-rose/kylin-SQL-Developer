@@ -879,7 +879,7 @@ public class MainFrame extends JFrame {
 
         JMenuItem sqlFmtItem = new JMenuItem("SQL 格式化");
         sqlFmtItem.setIcon(IconUtil.menuIcon("format"));
-        sqlFmtItem.addActionListener(e -> new SqlToolsDialog(MainFrame.this, formatOptions, 2).setVisible(true));
+        sqlFmtItem.addActionListener(e -> new SqlToolsDialog(MainFrame.this, formatOptions, 1).setVisible(true));
         toolsMenu.add(sqlFmtItem);
 
         JMenuItem dataGenItem = new JMenuItem("数据生成器");

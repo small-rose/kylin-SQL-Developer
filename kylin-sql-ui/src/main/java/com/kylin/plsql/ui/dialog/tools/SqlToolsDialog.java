@@ -59,7 +59,7 @@ public class SqlToolsDialog extends BaseToolDialog {
         installSample(outputArea, "-- 结果将显示在此处");
         installSample(fmtInputArea,
             "select a.id,b.name from users a\nleft join orders b on a.id=b.user_id\nwhere b.status='ACTIVE'\norder by b.create_time desc");
-        installSample(fmtOutputArea, "-- 格式化后的 SQL 将显示在此处");
+        fmtOutputArea.setText("");
 
         tabbedPane = new JTabbedPane();
 
@@ -126,7 +126,10 @@ public class SqlToolsDialog extends BaseToolDialog {
         applyTheme();
         tabbedPane.setSelectedIndex(initialTab);
 
-        SwingUtilities.invokeLater(() -> tabbedPane.requestFocusInWindow());
+        SwingUtilities.invokeLater(() -> {
+            tabbedPane.requestFocusInWindow();
+            doFormat(true);
+        });
     }
 
     private void installSample(JTextComponent comp, String sample) {
@@ -184,9 +187,13 @@ public class SqlToolsDialog extends BaseToolDialog {
     }
 
     private void doFormat() {
+        doFormat(false);
+    }
+
+    private void doFormat(boolean force) {
         String input = fmtInputArea.getText();
         String saved = (String) fmtInputArea.getClientProperty(SAMPLE_KEY);
-        if (saved != null && saved.equals(input)) return;
+        if (!force && saved != null && saved.equals(input)) return;
         if (input == null || input.trim().isEmpty()) return;
         try {
             String result = EngineManager.format(input);
