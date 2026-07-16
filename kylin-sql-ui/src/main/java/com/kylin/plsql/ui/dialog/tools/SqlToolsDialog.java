@@ -335,14 +335,19 @@ public class SqlToolsDialog extends BaseToolDialog {
 
     static String toInClause(String input, boolean quoted) {
         if (input == null || input.isEmpty()) return "";
-        String[] lines = input.split("\\r?\\n");
+        java.util.List<String> items = new java.util.ArrayList<>();
+        for (String line : input.split("\\r?\\n")) {
+            for (String part : line.split("[，,]")) {
+                String t = part.trim();
+                if (!t.isEmpty()) items.add(t);
+            }
+        }
+        if (items.isEmpty()) return "()";
         StringBuilder sb = new StringBuilder("(");
-        for (int i = 0; i < lines.length; i++) {
-            String line = lines[i].trim();
-            if (line.isEmpty()) continue;
-            if (i > 0 && sb.charAt(sb.length() - 1) != '(') sb.append(", ");
-            if (quoted) sb.append("'").append(line.replace("'", "''")).append("'");
-            else sb.append(line);
+        for (int i = 0; i < items.size(); i++) {
+            if (i > 0) sb.append("\uff0c");
+            if (quoted) sb.append("'").append(items.get(i).replace("'", "''")).append("'");
+            else sb.append(items.get(i));
         }
         sb.append(")");
         return sb.toString();
@@ -354,6 +359,8 @@ public class SqlToolsDialog extends BaseToolDialog {
         if (trimmed.startsWith("(") && trimmed.endsWith(")")) {
             trimmed = trimmed.substring(1, trimmed.length() - 1).trim();
         }
+        // Normalize Chinese commas to ASCII commas for uniform parsing
+        trimmed = trimmed.replace('\uff0c', ',');
         StringBuilder sb = new StringBuilder();
         Matcher m = Pattern.compile("'([^']*)'|([^,]+)").matcher(trimmed);
         while (m.find()) {
