@@ -27,7 +27,7 @@ public class SqlToolsDialog extends BaseToolDialog {
     private final JSplitPane[] splitPanes;
     private final JToggleButton layoutToggleBtn;
     private final JLabel descLabel;
-    private final JCheckBox quoteCb;
+    private final JCheckBox numericCb;
     private final JButton toInBtn;
     private final JButton fromInBtn;
     private final JButton formatBtn;
@@ -83,10 +83,10 @@ public class SqlToolsDialog extends BaseToolDialog {
 
         descLabel = new JLabel();
 
-        quoteCb = new JCheckBox("带引号");
-        quoteCb.setSelected(true);
+        numericCb = new JCheckBox("数值类型");
+        numericCb.setSelected(false);
         toInBtn = new JButton("> IN 子句");
-        toInBtn.addActionListener(e -> outputArea.setText(toInClause(inputArea.getText(), quoteCb.isSelected())));
+        toInBtn.addActionListener(e -> outputArea.setText(toInClause(inputArea.getText(), !numericCb.isSelected())));
         fromInBtn = new JButton("< 还原");
         fromInBtn.addActionListener(e -> outputArea.setText(fromInClause(inputArea.getText())));
 
@@ -231,7 +231,7 @@ public class SqlToolsDialog extends BaseToolDialog {
                 for (JCheckBox cb : fmtToggleCbs) centerRow.add(cb);
             }
         } else {
-            centerRow.add(quoteCb);
+            centerRow.add(numericCb);
             centerRow.add(toInBtn);
             centerRow.add(fromInBtn);
         }
@@ -345,7 +345,7 @@ public class SqlToolsDialog extends BaseToolDialog {
         if (items.isEmpty()) return "()";
         StringBuilder sb = new StringBuilder("(");
         for (int i = 0; i < items.size(); i++) {
-            if (i > 0) sb.append("\uff0c");
+            if (i > 0) sb.append(", ");
             if (quoted) sb.append("'").append(items.get(i).replace("'", "''")).append("'");
             else sb.append(items.get(i));
         }
