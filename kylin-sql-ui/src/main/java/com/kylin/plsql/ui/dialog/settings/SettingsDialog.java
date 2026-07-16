@@ -1482,8 +1482,9 @@ public class SettingsDialog extends JDialog {
     private JSpinner fontSizeSpinner;
     private JPanel fontColorSwatch;
     private JLabel fontSectionHeader;
-    private JLabel fontPreview;
+    private JPanel fontPreviewPanel;
     private String fontPanelSelectedKey;
+    private RSyntaxTextArea fontPreviewEditor;
 
     private JPanel buildFontPanel() {
         JPanel root = new JPanel(new BorderLayout());
@@ -1554,16 +1555,23 @@ public class SettingsDialog extends JDialog {
         });
         settingPanel.add(fontColorSwatch, c);
 
-        // Preview
+        // Preview panel
         c.gridx = 0; c.gridy = 4; c.gridwidth = 2; c.weightx = 1; c.weighty = 1;
         c.fill = GridBagConstraints.BOTH;
-        fontPreview = new JLabel(" ");
-        fontPreview.setBorder(BorderFactory.createTitledBorder("预览"));
-        fontPreview.setOpaque(true);
-        fontPreview.setBackground(ThemeManager.getInstance().resolve("bg.editor"));
-        fontPreview.setForeground(ThemeManager.getInstance().resolve("fg.main"));
-        fontPreview.setPreferredSize(new Dimension(0, 60));
-        settingPanel.add(fontPreview, c);
+        fontPreviewPanel = new JPanel(new BorderLayout());
+        fontPreviewPanel.setBorder(BorderFactory.createTitledBorder("预览"));
+        fontPreviewPanel.setOpaque(true);
+        fontPreviewPanel.setBackground(ThemeManager.getInstance().resolve("bg.editor"));
+        fontPreviewPanel.setPreferredSize(new Dimension(0, 80));
+        // Default: a read-only RSyntaxTextArea for code-style preview
+        fontPreviewEditor = new RSyntaxTextArea(3, 30);
+        fontPreviewEditor.setSyntaxEditingStyle("text/plsql");
+        fontPreviewEditor.setEditable(false);
+        fontPreviewEditor.setHighlightCurrentLine(false);
+        fontPreviewEditor.setCodeFoldingEnabled(false);
+        fontPreviewEditor.setBorder(null);
+        fontPreviewPanel.add(fontPreviewEditor, BorderLayout.CENTER);
+        settingPanel.add(fontPreviewPanel, c);
 
         // Filler
         c.gridx = 0; c.gridy = 5; c.gridwidth = 2; c.weighty = 1;
@@ -1596,7 +1604,7 @@ public class SettingsDialog extends JDialog {
             Color fc = FontManager.getInstance().resolveColor(fontPanelSelectedKey);
             fontColorSwatch.setBackground(fc != null ? fc : ThemeManager.getInstance().resolve("fg.main"));
             fontSectionHeader.setText(FontManager.getLabel(fontPanelSelectedKey));
-            fontPreview.setText(FontManager.getPreviewText(fontPanelSelectedKey));
+            rebuildFontPreview();
             applyFontPreview();
         };
 
@@ -1673,14 +1681,79 @@ public class SettingsDialog extends JDialog {
         applyFontPreview();
     }
 
+    private void rebuildFontPreview() {
+        fontPreviewPanel.removeAll();
+        String key = fontPanelSelectedKey;
+        if (key == null) { fontPreviewPanel.repaint(); return; }
+
+        ThemeManager tm = ThemeManager.getInstance();
+        Color editorBg = tm.resolve("bg.editor");
+        Color panelBg = tm.resolve("bg.panel");
+        Color mainBg = tm.resolve("bg.main");
+
+        if ("font.editor".equals(key) || "font.editor.comment".equals(key)) {
+            // Editor-style preview: use RSyntaxTextArea with syntax highlighting
+            String text = FontManager.getPreviewText(key);
+            fontPreviewEditor.setText(text);
+            fontPreviewEditor.setBackground(editorBg);
+            // Load RSTA theme for proper syntax colors
+            try {
+                String path = tm.getCurrentTheme().config("rsta.theme");
+                try (InputStream in = getClass().getClassLoader().getResourceAsStream(path)) {
+                    if (in != null) { Theme.load(in).apply(fontPreviewEditor); }
+                }
+                try (InputStream in = RSyntaxTextArea.class.getResourceAsStream(path)) {
+                    if (in != null) { Theme.load(in).apply(fontPreviewEditor); }
+                }
+            } catch (Exception ignored) {}
+            fontPreviewEditor.setEditable(false);
+            fontPreviewPanel.add(fontPreviewEditor, BorderLayout.CENTER);
+        } else if ("font.table".equals(key)) {
+            // Table-style preview: use a JTable
+            String[] cols = {"用户名", "状态", "创建时间"};
+            Object[][] data = {{"张三", "ACTIVE", "2024-01-15"}, {"李四", "INACTIVE", "2024-02-20"}};
+            JTable table = new JTable(data, cols);
+            table.setRowHeight(Math.min(FontManager.getInstance().resolve("font.table").getSize() + 6, 24));
+            table.setEnabled(false);
+            table.setBackground(editorBg);
+            table.setForeground(tm.resolve("fg.main"));
+            table.setFont(FontManager.getInstance().resolve("font.table"));
+            table.getTableHeader().setFont(FontManager.getInstance().resolve("font.ui.bold"));
+            fontPreviewPanel.add(new JScrollPane(table), BorderLayout.CENTER);
+        } else if ("font.mono".equals(key)) {
+            // Monospaced preview: code-like display
+            JTextArea ta = new JTextArea(FontManager.getPreviewText(key));
+            ta.setFont(FontManager.getInstance().resolve("font.mono"));
+            ta.setBackground(editorBg);
+            ta.setForeground(tm.resolve("fg.main"));
+            ta.setEditable(false);
+            ta.setBorder(null);
+            fontPreviewPanel.add(ta, BorderLayout.CENTER);
+        } else {
+            // UI-style preview: simulated panel with colored labels
+            JPanel sim = new JPanel(new BorderLayout());
+            sim.setBackground(mainBg);
+            JLabel line1 = new JLabel(FontManager.getPreviewText(key));
+            line1.setFont(FontManager.getInstance().resolve(key));
+            line1.setForeground(tm.resolve("fg.main"));
+            line1.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+            sim.add(line1, BorderLayout.CENTER);
+            // Subtitle line
+            JLabel line2 = new JLabel("次要信息 / Secondary Info");
+            line2.setFont(FontManager.getInstance().resolve("font.status"));
+            line2.setForeground(tm.resolve("fg.muted"));
+            line2.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
+            sim.add(line2, BorderLayout.SOUTH);
+            fontPreviewPanel.add(sim, BorderLayout.CENTER);
+        }
+        fontPreviewPanel.revalidate();
+        fontPreviewPanel.repaint();
+    }
+
     private void applyFontPreview() {
-        if (fontPanelSelectedKey == null) return;
-        Font f = FontManager.getInstance().resolve(fontPanelSelectedKey);
-        fontPreview.setFont(f.deriveFont((float) Math.min(f.getSize(), 28)));
-        Color fc = FontManager.getInstance().resolveColor(fontPanelSelectedKey);
-        if (fc != null) fontPreview.setForeground(fc);
-        fontPreview.revalidate();
-        fontPreview.repaint();
+        String key = fontPanelSelectedKey;
+        if (key == null) return;
+        rebuildFontPreview();
     }
 
     // ── Save settings ──
