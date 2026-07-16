@@ -1518,9 +1518,9 @@ public class SettingsDialog extends JDialog {
         c.gridwidth = 1;
 
         // Font name row
-        c.gridx = 0; c.gridy = 1; c.weightx = 0;
+        c.gridx = 0; c.gridy = 1; c.weightx = 0.5;
         settingPanel.add(new JLabel("字体:"), c);
-        c.gridx = 1; c.weightx = 1;
+        c.gridx = 1; c.weightx = 0.5;
         fontNameCombo = new JComboBox<>();
         for (String fn : allFonts) fontNameCombo.addItem(FontManager.getFontLabel(fn));
         fontNameCombo.setEditable(true);
@@ -1535,10 +1535,10 @@ public class SettingsDialog extends JDialog {
         settingPanel.add(fontSizeSpinner, c);
 
         // Color picker row
-        c.gridx = 0; c.gridy = 3; c.gridwidth = 1; c.weightx = 0; c.weighty = 0;
-        c.fill = GridBagConstraints.NONE;
+        c.gridx = 0; c.gridy = 3; c.gridwidth = 1; c.weightx = 0.5; c.weighty = 0;
+        c.fill = GridBagConstraints.HORIZONTAL;
         settingPanel.add(new JLabel("颜色:"), c);
-        c.gridx = 1; c.fill = GridBagConstraints.HORIZONTAL;
+        c.gridx = 1; c.weightx = 0.5;
         fontColorSwatch = new JPanel();
         fontColorSwatch.setPreferredSize(new Dimension(36, 24));
         fontColorSwatch.setBorder(BorderFactory.createLineBorder(new Color(0x888888)));
