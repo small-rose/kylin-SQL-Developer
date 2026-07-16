@@ -1527,7 +1527,7 @@ public class SettingsDialog extends JDialog {
         settingPanel.add(fontNameCombo, c);
 
         // Size row
-        c.gridx = 0; c.gridy = 1; c.weightx = 0;
+        c.gridx = 0; c.gridy = 2; c.weightx = 0;
         settingPanel.add(new JLabel("大小:"), c);
         c.gridx = 1; c.weightx = 0;
         fontSizeSpinner = new JSpinner(new SpinnerNumberModel(12, 6, 72, 1));
