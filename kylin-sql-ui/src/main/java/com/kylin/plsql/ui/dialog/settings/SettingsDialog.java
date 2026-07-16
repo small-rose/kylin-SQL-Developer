@@ -1481,8 +1481,8 @@ public class SettingsDialog extends JDialog {
     private JComboBox<String> fontNameCombo;
     private JSpinner fontSizeSpinner;
     private JPanel fontColorSwatch;
-    private JLabel fontCodePreview;
-    private JLabel fontCommentPreview;
+    private JLabel fontSectionHeader;
+    private JLabel fontPreview;
     private String fontPanelSelectedKey;
 
     private JPanel buildFontPanel() {
@@ -1509,8 +1509,15 @@ public class SettingsDialog extends JDialog {
 
         String[] allFonts = FontManager.getInstance().getAllFonts();
 
+        // Section header
+        c.gridx = 0; c.gridy = 0; c.gridwidth = 2; c.weightx = 1;
+        fontSectionHeader = new JLabel(" ");
+        fontSectionHeader.setFont(fontSectionHeader.getFont().deriveFont(Font.BOLD, 14f));
+        settingPanel.add(fontSectionHeader, c);
+        c.gridwidth = 1;
+
         // Font name row
-        c.gridx = 0; c.gridy = 0; c.weightx = 0;
+        c.gridx = 0; c.gridy = 1; c.weightx = 0;
         settingPanel.add(new JLabel("字体:"), c);
         c.gridx = 1; c.weightx = 1;
         fontNameCombo = new JComboBox<>();
@@ -1527,7 +1534,7 @@ public class SettingsDialog extends JDialog {
         settingPanel.add(fontSizeSpinner, c);
 
         // Color picker row
-        c.gridx = 0; c.gridy = 2; c.gridwidth = 1; c.weightx = 0; c.weighty = 0;
+        c.gridx = 0; c.gridy = 3; c.gridwidth = 1; c.weightx = 0; c.weighty = 0;
         c.fill = GridBagConstraints.NONE;
         settingPanel.add(new JLabel("颜色:"), c);
         c.gridx = 1; c.fill = GridBagConstraints.HORIZONTAL;
@@ -1547,33 +1554,23 @@ public class SettingsDialog extends JDialog {
         });
         settingPanel.add(fontColorSwatch, c);
 
-        // Preview panel (code + comment side by side)
-        c.gridx = 0; c.gridy = 3; c.gridwidth = 2; c.weightx = 1; c.weighty = 1;
+        // Preview
+        c.gridx = 0; c.gridy = 4; c.gridwidth = 2; c.weightx = 1; c.weighty = 1;
         c.fill = GridBagConstraints.BOTH;
-        JPanel previewPanel = new JPanel(new GridLayout(2, 1, 0, 4));
-        previewPanel.setOpaque(false);
-        fontCodePreview = new JLabel("SELECT * FROM orders");
-        fontCodePreview.setBorder(BorderFactory.createTitledBorder("代码"));
-        fontCodePreview.setOpaque(true);
-        fontCodePreview.setBackground(ThemeManager.getInstance().resolve("bg.editor"));
-        fontCodePreview.setForeground(ThemeManager.getInstance().resolve("fg.main"));
-        fontCodePreview.setPreferredSize(new Dimension(0, 36));
-        fontCommentPreview = new JLabel("-- 查询当月订单");
-        fontCommentPreview.setBorder(BorderFactory.createTitledBorder("注释"));
-        fontCommentPreview.setOpaque(true);
-        fontCommentPreview.setBackground(ThemeManager.getInstance().resolve("bg.editor"));
-        fontCommentPreview.setForeground(getRstaCommentColor());
-        fontCommentPreview.setPreferredSize(new Dimension(0, 36));
-        previewPanel.add(fontCodePreview);
-        previewPanel.add(fontCommentPreview);
-        settingPanel.add(previewPanel, c);
+        fontPreview = new JLabel(" ");
+        fontPreview.setBorder(BorderFactory.createTitledBorder("预览"));
+        fontPreview.setOpaque(true);
+        fontPreview.setBackground(ThemeManager.getInstance().resolve("bg.editor"));
+        fontPreview.setForeground(ThemeManager.getInstance().resolve("fg.main"));
+        fontPreview.setPreferredSize(new Dimension(0, 60));
+        settingPanel.add(fontPreview, c);
 
         // Filler
-        c.gridx = 0; c.gridy = 4; c.gridwidth = 2; c.weighty = 1;
+        c.gridx = 0; c.gridy = 5; c.gridwidth = 2; c.weighty = 1;
         settingPanel.add(Box.createGlue(), c);
 
         // Reset button bottom
-        c.gridx = 0; c.gridy = 5; c.gridwidth = 2; c.weighty = 0; c.fill = GridBagConstraints.NONE;
+        c.gridx = 0; c.gridy = 6; c.gridwidth = 2; c.weighty = 0; c.fill = GridBagConstraints.NONE;
         c.anchor = GridBagConstraints.WEST;
         JButton resetBtn = new JButton("重置为默认");
         settingPanel.add(resetBtn, c);
@@ -1598,6 +1595,8 @@ public class SettingsDialog extends JDialog {
             fontSizeSpinner.setValue(curSize);
             Color fc = FontManager.getInstance().resolveColor(fontPanelSelectedKey);
             fontColorSwatch.setBackground(fc != null ? fc : ThemeManager.getInstance().resolve("fg.main"));
+            fontSectionHeader.setText(FontManager.getLabel(fontPanelSelectedKey));
+            fontPreview.setText(FontManager.getPreviewText(fontPanelSelectedKey));
             applyFontPreview();
         };
 
@@ -1675,16 +1674,13 @@ public class SettingsDialog extends JDialog {
     }
 
     private void applyFontPreview() {
-        Font codeFont = FontManager.getInstance().resolve("font.editor");
-        Font commentFont = FontManager.getInstance().resolve("font.editor.comment");
-        fontCodePreview.setFont(codeFont.deriveFont((float) Math.min(codeFont.getSize(), 24)));
-        fontCodePreview.setForeground(ThemeManager.getInstance().resolve("fg.main"));
-        fontCommentPreview.setFont(commentFont.deriveFont((float) Math.min(commentFont.getSize(), 24)));
-        fontCommentPreview.setForeground(getRstaCommentColor());
-        fontCodePreview.revalidate();
-        fontCodePreview.repaint();
-        fontCommentPreview.revalidate();
-        fontCommentPreview.repaint();
+        if (fontPanelSelectedKey == null) return;
+        Font f = FontManager.getInstance().resolve(fontPanelSelectedKey);
+        fontPreview.setFont(f.deriveFont((float) Math.min(f.getSize(), 28)));
+        Color fc = FontManager.getInstance().resolveColor(fontPanelSelectedKey);
+        if (fc != null) fontPreview.setForeground(fc);
+        fontPreview.revalidate();
+        fontPreview.repaint();
     }
 
     // ── Save settings ──
