@@ -1476,7 +1476,8 @@ public class SettingsDialog extends JDialog {
 
     private JComboBox<String> fontNameCombo;
     private JSpinner fontSizeSpinner;
-    private JLabel fontPreview;
+    private JLabel fontCodePreview;
+    private JLabel fontCommentPreview;
     private String fontPanelSelectedKey;
 
     private JPanel buildFontPanel() {
@@ -1520,16 +1521,26 @@ public class SettingsDialog extends JDialog {
         fontSizeSpinner.setPreferredSize(new Dimension(70, 26));
         settingPanel.add(fontSizeSpinner, c);
 
-        // Preview row
-        c.gridx = 0; c.gridy = 2; c.gridwidth = 2; c.weightx = 1;
+        // Preview panel (code + comment side by side)
+        c.gridx = 0; c.gridy = 2; c.gridwidth = 2; c.weightx = 1; c.weighty = 1;
         c.fill = GridBagConstraints.BOTH;
-        fontPreview = new JLabel(FontManager.getPreviewText(keys.get(0)));
-        fontPreview.setBorder(BorderFactory.createLineBorder(new Color(0x666666), 1));
-        fontPreview.setOpaque(true);
-        fontPreview.setBackground(new Color(0xFFFFFF));
-        fontPreview.setForeground(new Color(0x333333));
-        fontPreview.setPreferredSize(new Dimension(0, 72));
-        settingPanel.add(fontPreview, c);
+        JPanel previewPanel = new JPanel(new GridLayout(2, 1, 0, 4));
+        previewPanel.setOpaque(false);
+        fontCodePreview = new JLabel("SELECT * FROM orders");
+        fontCodePreview.setBorder(BorderFactory.createTitledBorder("代码"));
+        fontCodePreview.setOpaque(true);
+        fontCodePreview.setBackground(new Color(0xFFFFFF));
+        fontCodePreview.setForeground(new Color(0x333333));
+        fontCodePreview.setPreferredSize(new Dimension(0, 36));
+        fontCommentPreview = new JLabel("-- 查询当月订单");
+        fontCommentPreview.setBorder(BorderFactory.createTitledBorder("注释"));
+        fontCommentPreview.setOpaque(true);
+        fontCommentPreview.setBackground(new Color(0xFFFFFF));
+        fontCommentPreview.setForeground(new Color(0x333333));
+        fontCommentPreview.setPreferredSize(new Dimension(0, 36));
+        previewPanel.add(fontCodePreview);
+        previewPanel.add(fontCommentPreview);
+        settingPanel.add(previewPanel, c);
 
         // Filler
         c.gridx = 0; c.gridy = 3; c.gridwidth = 2; c.weighty = 1;
@@ -1559,7 +1570,6 @@ public class SettingsDialog extends JDialog {
                 }
             }
             fontSizeSpinner.setValue(curSize);
-            fontPreview.setText(FontManager.getPreviewText(fontPanelSelectedKey));
             applyFontPreview();
         };
 
@@ -1604,16 +1614,23 @@ public class SettingsDialog extends JDialog {
     }
 
     private void applyFontPreview() {
-        if (fontPanelSelectedKey == null) return;
         String raw = (String) fontNameCombo.getSelectedItem();
         if (raw == null) return;
         int bracket = raw.indexOf("  [");
         if (bracket > 0) raw = raw.substring(0, bracket);
         int size = (Integer) fontSizeSpinner.getValue();
-        FontManager.getInstance().setOverride(fontPanelSelectedKey, raw + "," + size);
-        fontPreview.setFont(new Font(raw, "font.ui.bold".equals(fontPanelSelectedKey) ? Font.BOLD : Font.PLAIN, Math.min(size, 24)));
-        fontPreview.revalidate();
-        fontPreview.repaint();
+        if (fontPanelSelectedKey != null) {
+            FontManager.getInstance().setOverride(fontPanelSelectedKey, raw + "," + size);
+        }
+        // Always update both previews with their respective fonts
+        Font codeFont = FontManager.getInstance().resolve("font.editor");
+        Font commentFont = FontManager.getInstance().resolve("font.editor.comment");
+        fontCodePreview.setFont(codeFont.deriveFont((float) Math.min(codeFont.getSize(), 24)));
+        fontCommentPreview.setFont(commentFont.deriveFont((float) Math.min(commentFont.getSize(), 24)));
+        fontCodePreview.revalidate();
+        fontCodePreview.repaint();
+        fontCommentPreview.revalidate();
+        fontCommentPreview.repaint();
     }
 
     // ── Save settings ──
