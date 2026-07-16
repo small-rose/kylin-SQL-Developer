@@ -37,7 +37,9 @@ import com.kylin.plsql.core.format.plsql.model.FormatResult;
 import com.kylin.plsql.ui.MainFrame;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.fife.ui.rsyntaxtextarea.SyntaxScheme;
 import org.fife.ui.rsyntaxtextarea.Theme;
+import org.fife.ui.rsyntaxtextarea.TokenTypes;
 
 import javax.swing.*;
 import javax.swing.event.TreeSelectionEvent;
@@ -1529,14 +1531,14 @@ public class SettingsDialog extends JDialog {
         fontCodePreview = new JLabel("SELECT * FROM orders");
         fontCodePreview.setBorder(BorderFactory.createTitledBorder("代码"));
         fontCodePreview.setOpaque(true);
-        fontCodePreview.setBackground(new Color(0xFFFFFF));
-        fontCodePreview.setForeground(new Color(0x333333));
+        fontCodePreview.setBackground(ThemeManager.getInstance().resolve("bg.editor"));
+        fontCodePreview.setForeground(ThemeManager.getInstance().resolve("fg.main"));
         fontCodePreview.setPreferredSize(new Dimension(0, 36));
         fontCommentPreview = new JLabel("-- 查询当月订单");
         fontCommentPreview.setBorder(BorderFactory.createTitledBorder("注释"));
         fontCommentPreview.setOpaque(true);
-        fontCommentPreview.setBackground(new Color(0xFFFFFF));
-        fontCommentPreview.setForeground(new Color(0x333333));
+        fontCommentPreview.setBackground(ThemeManager.getInstance().resolve("bg.editor"));
+        fontCommentPreview.setForeground(getRstaCommentColor());
         fontCommentPreview.setPreferredSize(new Dimension(0, 36));
         previewPanel.add(fontCodePreview);
         previewPanel.add(fontCommentPreview);
@@ -1613,6 +1615,25 @@ public class SettingsDialog extends JDialog {
         return root;
     }
 
+    private Color getRstaCommentColor() {
+        try {
+            String path = ThemeManager.getInstance().getCurrentTheme().config("rsta.theme");
+            try (InputStream in = getClass().getClassLoader().getResourceAsStream(path)) {
+                if (in != null) {
+                    Color c = Theme.load(in).scheme.getStyle(TokenTypes.COMMENT_EOL).foreground;
+                    if (c != null) return c;
+                }
+            }
+            try (InputStream in = RSyntaxTextArea.class.getResourceAsStream(path)) {
+                if (in != null) {
+                    Color c = Theme.load(in).scheme.getStyle(TokenTypes.COMMENT_EOL).foreground;
+                    if (c != null) return c;
+                }
+            }
+        } catch (Exception ignored) {}
+        return new Color(0x6A9955); // fallback dark theme comment green
+    }
+
     private void applyFontPreview() {
         String raw = (String) fontNameCombo.getSelectedItem();
         if (raw == null) return;
@@ -1622,11 +1643,12 @@ public class SettingsDialog extends JDialog {
         if (fontPanelSelectedKey != null) {
             FontManager.getInstance().setOverride(fontPanelSelectedKey, raw + "," + size);
         }
-        // Always update both previews with their respective fonts
         Font codeFont = FontManager.getInstance().resolve("font.editor");
         Font commentFont = FontManager.getInstance().resolve("font.editor.comment");
         fontCodePreview.setFont(codeFont.deriveFont((float) Math.min(codeFont.getSize(), 24)));
+        fontCodePreview.setForeground(ThemeManager.getInstance().resolve("fg.main"));
         fontCommentPreview.setFont(commentFont.deriveFont((float) Math.min(commentFont.getSize(), 24)));
+        fontCommentPreview.setForeground(getRstaCommentColor());
         fontCodePreview.revalidate();
         fontCodePreview.repaint();
         fontCommentPreview.revalidate();
