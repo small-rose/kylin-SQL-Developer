@@ -1710,19 +1710,10 @@ public class SettingsDialog extends JDialog {
             String text = FontManager.getPreviewText(key);
             fontPreviewEditor.setText(text);
             fontPreviewEditor.setBackground(editorBg);
-            try {
-                String path = tm.getCurrentTheme().config("rsta.theme");
-                try (InputStream in = getClass().getClassLoader().getResourceAsStream(path)) {
-                    if (in != null) { Theme.load(in).apply(fontPreviewEditor); }
-                }
-                try (InputStream in = RSyntaxTextArea.class.getResourceAsStream(path)) {
-                    if (in != null) { Theme.load(in).apply(fontPreviewEditor); }
-                }
-            } catch (Exception ignored) {}
-            // Apply user font/size/color AFTER theme (theme overrides font)
-            fontPreviewEditor.setFont(fm.resolve(key).deriveFont((float) Math.min(fm.resolve(key).getSize(), 28)));
+            fontPreviewEditor.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
             Color fc = fm.resolveColor(key);
-            if (fc != null) fontPreviewEditor.setForeground(fc);
+            fontPreviewEditor.setForeground(fc != null ? fc : tm.resolve("fg.main"));
+            fontPreviewEditor.setFont(fm.resolve(key).deriveFont((float) Math.min(fm.resolve(key).getSize(), 28)));
             fontPreviewEditor.setEditable(false);
             fontPreviewPanel.add(fontPreviewEditor, BorderLayout.CENTER);
         } else if ("font.table".equals(key)) {
