@@ -1,5 +1,6 @@
 package com.kylin.plsql.core.config;
 
+import java.awt.Color;
 import java.awt.Font;
 import java.awt.GraphicsEnvironment;
 import java.util.*;
@@ -14,45 +15,46 @@ public class FontManager {
     static {
         DEFAULTS.put("font.editor",          "Monospaced,14");
         DEFAULTS.put("font.editor.comment",  "Monospaced,13");
-        DEFAULTS.put("font.table",    "Monospaced,12");
-        DEFAULTS.put("font.mono",     "Monospaced,12");
-        DEFAULTS.put("font.ui",       "Microsoft YaHei UI,12");
-        DEFAULTS.put("font.ui.bold",  "Microsoft YaHei UI,12");
-        DEFAULTS.put("font.status",   "Microsoft YaHei UI,11");
-        DEFAULTS.put("font.tab",      "Microsoft YaHei UI,10");
+        DEFAULTS.put("font.table",           "Monospaced,12");
+        DEFAULTS.put("font.mono",            "Monospaced,12");
+        DEFAULTS.put("font.ui",              "Microsoft YaHei UI,12");
+        DEFAULTS.put("font.ui.bold",         "Microsoft YaHei UI,12");
+        DEFAULTS.put("font.status",          "Microsoft YaHei UI,11");
+        DEFAULTS.put("font.tab",             "Microsoft YaHei UI,10");
     }
 
     private static final Map<String, String> KEY_LABELS = new LinkedHashMap<>();
     static {
         KEY_LABELS.put("font.editor",          "代码编辑器");
         KEY_LABELS.put("font.editor.comment",  "代码注释");
-        KEY_LABELS.put("font.table",    "结果表");
-        KEY_LABELS.put("font.mono",     "等宽辅助");
-        KEY_LABELS.put("font.ui",       "通用界面");
-        KEY_LABELS.put("font.ui.bold",  "粗体标题");
-        KEY_LABELS.put("font.status",   "状态栏");
-        KEY_LABELS.put("font.tab",      "标签栏");
+        KEY_LABELS.put("font.table",           "结果表");
+        KEY_LABELS.put("font.mono",            "等宽辅助");
+        KEY_LABELS.put("font.ui",              "通用界面");
+        KEY_LABELS.put("font.ui.bold",         "粗体标题");
+        KEY_LABELS.put("font.status",          "状态栏");
+        KEY_LABELS.put("font.tab",             "标签栏");
     }
 
     private static final Map<String, String> PREVIEW_TEXTS = new LinkedHashMap<>();
     static {
         PREVIEW_TEXTS.put("font.editor",          "SELECT * FROM orders");
         PREVIEW_TEXTS.put("font.editor.comment",  "-- 查询当月订单");
-        PREVIEW_TEXTS.put("font.table",    "-- 用户名      状态\n张三    ACTIVE");
-        PREVIEW_TEXTS.put("font.mono",     "AaBbCc 你好世界 12345");
-        PREVIEW_TEXTS.put("font.ui",       "AaBbCc 你好世界 12345");
-        PREVIEW_TEXTS.put("font.ui.bold",  "AaBbCc 你好世界 12345");
-        PREVIEW_TEXTS.put("font.status",   "AaBbCc 你好世界 12345");
-        PREVIEW_TEXTS.put("font.tab",      "AaBbCc 你好世界");
+        PREVIEW_TEXTS.put("font.table",           "-- 用户名      状态\n张三    ACTIVE");
+        PREVIEW_TEXTS.put("font.mono",            "AaBbCc 你好世界 12345");
+        PREVIEW_TEXTS.put("font.ui",              "AaBbCc 你好世界 12345");
+        PREVIEW_TEXTS.put("font.ui.bold",         "AaBbCc 你好世界 12345");
+        PREVIEW_TEXTS.put("font.status",          "AaBbCc 你好世界 12345");
+        PREVIEW_TEXTS.put("font.tab",             "AaBbCc 你好世界");
     }
 
-    private static final String CHINESE_TEST = "\u4f60\u597d"; // 你好
+    private static final String CHINESE_TEST = "\u4f60\u597d";
 
     public static synchronized FontManager getInstance() {
         if (instance == null) instance = new FontManager();
         return instance;
     }
 
+    /** Parse font name+size from value (optionally with color suffix). */
     public Font resolve(String key) {
         String val = overrides.getOrDefault(key, DEFAULTS.get(key));
         if (val == null) return new Font("Dialog", Font.PLAIN, 12);
@@ -61,6 +63,19 @@ public class FontManager {
         int size = parts.length > 1 ? Integer.parseInt(parts[1].trim()) : 12;
         int style = "font.ui.bold".equals(key) ? Font.BOLD : Font.PLAIN;
         return new Font(name, style, size);
+    }
+
+    /** Parse optional hex color from the end of override value, e.g. "Monospaced,14,#D4D4D4". */
+    public Color resolveColor(String key) {
+        String val = overrides.getOrDefault(key, DEFAULTS.get(key));
+        if (val == null) return null;
+        int hash = val.lastIndexOf(",#");
+        if (hash < 0) return null;
+        try {
+            return Color.decode(val.substring(hash + 1));
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     public String resolveValue(String key) {
@@ -83,25 +98,23 @@ public class FontManager {
                 || lower.contains("dejavu") || lower.contains("dialoginput");
         boolean cn = f.canDisplayUpTo(CHINESE_TEST) == -1;
         StringBuilder label = new StringBuilder(fontName);
-        if (mono) label.append("  [\u7b49\u5bbd]");     // [等宽]
-        if (cn) label.append("  [\u4e2d\u6587]");       // [中文]
+        if (mono) label.append("  [\u7b49\u5bbd]");
+        if (cn) label.append("  [\u4e2d\u6587]");
         return label.toString();
-    }
-
-    public static boolean isMonospace(String fontName) {
-        Font f = new Font(fontName, Font.PLAIN, 12);
-        return f.getFontName().toLowerCase().contains("mono")
-                || f.getFontName().toLowerCase().contains("console")
-                || f.getFontName().toLowerCase().contains("courier");
-    }
-
-    public static boolean supportsChinese(String fontName) {
-        return new Font(fontName, Font.PLAIN, 12).canDisplayUpTo(CHINESE_TEST) == -1;
     }
 
     public Map<String, String> getOverrideMap() { return new HashMap<>(overrides); }
 
     public void setOverride(String key, String value) { overrides.put(key, value); }
+
+    /** Set font + color override. Color may be null. */
+    public void setOverride(String key, String fontName, int size, Color color) {
+        StringBuilder sb = new StringBuilder(fontName).append(",").append(size);
+        if (color != null) {
+            sb.append(",#").append(String.format("%02x%02x%02x", color.getRed(), color.getGreen(), color.getBlue()));
+        }
+        overrides.put(key, sb.toString());
+    }
 
     public void removeOverride(String key) { overrides.remove(key); }
 
@@ -120,16 +133,12 @@ public class FontManager {
     }
 
     public void addListener(Runnable r) { listeners.add(r); }
-
     public void fireListeners() {
         for (Runnable r : listeners) r.run();
     }
 
     public static Set<String> getKeys() { return DEFAULTS.keySet(); }
-
     public static String getDefault(String key) { return DEFAULTS.get(key); }
-
     public static String getLabel(String key) { return KEY_LABELS.get(key); }
-
     public static String getPreviewText(String key) { return PREVIEW_TEXTS.get(key); }
 }

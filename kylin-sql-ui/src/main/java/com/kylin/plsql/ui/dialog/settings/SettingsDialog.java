@@ -47,6 +47,8 @@ import javax.swing.table.AbstractTableModel;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.io.InputStream;
 import java.util.*;
 import java.util.List;
@@ -1478,6 +1480,7 @@ public class SettingsDialog extends JDialog {
 
     private JComboBox<String> fontNameCombo;
     private JSpinner fontSizeSpinner;
+    private JPanel fontColorSwatch;
     private JLabel fontCodePreview;
     private JLabel fontCommentPreview;
     private String fontPanelSelectedKey;
@@ -1523,8 +1526,29 @@ public class SettingsDialog extends JDialog {
         fontSizeSpinner.setPreferredSize(new Dimension(70, 26));
         settingPanel.add(fontSizeSpinner, c);
 
+        // Color picker row
+        c.gridx = 0; c.gridy = 2; c.gridwidth = 1; c.weightx = 0; c.weighty = 0;
+        c.fill = GridBagConstraints.NONE;
+        settingPanel.add(new JLabel("颜色:"), c);
+        c.gridx = 1; c.fill = GridBagConstraints.HORIZONTAL;
+        fontColorSwatch = new JPanel();
+        fontColorSwatch.setPreferredSize(new Dimension(36, 24));
+        fontColorSwatch.setBorder(BorderFactory.createLineBorder(new Color(0x888888)));
+        fontColorSwatch.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        fontColorSwatch.addMouseListener(new MouseAdapter() {
+            @Override public void mouseClicked(MouseEvent ev) {
+                Color cur = fontColorSwatch.getBackground();
+                Color chosen = JColorChooser.showDialog(SettingsDialog.this, "选择字体颜色 - " + FontManager.getLabel(fontPanelSelectedKey), cur);
+                if (chosen != null) {
+                    fontColorSwatch.setBackground(chosen);
+                    applyFontOverride();
+                }
+            }
+        });
+        settingPanel.add(fontColorSwatch, c);
+
         // Preview panel (code + comment side by side)
-        c.gridx = 0; c.gridy = 2; c.gridwidth = 2; c.weightx = 1; c.weighty = 1;
+        c.gridx = 0; c.gridy = 3; c.gridwidth = 2; c.weightx = 1; c.weighty = 1;
         c.fill = GridBagConstraints.BOTH;
         JPanel previewPanel = new JPanel(new GridLayout(2, 1, 0, 4));
         previewPanel.setOpaque(false);
@@ -1545,11 +1569,11 @@ public class SettingsDialog extends JDialog {
         settingPanel.add(previewPanel, c);
 
         // Filler
-        c.gridx = 0; c.gridy = 3; c.gridwidth = 2; c.weighty = 1;
+        c.gridx = 0; c.gridy = 4; c.gridwidth = 2; c.weighty = 1;
         settingPanel.add(Box.createGlue(), c);
 
         // Reset button bottom
-        c.gridx = 0; c.gridy = 4; c.gridwidth = 2; c.weighty = 0; c.fill = GridBagConstraints.NONE;
+        c.gridx = 0; c.gridy = 5; c.gridwidth = 2; c.weighty = 0; c.fill = GridBagConstraints.NONE;
         c.anchor = GridBagConstraints.WEST;
         JButton resetBtn = new JButton("重置为默认");
         settingPanel.add(resetBtn, c);
@@ -1572,6 +1596,8 @@ public class SettingsDialog extends JDialog {
                 }
             }
             fontSizeSpinner.setValue(curSize);
+            Color fc = FontManager.getInstance().resolveColor(fontPanelSelectedKey);
+            fontColorSwatch.setBackground(fc != null ? fc : ThemeManager.getInstance().resolve("fg.main"));
             applyFontPreview();
         };
 
@@ -1580,7 +1606,7 @@ public class SettingsDialog extends JDialog {
         // ── Change listeners ──
         Runnable onFontChange = () -> {
             if (fontPanelSelectedKey == null) return;
-            applyFontPreview();
+            applyFontOverride();
         };
         fontNameCombo.addActionListener(e -> onFontChange.run());
         fontSizeSpinner.addChangeListener(e -> onFontChange.run());
@@ -1598,7 +1624,8 @@ public class SettingsDialog extends JDialog {
                 }
             }
             fontSizeSpinner.setValue(Integer.parseInt(def.split(",")[1].trim()));
-            applyFontPreview();
+            fontColorSwatch.setBackground(ThemeManager.getInstance().resolve("fg.main"));
+            applyFontOverride();
         });
 
         // ── Layout ──
@@ -1634,15 +1661,20 @@ public class SettingsDialog extends JDialog {
         return new Color(0x6A9955); // fallback dark theme comment green
     }
 
-    private void applyFontPreview() {
+    private void applyFontOverride() {
         String raw = (String) fontNameCombo.getSelectedItem();
         if (raw == null) return;
         int bracket = raw.indexOf("  [");
         if (bracket > 0) raw = raw.substring(0, bracket);
         int size = (Integer) fontSizeSpinner.getValue();
+        Color color = fontColorSwatch.getBackground();
         if (fontPanelSelectedKey != null) {
-            FontManager.getInstance().setOverride(fontPanelSelectedKey, raw + "," + size);
+            FontManager.getInstance().setOverride(fontPanelSelectedKey, raw, size, color);
         }
+        applyFontPreview();
+    }
+
+    private void applyFontPreview() {
         Font codeFont = FontManager.getInstance().resolve("font.editor");
         Font commentFont = FontManager.getInstance().resolve("font.editor.comment");
         fontCodePreview.setFont(codeFont.deriveFont((float) Math.min(codeFont.getSize(), 24)));
