@@ -13,6 +13,7 @@ import java.awt.*;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
 import java.io.InputStream;
+import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -20,13 +21,12 @@ public class SqlToolsDialog extends BaseToolDialog {
     private final JTextArea inputArea;
     private final JTextArea outputArea;
     private final RSyntaxTextArea fmtInputArea;
-    private final RSyntaxTextArea fmtOutputArea;
+    private final RSyntaxTextArea[] fmtOutputAreas;
+    private final List<SqlFormatterEngine> engines;
     private final JTabbedPane tabbedPane;
     private final JSplitPane[] splitPanes;
-    private final JSplitPane fmtSplitPane;
     private final JToggleButton layoutToggleBtn;
     private final JLabel descLabel;
-    private final JComboBox<SqlFormatterEngine> engineCombo;
     private final JCheckBox quoteCb;
     private final JButton toInBtn;
     private final JButton fromInBtn;
@@ -51,25 +51,26 @@ public class SqlToolsDialog extends BaseToolDialog {
         fmtInputArea.setSyntaxEditingStyle("text/plsql");
         fmtInputArea.setCodeFoldingEnabled(true);
 
-        fmtOutputArea = new RSyntaxTextArea(5, 40);
-        fmtOutputArea.setSyntaxEditingStyle("text/plsql");
-        fmtOutputArea.setCodeFoldingEnabled(true);
+        engines = EngineManager.getEngines();
+        fmtOutputAreas = new RSyntaxTextArea[engines.size()];
+        for (int i = 0; i < fmtOutputAreas.length; i++) {
+            fmtOutputAreas[i] = new RSyntaxTextArea(5, 40);
+            fmtOutputAreas[i].setSyntaxEditingStyle("text/plsql");
+            fmtOutputAreas[i].setCodeFoldingEnabled(true);
+        }
 
         installSample(inputArea, "value1\nvalue2\nvalue3");
         installSample(outputArea, "-- 结果将显示在此处");
         installSample(fmtInputArea,
             "select a.id,b.name from users a\nleft join orders b on a.id=b.user_id\nwhere b.status='ACTIVE'\norder by b.create_time desc");
-        fmtOutputArea.setText("");
 
         tabbedPane = new JTabbedPane();
 
         JPanel inClausePanel = buildInClausePanel();
         JPanel formatPanel = buildFormatPanel();
-        fmtSplitPane = (JSplitPane) formatPanel.getComponent(0);
-        splitPanes = new JSplitPane[]{
-                (JSplitPane) inClausePanel.getComponent(0),
-                fmtSplitPane
-        };
+        JSplitPane inSplit = (JSplitPane) inClausePanel.getComponent(0);
+        JSplitPane fmtSplit = (JSplitPane) formatPanel.getComponent(0);
+        splitPanes = new JSplitPane[]{inSplit, fmtSplit};
 
         tabbedPane.addTab("IN 子句转换", inClausePanel);
         tabbedPane.addTab("SQL 格式化", formatPanel);
@@ -85,23 +86,6 @@ public class SqlToolsDialog extends BaseToolDialog {
         toInBtn.addActionListener(e -> outputArea.setText(toInClause(inputArea.getText(), quoteCb.isSelected())));
         fromInBtn = new JButton("< 还原");
         fromInBtn.addActionListener(e -> outputArea.setText(fromInClause(inputArea.getText())));
-
-        engineCombo = new JComboBox<>();
-        for (SqlFormatterEngine e : EngineManager.getEngines()) {
-            engineCombo.addItem(e);
-        }
-        engineCombo.setSelectedItem(EngineManager.getCurrent());
-        engineCombo.setRenderer(new DefaultListCellRenderer() {
-            @Override
-            public Component getListCellRendererComponent(JList<?> list, Object value,
-                    int index, boolean isSelected, boolean cellHasFocus) {
-                Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                if (value instanceof SqlFormatterEngine e) setText(e.getDisplayName());
-                return c;
-            }
-        });
-        engineCombo.addActionListener(e -> EngineManager.setCurrent(engineCombo.getSelectedIndex()));
-        engineCombo.setToolTipText("选择格式化引擎");
 
         formatBtn = new JButton("格式化 (Ctrl+Enter)");
         formatBtn.addActionListener(e -> doFormat());
@@ -163,8 +147,7 @@ public class SqlToolsDialog extends BaseToolDialog {
         inputScroll.setBorder(BorderFactory.createTitledBorder("输入"));
         JScrollPane outputScroll = new JScrollPane(outputArea);
         outputScroll.setBorder(BorderFactory.createTitledBorder("结果"));
-        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT,
-                inputScroll, outputScroll);
+        JSplitPane split = new JSplitPane(JSplitPane.VERTICAL_SPLIT, inputScroll, outputScroll);
         split.setResizeWeight(0.5);
         split.setContinuousLayout(true);
         JPanel panel = new JPanel(new BorderLayout());
@@ -175,11 +158,16 @@ public class SqlToolsDialog extends BaseToolDialog {
     private JPanel buildFormatPanel() {
         JScrollPane inputScroll = new JScrollPane(fmtInputArea);
         inputScroll.setBorder(BorderFactory.createTitledBorder("输入 SQL"));
-        JScrollPane outputScroll = new JScrollPane(fmtOutputArea);
-        outputScroll.setBorder(BorderFactory.createTitledBorder("格式化结果"));
-        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
-                inputScroll, outputScroll);
-        split.setResizeWeight(0.5);
+
+        JPanel outputsPanel = new JPanel(new GridLayout(1, fmtOutputAreas.length, 4, 0));
+        for (int i = 0; i < fmtOutputAreas.length; i++) {
+            JScrollPane sp = new JScrollPane(fmtOutputAreas[i]);
+            sp.setBorder(BorderFactory.createTitledBorder(engines.get(i).getDisplayName()));
+            outputsPanel.add(sp);
+        }
+
+        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, inputScroll, outputsPanel);
+        split.setResizeWeight(0.3);
         split.setContinuousLayout(true);
         JPanel panel = new JPanel(new BorderLayout());
         panel.add(split, BorderLayout.CENTER);
@@ -195,12 +183,15 @@ public class SqlToolsDialog extends BaseToolDialog {
         String saved = (String) fmtInputArea.getClientProperty(SAMPLE_KEY);
         if (!force && saved != null && saved.equals(input)) return;
         if (input == null || input.trim().isEmpty()) return;
-        try {
-            String result = EngineManager.format(input);
-            fmtOutputArea.setText(result);
-            fmtOutputArea.setForeground(theme.resolve("fg.main"));
-        } catch (Exception ex) {
-            fmtOutputArea.setText("格式化失败: " + ex.getMessage());
+        for (int i = 0; i < engines.size(); i++) {
+            try {
+                EngineManager.setCurrent(i);
+                String result = EngineManager.format(input);
+                fmtOutputAreas[i].setText(result);
+                fmtOutputAreas[i].setForeground(theme.resolve("fg.main"));
+            } catch (Exception ex) {
+                fmtOutputAreas[i].setText("格式化失败: " + ex.getMessage());
+            }
         }
     }
 
@@ -214,8 +205,6 @@ public class SqlToolsDialog extends BaseToolDialog {
         int idx = tabbedPane.getSelectedIndex();
         centerRow.removeAll();
         if (idx == 1) {
-            centerRow.add(new JLabel("引擎:"));
-            centerRow.add(engineCombo);
             centerRow.add(formatBtn);
         } else {
             centerRow.add(quoteCb);
@@ -231,7 +220,7 @@ public class SqlToolsDialog extends BaseToolDialog {
         if (idx == 0) {
             descLabel.setText("功能说明：多行值与 IN 子句格式互相转换");
         } else {
-            descLabel.setText("功能说明：SQL 格式化（支持多引擎切换）");
+            descLabel.setText("功能说明：SQL 格式化（3 引擎结果对比）");
         }
     }
 
@@ -258,8 +247,10 @@ public class SqlToolsDialog extends BaseToolDialog {
         outputArea.setForeground(fg);
         descLabel.setForeground(muted);
         applyRstaTheme(fmtInputArea);
-        applyRstaTheme(fmtOutputArea);
-        if (fmtSplitPane != null) fmtSplitPane.setBackground(theme.resolve("bg.panel"));
+        for (RSyntaxTextArea area : fmtOutputAreas) applyRstaTheme(area);
+        if (splitPanes != null && splitPanes.length > 1) {
+            splitPanes[1].setBackground(theme.resolve("bg.panel"));
+        }
     }
 
     private void applyRstaTheme(RSyntaxTextArea area) {
