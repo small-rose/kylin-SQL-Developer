@@ -258,7 +258,7 @@ public class SqlToolsDialog extends BaseToolDialog {
             fmtOutputsPanel.setLayout(new GridLayout(1, 1));
             fmtOutputsPanel.add(new JLabel("所有引擎已隐藏，请在工具栏勾选显示", SwingConstants.CENTER));
         } else {
-            fmtOutputsPanel.setLayout(new GridLayout(horizontal ? 1 : visible, horizontal ? visible : 1, 4, 0));
+            fmtOutputsPanel.setLayout(new GridLayout(horizontal ? visible : 1, horizontal ? 1 : visible, horizontal ? 0 : 4, horizontal ? 4 : 0));
         }
         fmtOutputsPanel.revalidate();
         fmtOutputsPanel.repaint();
@@ -289,7 +289,7 @@ public class SqlToolsDialog extends BaseToolDialog {
         JSplitPane split = splitPanes[idx];
         boolean horizontal = split.getOrientation() == JSplitPane.HORIZONTAL_SPLIT;
         split.setOrientation(horizontal ? JSplitPane.VERTICAL_SPLIT : JSplitPane.HORIZONTAL_SPLIT);
-        split.setResizeWeight(0.5);
+        split.setResizeWeight(0.4);
         // 按钮文字指示下次点击切换到的方向
         layoutToggleBtn.setText(split.getOrientation() == JSplitPane.HORIZONTAL_SPLIT ? "⇕ 垂直布局" : "⇔ 水平布局");
         if (idx == 1 && fmtOutputScrolls != null) rebuildOutputsGrid();
