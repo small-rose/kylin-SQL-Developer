@@ -4,6 +4,7 @@ import com.formdev.flatlaf.FlatDarculaLaf;
 import com.formdev.flatlaf.FlatLightLaf;
 import com.kylin.plsql.core.config.AppTheme;
 import com.kylin.plsql.core.config.ConfigManager;
+import com.kylin.plsql.core.config.FontManager;
 import com.kylin.plsql.core.config.ThemeManager;
 import com.kylin.plsql.ui.component.common.PlSqlTokenMaker;
 import com.kylin.plsql.ui.component.common.SplashScreen;
@@ -42,6 +43,7 @@ public class KylinPlSqlApp {
 
         ThemeManager themeMgr = ThemeManager.getInstance();
         themeMgr.loadFromConfig(config);
+        FontManager.getInstance().loadFromConfig(config);
         AppTheme saved = themeMgr.getCurrentTheme();
         if ("LIGHT".equals(saved.config("flatlaf"))) {
             try { UIManager.setLookAndFeel(new FlatLightLaf()); }

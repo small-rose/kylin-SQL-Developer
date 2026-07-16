@@ -1723,19 +1723,17 @@ public class SettingsDialog extends JDialog {
             table.setRowHeight(Math.min(fm.resolve("font.table").getSize() + 6, 24));
             table.setEnabled(false);
             table.setBackground(editorBg);
-            table.setForeground(tm.resolve("fg.main"));
             table.setFont(fm.resolve("font.table"));
             table.getTableHeader().setFont(fm.resolve("font.ui.bold"));
             Color fc = fm.resolveColor(key);
-            if (fc != null) table.setForeground(fc);
+            table.setForeground(fc != null ? fc : Color.BLACK);
             fontPreviewPanel.add(new JScrollPane(table), BorderLayout.CENTER);
         } else if ("font.mono".equals(key)) {
             JTextArea ta = new JTextArea(FontManager.getPreviewText(key));
             ta.setFont(fm.resolve("font.mono"));
             ta.setBackground(editorBg);
-            ta.setForeground(tm.resolve("fg.main"));
             Color fc = fm.resolveColor(key);
-            if (fc != null) ta.setForeground(fc);
+            ta.setForeground(fc != null ? fc : Color.BLACK);
             ta.setEditable(false);
             ta.setBorder(null);
             fontPreviewPanel.add(ta, BorderLayout.CENTER);
@@ -1744,9 +1742,8 @@ public class SettingsDialog extends JDialog {
             sim.setBackground(mainBg);
             JLabel line1 = new JLabel(FontManager.getPreviewText(key));
             line1.setFont(fm.resolve(key));
-            line1.setForeground(tm.resolve("fg.main"));
             Color fc = fm.resolveColor(key);
-            if (fc != null) line1.setForeground(fc);
+            line1.setForeground(fc != null ? fc : Color.BLACK);
             line1.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
             sim.add(line1, BorderLayout.CENTER);
             JLabel line2 = new JLabel("次要信息 / Secondary Info");
