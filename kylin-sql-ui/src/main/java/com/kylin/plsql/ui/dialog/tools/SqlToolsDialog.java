@@ -78,7 +78,7 @@ public class SqlToolsDialog extends BaseToolDialog {
         tabbedPane.addTab("IN 子句转换", inClausePanel);
         tabbedPane.addTab("SQL 格式化", formatPanel);
 
-        layoutToggleBtn = new JToggleButton("⇔ 垂直布局");
+        layoutToggleBtn = new JToggleButton("⇕ 垂直布局");
         layoutToggleBtn.addActionListener(e -> toggleLayout());
 
         descLabel = new JLabel();
@@ -113,6 +113,7 @@ public class SqlToolsDialog extends BaseToolDialog {
         applyTheme();
         tabbedPane.setSelectedIndex(initialTab);
 
+        if (fmtOutputScrolls != null) rebuildOutputsGrid();
         SwingUtilities.invokeLater(() -> {
             tabbedPane.requestFocusInWindow();
             doFormat(true);
@@ -175,13 +176,11 @@ public class SqlToolsDialog extends BaseToolDialog {
             }
         }
 
-        fmtOutputsPanel = new JPanel(new GridLayout(1, fmtOutputAreas.length, 4, 0));
+        fmtOutputsPanel = new JPanel();
         for (int i = 0; i < fmtOutputAreas.length; i++) {
             int idx = i;
             JScrollPane sp = new JScrollPane(fmtOutputAreas[i]);
             sp.setBorder(BorderFactory.createTitledBorder(engines.get(i).getDisplayName()));
-            sp.setVisible(visible[i]);
-            fmtOutputsPanel.add(sp);
             fmtOutputScrolls[i] = sp;
             fmtToggleCbs[i] = new JCheckBox(engines.get(i).getDisplayName(), visible[i]);
             fmtToggleCbs[i].addActionListener(e -> toggleEngineOutput(idx));
@@ -241,11 +240,28 @@ public class SqlToolsDialog extends BaseToolDialog {
     }
 
     private void toggleEngineOutput(int idx) {
-        boolean show = fmtToggleCbs[idx].isSelected();
-        fmtOutputScrolls[idx].setVisible(show);
+        rebuildOutputsGrid();
+        saveEngineVisibility();
+    }
+
+    private void rebuildOutputsGrid() {
+        fmtOutputsPanel.removeAll();
+        boolean horizontal = splitPanes[1].getOrientation() == JSplitPane.HORIZONTAL_SPLIT;
+        int visible = 0;
+        for (int i = 0; i < fmtOutputScrolls.length; i++) {
+            if (fmtToggleCbs[i].isSelected()) {
+                fmtOutputsPanel.add(fmtOutputScrolls[i]);
+                visible++;
+            }
+        }
+        if (visible == 0) {
+            fmtOutputsPanel.setLayout(new GridLayout(1, 1));
+            fmtOutputsPanel.add(new JLabel("所有引擎已隐藏，请在工具栏勾选显示", SwingConstants.CENTER));
+        } else {
+            fmtOutputsPanel.setLayout(new GridLayout(horizontal ? 1 : visible, horizontal ? visible : 1, 4, 0));
+        }
         fmtOutputsPanel.revalidate();
         fmtOutputsPanel.repaint();
-        saveEngineVisibility();
     }
 
     private void saveEngineVisibility() {
@@ -272,17 +288,11 @@ public class SqlToolsDialog extends BaseToolDialog {
         int idx = tabbedPane.getSelectedIndex();
         JSplitPane split = splitPanes[idx];
         boolean horizontal = split.getOrientation() == JSplitPane.HORIZONTAL_SPLIT;
-        split.setOrientation(horizontal
-                ? JSplitPane.VERTICAL_SPLIT
-                : JSplitPane.HORIZONTAL_SPLIT);
+        split.setOrientation(horizontal ? JSplitPane.VERTICAL_SPLIT : JSplitPane.HORIZONTAL_SPLIT);
         split.setResizeWeight(0.5);
-        layoutToggleBtn.setText(horizontal ? "⇕ 水平布局" : "⇔ 垂直布局");
-        // 输出区排列方向与主分割方向一致
-        if (idx == 1 && fmtOutputsPanel != null) {
-            int n = fmtOutputAreas.length;
-            fmtOutputsPanel.setLayout(new GridLayout(horizontal ? 1 : n, horizontal ? n : 1, horizontal ? 4 : 0, horizontal ? 0 : 4));
-            fmtOutputsPanel.revalidate();
-        }
+        // 按钮文字指示下次点击切换到的方向
+        layoutToggleBtn.setText(split.getOrientation() == JSplitPane.HORIZONTAL_SPLIT ? "⇕ 垂直布局" : "⇔ 水平布局");
+        if (idx == 1 && fmtOutputScrolls != null) rebuildOutputsGrid();
     }
 
     @Override
