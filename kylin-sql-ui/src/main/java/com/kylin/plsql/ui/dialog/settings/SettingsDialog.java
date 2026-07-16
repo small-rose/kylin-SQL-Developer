@@ -1474,129 +1474,146 @@ public class SettingsDialog extends JDialog {
 
     // ── Font panel (字体个性化) ──
 
-    private final Map<String, JComboBox<String>> fontNameCombos = new java.util.HashMap<>();
-    private final Map<String, JSpinner> fontSizeSpinners = new java.util.HashMap<>();
-    private final Map<String, JLabel> fontPreviews = new java.util.HashMap<>();
+    private JComboBox<String> fontNameCombo;
+    private JSpinner fontSizeSpinner;
+    private JLabel fontPreview;
+    private String fontPanelSelectedKey;
 
     private JPanel buildFontPanel() {
         JPanel root = new JPanel(new BorderLayout());
         root.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
-        String[] allFonts = FontManager.getInstance().getAllFonts();
-        JPanel list = new JPanel(new GridBagLayout());
-        list.setOpaque(false);
+        // Left tree
+        DefaultMutableTreeNode fontRoot = new DefaultMutableTreeNode("字体");
+        java.util.List<String> keys = new java.util.ArrayList<>(FontManager.getKeys());
+        for (String key : keys) {
+            fontRoot.add(new DefaultMutableTreeNode(FontManager.getLabel(key)));
+        }
+        JTree fontTree = new JTree(new DefaultTreeModel(fontRoot));
+        fontTree.setRootVisible(false);
+        fontTree.setShowsRootHandles(true);
+        fontTree.setRowHeight(24);
+
+        // Right settings panel
+        JPanel settingPanel = new JPanel(new GridBagLayout());
+        settingPanel.setOpaque(false);
         GridBagConstraints c = new GridBagConstraints();
         c.fill = GridBagConstraints.HORIZONTAL;
-        c.insets = new Insets(4, 6, 4, 6);
-        c.gridx = 0; c.weightx = 0;
+        c.insets = new Insets(8, 8, 8, 8);
 
-        int row = 0;
-        for (String key : FontManager.getKeys()) {
-            String label = FontManager.getLabel(key);
-            String current = FontManager.getInstance().resolveValue(key);
+        String[] allFonts = FontManager.getInstance().getAllFonts();
 
-            // Section header
-            c.gridy = row++; c.gridwidth = 3; c.weightx = 1;
-            JLabel header = new JLabel(label);
-            header.setFont(header.getFont().deriveFont(Font.BOLD));
-            list.add(header, c);
+        // Font name row
+        c.gridx = 0; c.gridy = 0; c.weightx = 0;
+        settingPanel.add(new JLabel("字体:"), c);
+        c.gridx = 1; c.weightx = 1;
+        fontNameCombo = new JComboBox<>();
+        for (String fn : allFonts) fontNameCombo.addItem(FontManager.getFontLabel(fn));
+        fontNameCombo.setEditable(true);
+        settingPanel.add(fontNameCombo, c);
 
-            // Font name combo
-            c.gridy = row++; c.gridwidth = 1; c.weightx = 0;
-            c.insets = new Insets(2, 6, 2, 6);
-            list.add(new JLabel("字体:"), c);
-            c.gridx = 1; c.weightx = 1;
-            JComboBox<String> combo = new JComboBox<>();
-            for (String fn : allFonts) combo.addItem(FontManager.getFontLabel(fn));
-            combo.setEditable(true);
-            // Select current font
-            String curName = current.split(",")[0].trim();
+        // Size row
+        c.gridx = 0; c.gridy = 1; c.weightx = 0;
+        settingPanel.add(new JLabel("大小:"), c);
+        c.gridx = 1; c.weightx = 0;
+        fontSizeSpinner = new JSpinner(new SpinnerNumberModel(12, 6, 72, 1));
+        fontSizeSpinner.setPreferredSize(new Dimension(70, 26));
+        settingPanel.add(fontSizeSpinner, c);
+
+        // Preview row
+        c.gridx = 0; c.gridy = 2; c.gridwidth = 2; c.weightx = 1;
+        c.fill = GridBagConstraints.BOTH;
+        fontPreview = new JLabel(FontManager.getPreviewText(keys.get(0)));
+        fontPreview.setBorder(BorderFactory.createLineBorder(new Color(0x666666), 1));
+        fontPreview.setOpaque(true);
+        fontPreview.setBackground(new Color(0xFFFFFF));
+        fontPreview.setForeground(new Color(0x333333));
+        fontPreview.setPreferredSize(new Dimension(0, 72));
+        settingPanel.add(fontPreview, c);
+
+        // Filler
+        c.gridx = 0; c.gridy = 3; c.gridwidth = 2; c.weighty = 1;
+        settingPanel.add(Box.createGlue(), c);
+
+        // Reset button bottom
+        c.gridx = 0; c.gridy = 4; c.gridwidth = 2; c.weighty = 0; c.fill = GridBagConstraints.NONE;
+        c.anchor = GridBagConstraints.WEST;
+        JButton resetBtn = new JButton("重置为默认");
+        settingPanel.add(resetBtn, c);
+
+        // ── Selection handler ──
+        Runnable loadFontSettings = () -> {
+            var node = (DefaultMutableTreeNode) fontTree.getLastSelectedPathComponent();
+            if (node == null || node.isRoot()) return;
+            int idx = fontRoot.getIndex(node);
+            if (idx < 0 || idx >= keys.size()) return;
+            fontPanelSelectedKey = keys.get(idx);
+            String val = FontManager.getInstance().resolveValue(fontPanelSelectedKey);
+            String curName = val.split(",")[0].trim();
+            int curSize = Integer.parseInt(val.split(",")[1].trim());
+
             for (int i = 0; i < allFonts.length; i++) {
                 if (allFonts[i].equalsIgnoreCase(curName)) {
-                    combo.setSelectedIndex(i);
+                    fontNameCombo.setSelectedIndex(i);
                     break;
                 }
             }
-            // Try matching by display label
-            if (combo.getSelectedIndex() < 0) combo.setSelectedItem(curName);
-            combo.addActionListener(e -> updateFontPreview(key));
-            list.add(combo, c);
-            fontNameCombos.put(key, combo);
+            fontSizeSpinner.setValue(curSize);
+            fontPreview.setText(FontManager.getPreviewText(fontPanelSelectedKey));
+            applyFontPreview();
+        };
 
-            // Size spinner
-            c.gridx = 2; c.weightx = 0;
-            c.insets = new Insets(2, 2, 2, 6);
-            list.add(new JLabel("大小:"), c);
-            c.gridx = 3; c.weightx = 0;
-            int curSize = Integer.parseInt(current.split(",")[1].trim());
-            JSpinner spinner = new JSpinner(new SpinnerNumberModel(curSize, 6, 72, 1));
-            spinner.setPreferredSize(new Dimension(60, 26));
-            spinner.addChangeListener(e -> updateFontPreview(key));
-            list.add(spinner, c);
-            fontSizeSpinners.put(key, spinner);
+        fontTree.addTreeSelectionListener(e -> loadFontSettings.run());
 
-            // Preview
-            c.gridy = row++; c.gridx = 0; c.gridwidth = 4; c.weightx = 1;
-            c.insets = new Insets(2, 6, 8, 6);
-            JLabel preview = new JLabel(FontManager.getPreviewText(key));
-            preview.setBorder(BorderFactory.createLineBorder(new Color(0x666666), 1));
-            preview.setOpaque(true);
-            preview.setBackground(new Color(0xFFFFFF));
-            preview.setForeground(new Color(0x333333));
-            preview.setPreferredSize(new Dimension(0, 48));
-            preview.setFont(FontManager.getInstance().resolve(key));
-            list.add(preview, c);
-            fontPreviews.put(key, preview);
+        // ── Change listeners ──
+        Runnable onFontChange = () -> {
+            if (fontPanelSelectedKey == null) return;
+            applyFontPreview();
+        };
+        fontNameCombo.addActionListener(e -> onFontChange.run());
+        fontSizeSpinner.addChangeListener(e -> onFontChange.run());
 
-            // Separator
-            c.gridy = row++; c.gridx = 0; c.gridwidth = 4; c.weightx = 1;
-            c.insets = new Insets(2, 6, 4, 6);
-            list.add(new JSeparator(), c);
-
-            c.gridx = 0; c.insets = new Insets(4, 6, 4, 6);
-        }
-
-        // Filler
-        c.gridy = row++; c.weighty = 1;
-        c.gridx = 0; c.gridwidth = 4;
-        list.add(Box.createGlue(), c);
-
-        // Bottom: reset button
-        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        JButton resetBtn = new JButton("重置为默认");
+        // ── Reset handler ──
         resetBtn.addActionListener(e -> {
-            FontManager.getInstance().clearOverrides();
-            for (String k : FontManager.getKeys()) {
-                String def = FontManager.getDefault(k);
-                String name = def.split(",")[0].trim();
-                for (int i = 0; i < allFonts.length; i++) {
-                    if (allFonts[i].equalsIgnoreCase(name)) {
-                        fontNameCombos.get(k).setSelectedIndex(i);
-                        break;
-                    }
+            if (fontPanelSelectedKey == null) return;
+            String def = FontManager.getDefault(fontPanelSelectedKey);
+            FontManager.getInstance().setOverride(fontPanelSelectedKey, def);
+            String defName = def.split(",")[0].trim();
+            for (int i = 0; i < allFonts.length; i++) {
+                if (allFonts[i].equalsIgnoreCase(defName)) {
+                    fontNameCombo.setSelectedIndex(i);
+                    break;
                 }
-                fontSizeSpinners.get(k).setValue(Integer.parseInt(def.split(",")[1].trim()));
-                updateFontPreview(k);
             }
+            fontSizeSpinner.setValue(Integer.parseInt(def.split(",")[1].trim()));
+            applyFontPreview();
         });
-        bottom.add(resetBtn);
 
-        root.add(new JScrollPane(list), BorderLayout.CENTER);
-        root.add(bottom, BorderLayout.SOUTH);
+        // ── Layout ──
+        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT,
+                new JScrollPane(fontTree), settingPanel);
+        split.setResizeWeight(0.25);
+        root.add(split, BorderLayout.CENTER);
+
+        // Select first item
+        SwingUtilities.invokeLater(() -> {
+            fontTree.setSelectionRow(0);
+        });
+
         return root;
     }
 
-    private void updateFontPreview(String key) {
-        String name = (String) fontNameCombos.get(key).getSelectedItem();
-        if (name == null) return;
-        int bracket = name.indexOf("  [");
-        if (bracket > 0) name = name.substring(0, bracket);
-        int size = (Integer) fontSizeSpinners.get(key).getValue();
-        FontManager.getInstance().setOverride(key, name + "," + size);
-        JLabel preview = fontPreviews.get(key);
-        preview.setFont(FontManager.getInstance().resolve(key).deriveFont((float) Math.min(size, 24)));
-        preview.revalidate();
-        preview.repaint();
+    private void applyFontPreview() {
+        if (fontPanelSelectedKey == null) return;
+        String raw = (String) fontNameCombo.getSelectedItem();
+        if (raw == null) return;
+        int bracket = raw.indexOf("  [");
+        if (bracket > 0) raw = raw.substring(0, bracket);
+        int size = (Integer) fontSizeSpinner.getValue();
+        FontManager.getInstance().setOverride(fontPanelSelectedKey, raw + "," + size);
+        fontPreview.setFont(new Font(raw, "font.ui.bold".equals(fontPanelSelectedKey) ? Font.BOLD : Font.PLAIN, Math.min(size, 24)));
+        fontPreview.revalidate();
+        fontPreview.repaint();
     }
 
     // ── Save settings ──
