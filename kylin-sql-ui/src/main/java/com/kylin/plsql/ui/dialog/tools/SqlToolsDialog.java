@@ -32,6 +32,9 @@ public class SqlToolsDialog extends BaseToolDialog {
     private final JButton fromInBtn;
     private final JButton formatBtn;
     private final JPanel centerRow;
+    private JPanel fmtOutputsPanel;
+    private JScrollPane[] fmtOutputScrolls;
+    private JCheckBox[] fmtToggleCbs;
 
     private static final String SAMPLE_KEY = "sampleText";
 
@@ -159,15 +162,33 @@ public class SqlToolsDialog extends BaseToolDialog {
         JScrollPane inputScroll = new JScrollPane(fmtInputArea);
         inputScroll.setBorder(BorderFactory.createTitledBorder("输入 SQL"));
 
-        JPanel outputsPanel = new JPanel(new GridLayout(1, fmtOutputAreas.length, 4, 0));
-        for (int i = 0; i < fmtOutputAreas.length; i++) {
-            JScrollPane sp = new JScrollPane(fmtOutputAreas[i]);
-            sp.setBorder(BorderFactory.createTitledBorder(engines.get(i).getDisplayName()));
-            outputsPanel.add(sp);
+        fmtOutputScrolls = new JScrollPane[fmtOutputAreas.length];
+        fmtToggleCbs = new JCheckBox[fmtOutputAreas.length];
+        String saved = com.kylin.plsql.core.config.ConfigManager.getInstance().getPreference("SqlToolsDialog.fmtVisible", "");
+        boolean[] visible = new boolean[fmtOutputAreas.length];
+        if (saved.isEmpty()) {
+            for (int i = 0; i < fmtOutputAreas.length; i++) visible[i] = true;
+        } else {
+            String[] parts = saved.split(",");
+            for (String p : parts) {
+                try { int idx = Integer.parseInt(p.trim()); if (idx >= 0 && idx < visible.length) visible[idx] = true; } catch (Exception ignored) {}
+            }
         }
 
-        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, inputScroll, outputsPanel);
-        split.setResizeWeight(0.3);
+        fmtOutputsPanel = new JPanel(new GridLayout(1, fmtOutputAreas.length, 4, 0));
+        for (int i = 0; i < fmtOutputAreas.length; i++) {
+            int idx = i;
+            JScrollPane sp = new JScrollPane(fmtOutputAreas[i]);
+            sp.setBorder(BorderFactory.createTitledBorder(engines.get(i).getDisplayName()));
+            sp.setVisible(visible[i]);
+            fmtOutputsPanel.add(sp);
+            fmtOutputScrolls[i] = sp;
+            fmtToggleCbs[i] = new JCheckBox(engines.get(i).getDisplayName(), visible[i]);
+            fmtToggleCbs[i].addActionListener(e -> toggleEngineOutput(idx));
+        }
+
+        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, inputScroll, fmtOutputsPanel);
+        split.setResizeWeight(0.4);
         split.setContinuousLayout(true);
         JPanel panel = new JPanel(new BorderLayout());
         panel.add(split, BorderLayout.CENTER);
@@ -206,6 +227,10 @@ public class SqlToolsDialog extends BaseToolDialog {
         centerRow.removeAll();
         if (idx == 1) {
             centerRow.add(formatBtn);
+            centerRow.add(new JLabel(" 显示:"));
+            if (fmtToggleCbs != null) {
+                for (JCheckBox cb : fmtToggleCbs) centerRow.add(cb);
+            }
         } else {
             centerRow.add(quoteCb);
             centerRow.add(toInBtn);
@@ -213,6 +238,25 @@ public class SqlToolsDialog extends BaseToolDialog {
         }
         centerRow.revalidate();
         centerRow.repaint();
+    }
+
+    private void toggleEngineOutput(int idx) {
+        boolean show = fmtToggleCbs[idx].isSelected();
+        fmtOutputScrolls[idx].setVisible(show);
+        fmtOutputsPanel.revalidate();
+        fmtOutputsPanel.repaint();
+        saveEngineVisibility();
+    }
+
+    private void saveEngineVisibility() {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < fmtToggleCbs.length; i++) {
+            if (fmtToggleCbs[i].isSelected()) {
+                if (sb.length() > 0) sb.append(",");
+                sb.append(i);
+            }
+        }
+        com.kylin.plsql.core.config.ConfigManager.getInstance().setPreference("SqlToolsDialog.fmtVisible", sb.toString());
     }
 
     private void updateDesc() {
@@ -233,6 +277,12 @@ public class SqlToolsDialog extends BaseToolDialog {
                 : JSplitPane.HORIZONTAL_SPLIT);
         split.setResizeWeight(0.5);
         layoutToggleBtn.setText(horizontal ? "⇕ 水平布局" : "⇔ 垂直布局");
+        // 输出区排列方向与主分割方向一致
+        if (idx == 1 && fmtOutputsPanel != null) {
+            int n = fmtOutputAreas.length;
+            fmtOutputsPanel.setLayout(new GridLayout(horizontal ? 1 : n, horizontal ? n : 1, horizontal ? 4 : 0, horizontal ? 0 : 4));
+            fmtOutputsPanel.revalidate();
+        }
     }
 
     @Override
