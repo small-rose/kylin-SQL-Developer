@@ -15,10 +15,10 @@ public class FontManager {
         DEFAULTS.put("font.editor",   "Monospaced,14");
         DEFAULTS.put("font.table",    "Monospaced,12");
         DEFAULTS.put("font.mono",     "Monospaced,12");
-        DEFAULTS.put("font.ui",       "Segoe UI,12");
-        DEFAULTS.put("font.ui.bold",  "Segoe UI,12");
-        DEFAULTS.put("font.status",   "Segoe UI,11");
-        DEFAULTS.put("font.tab",      "Segoe UI,10");
+        DEFAULTS.put("font.ui",       "Microsoft YaHei UI,12");
+        DEFAULTS.put("font.ui.bold",  "Microsoft YaHei UI,12");
+        DEFAULTS.put("font.status",   "Microsoft YaHei UI,11");
+        DEFAULTS.put("font.tab",      "Microsoft YaHei UI,10");
     }
 
     private static final Map<String, String> KEY_LABELS = new LinkedHashMap<>();
@@ -74,14 +74,14 @@ public class FontManager {
 
     public static String getFontLabel(String fontName) {
         Font f = new Font(fontName, Font.PLAIN, 12);
-        boolean mono = f.getFontName().toLowerCase().contains("mono")
-                || f.getFontName().toLowerCase().contains("console")
-                || f.getFontName().toLowerCase().contains("courier");
+        String lower = f.getFamily().toLowerCase();
+        boolean mono = lower.contains("mono") || lower.contains("console")
+                || lower.contains("courier") || lower.contains("consola")
+                || lower.contains("dejavu") || lower.contains("dialoginput");
         boolean cn = f.canDisplayUpTo(CHINESE_TEST) == -1;
         StringBuilder label = new StringBuilder(fontName);
-        if (mono) label.append("  [\u7b49\u5bbd]");    // [等宽]
-        else if (cn) label.append("  [\u4e2d\u6587]"); // [中文]
-        else label.append("  [\u5b88\u5219]");          // [默认]
+        if (mono) label.append("  [\u7b49\u5bbd]");     // [等宽]
+        if (cn) label.append("  [\u4e2d\u6587]");       // [中文]
         return label.toString();
     }
 
