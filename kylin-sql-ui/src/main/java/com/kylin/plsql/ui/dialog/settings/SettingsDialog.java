@@ -37,9 +37,6 @@ import com.kylin.plsql.core.format.plsql.model.FormatResult;
 import com.kylin.plsql.ui.MainFrame;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
-import org.fife.ui.rsyntaxtextarea.SyntaxScheme;
-import org.fife.ui.rsyntaxtextarea.Theme;
-import org.fife.ui.rsyntaxtextarea.TokenTypes;
 
 import javax.swing.*;
 import javax.swing.event.TreeSelectionEvent;
@@ -47,11 +44,12 @@ import javax.swing.table.AbstractTableModel;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
 import java.awt.*;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
 import java.io.InputStream;
 import java.util.*;
 import java.util.List;
+import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.fife.ui.rsyntaxtextarea.Theme;
 
 /** Application settings dialog with left-tree navigation: format options, theme, autosave, metadata config */
 public class SettingsDialog extends JDialog {
@@ -1480,7 +1478,6 @@ public class SettingsDialog extends JDialog {
 
     private JComboBox<String> fontNameCombo;
     private JSpinner fontSizeSpinner;
-    private JPanel fontColorSwatch;
     private JLabel fontSectionHeader;
     private JPanel fontPreviewPanel;
     private String fontPanelSelectedKey;
@@ -1546,31 +1543,8 @@ public class SettingsDialog extends JDialog {
         settingPanel.add(fontSizeSpinner, c);
         addSpacer.run();
 
-        // Color picker row
-        JLabel colorLabel = new JLabel("颜色:");
-        colorLabel.setPreferredSize(labelSize);
-        c.gridx = 0; c.gridy = 3; c.weightx = 0; c.weighty = 0;
-        c.fill = GridBagConstraints.HORIZONTAL;
-        settingPanel.add(colorLabel, c);
-        addControl.run();
-        fontColorSwatch = new JPanel();
-        fontColorSwatch.setPreferredSize(new Dimension(36, 24));
-        fontColorSwatch.setBorder(BorderFactory.createLineBorder(new Color(0x888888)));
-        fontColorSwatch.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        fontColorSwatch.addMouseListener(new MouseAdapter() {
-            @Override public void mouseClicked(MouseEvent ev) {
-                Color cur = fontColorSwatch.getBackground();
-                Color chosen = JColorChooser.showDialog(SettingsDialog.this, "选择字体颜色 - " + FontManager.getLabel(fontPanelSelectedKey), cur);
-                if (chosen != null) {
-                    fontColorSwatch.setBackground(chosen);
-                    applyFontOverride();
-                }
-            }
-        });
-        settingPanel.add(fontColorSwatch, c);
-
         // Preview panel
-        c.gridx = 0; c.gridy = 4; c.gridwidth = 3; c.weightx = 1; c.weighty = 1;
+        c.gridx = 0; c.gridy = 3; c.gridwidth = 3; c.weightx = 1; c.weighty = 1;
         c.fill = GridBagConstraints.BOTH;
         fontPreviewPanel = new JPanel(new BorderLayout());
         fontPreviewPanel.setBorder(BorderFactory.createTitledBorder("预览"));
@@ -1588,11 +1562,11 @@ public class SettingsDialog extends JDialog {
         settingPanel.add(fontPreviewPanel, c);
 
         // Filler
-        c.gridx = 0; c.gridy = 5; c.gridwidth = 3; c.weighty = 1;
+        c.gridx = 0; c.gridy = 4; c.gridwidth = 3; c.weighty = 1;
         settingPanel.add(Box.createGlue(), c);
 
         // Reset button bottom
-        c.gridx = 0; c.gridy = 6; c.gridwidth = 3; c.weighty = 0; c.fill = GridBagConstraints.NONE;
+        c.gridx = 0; c.gridy = 5; c.gridwidth = 3; c.weighty = 0; c.fill = GridBagConstraints.NONE;
         c.anchor = GridBagConstraints.WEST;
         JButton resetBtn = new JButton("重置为默认");
         settingPanel.add(resetBtn, c);
@@ -1615,11 +1589,8 @@ public class SettingsDialog extends JDialog {
                 }
             }
             fontSizeSpinner.setValue(curSize);
-            Color fc = FontManager.getInstance().resolveColor(fontPanelSelectedKey);
-            fontColorSwatch.setBackground(fc != null ? fc : ThemeManager.getInstance().resolve("fg.main"));
             fontSectionHeader.setText(FontManager.getLabel(fontPanelSelectedKey));
             rebuildFontPreview();
-            applyFontPreview();
         };
 
         fontTree.addTreeSelectionListener(e -> loadFontSettings.run());
@@ -1645,7 +1616,6 @@ public class SettingsDialog extends JDialog {
                 }
             }
             fontSizeSpinner.setValue(Integer.parseInt(def.split(",")[1].trim()));
-            fontColorSwatch.setBackground(ThemeManager.getInstance().resolve("fg.main"));
             applyFontOverride();
         });
 
@@ -1663,36 +1633,16 @@ public class SettingsDialog extends JDialog {
         return root;
     }
 
-    private Color getRstaCommentColor() {
-        try {
-            String path = ThemeManager.getInstance().getCurrentTheme().config("rsta.theme");
-            try (InputStream in = getClass().getClassLoader().getResourceAsStream(path)) {
-                if (in != null) {
-                    Color c = Theme.load(in).scheme.getStyle(TokenTypes.COMMENT_EOL).foreground;
-                    if (c != null) return c;
-                }
-            }
-            try (InputStream in = RSyntaxTextArea.class.getResourceAsStream(path)) {
-                if (in != null) {
-                    Color c = Theme.load(in).scheme.getStyle(TokenTypes.COMMENT_EOL).foreground;
-                    if (c != null) return c;
-                }
-            }
-        } catch (Exception ignored) {}
-        return new Color(0x6A9955); // fallback dark theme comment green
-    }
-
     private void applyFontOverride() {
         String raw = (String) fontNameCombo.getSelectedItem();
         if (raw == null) return;
         int bracket = raw.indexOf("  [");
         if (bracket > 0) raw = raw.substring(0, bracket);
         int size = (Integer) fontSizeSpinner.getValue();
-        Color color = fontColorSwatch.getBackground();
         if (fontPanelSelectedKey != null) {
-            FontManager.getInstance().setOverride(fontPanelSelectedKey, raw, size, color);
+            FontManager.getInstance().setOverride(fontPanelSelectedKey, raw + "," + size);
         }
-        applyFontPreview();
+        rebuildFontPreview();
     }
 
     private void rebuildFontPreview() {
@@ -1701,18 +1651,10 @@ public class SettingsDialog extends JDialog {
         if (key == null) { fontPreviewPanel.repaint(); return; }
 
         FontManager fm = FontManager.getInstance();
-        ThemeManager tm = ThemeManager.getInstance();
-        Color editorBg = tm.resolve("bg.editor");
-        Color panelBg = tm.resolve("bg.panel");
-        Color mainBg = tm.resolve("bg.main");
 
         if ("font.editor".equals(key) || "font.editor.comment".equals(key)) {
-            String text = FontManager.getPreviewText(key);
-            fontPreviewEditor.setText(text);
-            fontPreviewEditor.setBackground(editorBg);
+            fontPreviewEditor.setText(FontManager.getPreviewText(key));
             fontPreviewEditor.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
-            Color fc = fm.resolveColor(key);
-            fontPreviewEditor.setForeground(fc != null ? fc : tm.resolve("fg.main"));
             fontPreviewEditor.setFont(fm.resolve(key).deriveFont((float) Math.min(fm.resolve(key).getSize(), 28)));
             fontPreviewEditor.setEditable(false);
             fontPreviewPanel.add(fontPreviewEditor, BorderLayout.CENTER);
@@ -1722,45 +1664,18 @@ public class SettingsDialog extends JDialog {
             JTable table = new JTable(data, cols);
             table.setRowHeight(Math.min(fm.resolve("font.table").getSize() + 6, 24));
             table.setEnabled(false);
-            table.setBackground(editorBg);
             table.setFont(fm.resolve("font.table"));
             table.getTableHeader().setFont(fm.resolve("font.ui.bold"));
-            Color fc = fm.resolveColor(key);
-            table.setForeground(fc != null ? fc : Color.BLACK);
             fontPreviewPanel.add(new JScrollPane(table), BorderLayout.CENTER);
-        } else if ("font.mono".equals(key)) {
+        } else {
             JTextArea ta = new JTextArea(FontManager.getPreviewText(key));
-            ta.setFont(fm.resolve("font.mono"));
-            ta.setBackground(editorBg);
-            Color fc = fm.resolveColor(key);
-            ta.setForeground(fc != null ? fc : Color.BLACK);
+            ta.setFont(fm.resolve(key));
             ta.setEditable(false);
             ta.setBorder(null);
             fontPreviewPanel.add(ta, BorderLayout.CENTER);
-        } else {
-            JPanel sim = new JPanel(new BorderLayout());
-            sim.setBackground(mainBg);
-            JLabel line1 = new JLabel(FontManager.getPreviewText(key));
-            line1.setFont(fm.resolve(key));
-            Color fc = fm.resolveColor(key);
-            line1.setForeground(fc != null ? fc : Color.BLACK);
-            line1.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-            sim.add(line1, BorderLayout.CENTER);
-            JLabel line2 = new JLabel("次要信息 / Secondary Info");
-            line2.setFont(fm.resolve("font.status"));
-            line2.setForeground(tm.resolve("fg.muted"));
-            line2.setBorder(BorderFactory.createEmptyBorder(0, 8, 8, 8));
-            sim.add(line2, BorderLayout.SOUTH);
-            fontPreviewPanel.add(sim, BorderLayout.CENTER);
         }
         fontPreviewPanel.revalidate();
         fontPreviewPanel.repaint();
-    }
-
-    private void applyFontPreview() {
-        String key = fontPanelSelectedKey;
-        if (key == null) return;
-        rebuildFontPreview();
     }
 
     // ── Save settings ──
