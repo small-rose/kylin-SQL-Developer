@@ -62,8 +62,8 @@ public class SqlToolsDialog extends BaseToolDialog {
             fmtOutputAreas[i].setCodeFoldingEnabled(true);
         }
 
-        installSample(inputArea, "value1\nvalue2\nvalue3");
-        installSample(outputArea, "-- 结果将显示在此处");
+        installSample(inputArea, "A101\nA102\nA103");
+        outputArea.setText("('A101', 'A102', 'A103')");
         installSample(fmtInputArea,
             "select a.id,b.name from users a\nleft join orders b on a.id=b.user_id\nwhere b.status='ACTIVE'\norder by b.create_time desc");
 
