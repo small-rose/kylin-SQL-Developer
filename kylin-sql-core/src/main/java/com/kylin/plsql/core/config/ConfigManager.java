@@ -48,6 +48,7 @@ public class ConfigManager {
         public Map<String, Map<String, String>> formatProfiles = new LinkedHashMap<>();
         public String activeFormatProfile = "Oracle";
         public Map<String, String> connectionDialects = new HashMap<>();
+        public Map<String, String> fontOverrides = new HashMap<>();
         // ── global state ──
         public java.util.List<String> treeExpandedPaths;      // flat list of expanded tree path strings
         public Map<String, List<String>> hiddenSchemas;        // connName → hidden schema names

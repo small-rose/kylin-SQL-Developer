@@ -3,6 +3,7 @@ package com.kylin.plsql.ui.dialog.settings;
 import com.kylin.plsql.ui.MainFrame;
 
 import com.kylin.plsql.core.config.ConfigManager;
+import com.kylin.plsql.core.config.FontManager;
 import com.kylin.plsql.core.config.ThemeManager;
 import com.kylin.plsql.core.config.DbMetadataConfig;
 import com.kylin.plsql.core.config.DbMetadataConfig.TypeDef;
@@ -358,6 +359,7 @@ public class SettingsDialog extends JDialog {
         // Build and register all card panels
         cardPanel.add(buildSqlFormatPanel(), "sqlFormat");
         cardPanel.add(buildThemePanel(), "theme");
+        cardPanel.add(buildFontPanel(), "font");
         cardPanel.add(buildCommonPanel(), "common");
         cardPanel.add(buildMetadataPanel(), "metadata");
 
@@ -424,6 +426,7 @@ public class SettingsDialog extends JDialog {
     private JTree buildSettingsTree() {
         DefaultMutableTreeNode root = new DefaultMutableTreeNode("设置");
         root.add(new DefaultMutableTreeNode("主题个性化"));
+        root.add(new DefaultMutableTreeNode("字体个性化"));
         root.add(new DefaultMutableTreeNode("常用配置"));
         root.add(new DefaultMutableTreeNode("元数据配置"));
         root.add(new DefaultMutableTreeNode("SQL 格式化"));
@@ -442,6 +445,7 @@ public class SettingsDialog extends JDialog {
         return switch (label) {
             case "SQL 格式化" -> "sqlFormat";
             case "主题个性化" -> "theme";
+            case "字体个性化" -> "font";
             case "常用配置" -> "common";
             case "元数据配置" -> "metadata";
             default -> null;
@@ -1468,11 +1472,139 @@ public class SettingsDialog extends JDialog {
         }
     }
 
+    // ── Font panel (字体个性化) ──
+
+    private final Map<String, JComboBox<String>> fontNameCombos = new java.util.HashMap<>();
+    private final Map<String, JSpinner> fontSizeSpinners = new java.util.HashMap<>();
+    private final Map<String, JLabel> fontPreviews = new java.util.HashMap<>();
+
+    private JPanel buildFontPanel() {
+        JPanel root = new JPanel(new BorderLayout());
+        root.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+
+        String[] allFonts = FontManager.getInstance().getAllFonts();
+        JPanel list = new JPanel(new GridBagLayout());
+        list.setOpaque(false);
+        GridBagConstraints c = new GridBagConstraints();
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.insets = new Insets(4, 6, 4, 6);
+        c.gridx = 0; c.weightx = 0;
+
+        int row = 0;
+        for (String key : FontManager.getKeys()) {
+            String label = FontManager.getLabel(key);
+            String current = FontManager.getInstance().resolveValue(key);
+
+            // Section header
+            c.gridy = row++; c.gridwidth = 3; c.weightx = 1;
+            JLabel header = new JLabel(label);
+            header.setFont(header.getFont().deriveFont(Font.BOLD));
+            list.add(header, c);
+
+            // Font name combo
+            c.gridy = row++; c.gridwidth = 1; c.weightx = 0;
+            c.insets = new Insets(2, 6, 2, 6);
+            list.add(new JLabel("字体:"), c);
+            c.gridx = 1; c.weightx = 1;
+            JComboBox<String> combo = new JComboBox<>();
+            for (String fn : allFonts) combo.addItem(FontManager.getFontLabel(fn));
+            combo.setEditable(true);
+            // Select current font
+            String curName = current.split(",")[0].trim();
+            for (int i = 0; i < allFonts.length; i++) {
+                if (allFonts[i].equalsIgnoreCase(curName)) {
+                    combo.setSelectedIndex(i);
+                    break;
+                }
+            }
+            // Try matching by display label
+            if (combo.getSelectedIndex() < 0) combo.setSelectedItem(curName);
+            combo.addActionListener(e -> updateFontPreview(key));
+            list.add(combo, c);
+            fontNameCombos.put(key, combo);
+
+            // Size spinner
+            c.gridx = 2; c.weightx = 0;
+            c.insets = new Insets(2, 2, 2, 6);
+            list.add(new JLabel("大小:"), c);
+            c.gridx = 3; c.weightx = 0;
+            int curSize = Integer.parseInt(current.split(",")[1].trim());
+            JSpinner spinner = new JSpinner(new SpinnerNumberModel(curSize, 6, 72, 1));
+            spinner.setPreferredSize(new Dimension(60, 26));
+            spinner.addChangeListener(e -> updateFontPreview(key));
+            list.add(spinner, c);
+            fontSizeSpinners.put(key, spinner);
+
+            // Preview
+            c.gridy = row++; c.gridx = 0; c.gridwidth = 4; c.weightx = 1;
+            c.insets = new Insets(2, 6, 8, 6);
+            JLabel preview = new JLabel(FontManager.getPreviewText(key));
+            preview.setBorder(BorderFactory.createLineBorder(new Color(0x666666), 1));
+            preview.setOpaque(true);
+            preview.setBackground(new Color(0xFFFFFF));
+            preview.setForeground(new Color(0x333333));
+            preview.setPreferredSize(new Dimension(0, 48));
+            preview.setFont(FontManager.getInstance().resolve(key));
+            list.add(preview, c);
+            fontPreviews.put(key, preview);
+
+            // Separator
+            c.gridy = row++; c.gridx = 0; c.gridwidth = 4; c.weightx = 1;
+            c.insets = new Insets(2, 6, 4, 6);
+            list.add(new JSeparator(), c);
+
+            c.gridx = 0; c.insets = new Insets(4, 6, 4, 6);
+        }
+
+        // Filler
+        c.gridy = row++; c.weighty = 1;
+        c.gridx = 0; c.gridwidth = 4;
+        list.add(Box.createGlue(), c);
+
+        // Bottom: reset button
+        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JButton resetBtn = new JButton("重置为默认");
+        resetBtn.addActionListener(e -> {
+            FontManager.getInstance().clearOverrides();
+            for (String k : FontManager.getKeys()) {
+                String def = FontManager.getDefault(k);
+                String name = def.split(",")[0].trim();
+                for (int i = 0; i < allFonts.length; i++) {
+                    if (allFonts[i].equalsIgnoreCase(name)) {
+                        fontNameCombos.get(k).setSelectedIndex(i);
+                        break;
+                    }
+                }
+                fontSizeSpinners.get(k).setValue(Integer.parseInt(def.split(",")[1].trim()));
+                updateFontPreview(k);
+            }
+        });
+        bottom.add(resetBtn);
+
+        root.add(new JScrollPane(list), BorderLayout.CENTER);
+        root.add(bottom, BorderLayout.SOUTH);
+        return root;
+    }
+
+    private void updateFontPreview(String key) {
+        String name = (String) fontNameCombos.get(key).getSelectedItem();
+        if (name == null) return;
+        int bracket = name.indexOf("  [");
+        if (bracket > 0) name = name.substring(0, bracket);
+        int size = (Integer) fontSizeSpinners.get(key).getValue();
+        FontManager.getInstance().setOverride(key, name + "," + size);
+        JLabel preview = fontPreviews.get(key);
+        preview.setFont(FontManager.getInstance().resolve(key).deriveFont((float) Math.min(size, 24)));
+        preview.revalidate();
+        preview.repaint();
+    }
+
     // ── Save settings ──
 
     private void saveSettings() {
         formatOptions.copyFrom(workingOptions);
         ThemeManager.getInstance().saveToConfig(configManager);
+        FontManager.getInstance().saveToConfig(configManager);
         configManager.setPreference("format.dialect", workingOptions.getDialect());
         configManager.setPreference("format.keywordCase", workingOptions.getKeywordCase().name());
         configManager.setPreference("format.indent", String.valueOf(workingOptions.getIndentSize()));
