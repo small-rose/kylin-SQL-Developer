@@ -2,14 +2,17 @@ package com.kylin.plsql.ui.component.center;
 
 import com.kylin.plsql.core.cache.MetadataCache;
 import com.kylin.plsql.core.config.ConfigManager;
+import com.kylin.plsql.core.config.FontManager;
 import com.kylin.plsql.core.db.ConnectionInfo;
 import com.kylin.plsql.core.db.ConnectionManager;
 import com.kylin.plsql.ui.component.common.PlSqlCompletionProvider;
 import org.fife.ui.autocomplete.AutoCompletion;
 import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.fife.ui.rsyntaxtextarea.SyntaxScheme;
 import org.fife.ui.rsyntaxtextarea.Theme;
 import org.fife.ui.rsyntaxtextarea.Token;
+import org.fife.ui.rsyntaxtextarea.TokenTypes;
 import org.fife.ui.rtextarea.RTextScrollPane;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -655,11 +658,18 @@ public class SqlEditorPanel extends JPanel {
     }
 
     private void afterThemeApplied() {
-        textArea.setFont(new Font("Monospaced", Font.PLAIN, 14));
+        textArea.setFont(FontManager.getInstance().resolve("font.editor"));
         textArea.setMargin(new Insets(3, 16, 3, 3));
+        // Set comment font separately
+        Font cf = FontManager.getInstance().resolve("font.editor.comment");
+        SyntaxScheme scheme = textArea.getSyntaxScheme();
+        for (int type : new int[]{TokenTypes.COMMENT_EOL, TokenTypes.COMMENT_MULTILINE, TokenTypes.COMMENT_DOCUMENTATION}) {
+            if (scheme.getStyle(type) != null) scheme.getStyle(type).font = cf;
+        }
+        textArea.setSyntaxScheme(scheme);
         if (scrollPane != null && scrollPane.getGutter() != null) {
             org.fife.ui.rtextarea.Gutter gutter = scrollPane.getGutter();
-            gutter.setLineNumberFont(new Font("Monospaced", Font.PLAIN, 14));
+            gutter.setLineNumberFont(FontManager.getInstance().resolve("font.editor"));
             gutter.setBackground(theme.resolve("bg.editor"));
             gutter.setLineNumberColor(theme.resolve("fg.secondary"));
         }

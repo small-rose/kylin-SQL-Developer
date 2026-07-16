@@ -12,7 +12,8 @@ public class FontManager {
 
     private static final Map<String, String> DEFAULTS = new LinkedHashMap<>();
     static {
-        DEFAULTS.put("font.editor",   "Monospaced,14");
+        DEFAULTS.put("font.editor",          "Monospaced,14");
+        DEFAULTS.put("font.editor.comment",  "Monospaced,13");
         DEFAULTS.put("font.table",    "Monospaced,12");
         DEFAULTS.put("font.mono",     "Monospaced,12");
         DEFAULTS.put("font.ui",       "Microsoft YaHei UI,12");
@@ -23,7 +24,8 @@ public class FontManager {
 
     private static final Map<String, String> KEY_LABELS = new LinkedHashMap<>();
     static {
-        KEY_LABELS.put("font.editor",   "代码编辑器");
+        KEY_LABELS.put("font.editor",          "代码编辑器");
+        KEY_LABELS.put("font.editor.comment",  "代码注释");
         KEY_LABELS.put("font.table",    "结果表");
         KEY_LABELS.put("font.mono",     "等宽辅助");
         KEY_LABELS.put("font.ui",       "通用界面");
@@ -34,7 +36,8 @@ public class FontManager {
 
     private static final Map<String, String> PREVIEW_TEXTS = new LinkedHashMap<>();
     static {
-        PREVIEW_TEXTS.put("font.editor",   "-- 查询当月订单\nSELECT * FROM orders");
+        PREVIEW_TEXTS.put("font.editor",          "SELECT * FROM orders");
+        PREVIEW_TEXTS.put("font.editor.comment",  "-- 查询当月订单");
         PREVIEW_TEXTS.put("font.table",    "-- 用户名      状态\n张三    ACTIVE");
         PREVIEW_TEXTS.put("font.mono",     "AaBbCc 你好世界 12345");
         PREVIEW_TEXTS.put("font.ui",       "AaBbCc 你好世界 12345");
