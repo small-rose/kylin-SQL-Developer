@@ -1511,7 +1511,7 @@ public class SettingsDialog extends JDialog {
         String[] allFonts = FontManager.getInstance().getAllFonts();
 
         // Section header
-        c.gridx = 0; c.gridy = 0; c.gridwidth = 2; c.weightx = 1;
+        c.gridx = 0; c.gridy = 0; c.gridwidth = 3; c.weightx = 1;
         fontSectionHeader = new JLabel(" ");
         fontSectionHeader.setFont(fontSectionHeader.getFont().deriveFont(Font.BOLD, 14f));
         settingPanel.add(fontSectionHeader, c);
@@ -1520,34 +1520,39 @@ public class SettingsDialog extends JDialog {
         c.anchor = GridBagConstraints.WEST;
         Dimension labelSize = new Dimension(50, 24);
 
+        Runnable addControl = () -> { c.gridx = 1; c.weightx = 0.5; c.gridwidth = 1; };
+        Runnable addSpacer = () -> { c.gridx = 2; c.weightx = 0.5; settingPanel.add(new JLabel(""), c); };
+
         // Font name row
         JLabel fontLabel = new JLabel("字体:");
         fontLabel.setPreferredSize(labelSize);
         c.gridx = 0; c.gridy = 1; c.weightx = 0;
         settingPanel.add(fontLabel, c);
-        c.gridx = 1; c.weightx = 0.5;
+        addControl.run();
         fontNameCombo = new JComboBox<>();
         for (String fn : allFonts) fontNameCombo.addItem(FontManager.getFontLabel(fn));
         fontNameCombo.setEditable(true);
         settingPanel.add(fontNameCombo, c);
+        addSpacer.run();
 
         // Size row
         JLabel sizeLabel = new JLabel("大小:");
         sizeLabel.setPreferredSize(labelSize);
         c.gridx = 0; c.gridy = 2; c.weightx = 0;
         settingPanel.add(sizeLabel, c);
-        c.gridx = 1; c.weightx = 0.5;
+        addControl.run();
         fontSizeSpinner = new JSpinner(new SpinnerNumberModel(12, 6, 72, 1));
         fontSizeSpinner.setPreferredSize(new Dimension(70, 26));
         settingPanel.add(fontSizeSpinner, c);
+        addSpacer.run();
 
         // Color picker row
         JLabel colorLabel = new JLabel("颜色:");
         colorLabel.setPreferredSize(labelSize);
-        c.gridx = 0; c.gridy = 3; c.gridwidth = 1; c.weightx = 0; c.weighty = 0;
+        c.gridx = 0; c.gridy = 3; c.weightx = 0; c.weighty = 0;
         c.fill = GridBagConstraints.HORIZONTAL;
         settingPanel.add(colorLabel, c);
-        c.gridx = 1; c.weightx = 0.5;
+        addControl.run();
         fontColorSwatch = new JPanel();
         fontColorSwatch.setPreferredSize(new Dimension(36, 24));
         fontColorSwatch.setBorder(BorderFactory.createLineBorder(new Color(0x888888)));
@@ -1565,7 +1570,7 @@ public class SettingsDialog extends JDialog {
         settingPanel.add(fontColorSwatch, c);
 
         // Preview panel
-        c.gridx = 0; c.gridy = 4; c.gridwidth = 2; c.weightx = 1; c.weighty = 1;
+        c.gridx = 0; c.gridy = 4; c.gridwidth = 3; c.weightx = 1; c.weighty = 1;
         c.fill = GridBagConstraints.BOTH;
         fontPreviewPanel = new JPanel(new BorderLayout());
         fontPreviewPanel.setBorder(BorderFactory.createTitledBorder("预览"));
@@ -1583,11 +1588,11 @@ public class SettingsDialog extends JDialog {
         settingPanel.add(fontPreviewPanel, c);
 
         // Filler
-        c.gridx = 0; c.gridy = 5; c.gridwidth = 2; c.weighty = 1;
+        c.gridx = 0; c.gridy = 5; c.gridwidth = 3; c.weighty = 1;
         settingPanel.add(Box.createGlue(), c);
 
         // Reset button bottom
-        c.gridx = 0; c.gridy = 6; c.gridwidth = 2; c.weighty = 0; c.fill = GridBagConstraints.NONE;
+        c.gridx = 0; c.gridy = 6; c.gridwidth = 3; c.weighty = 0; c.fill = GridBagConstraints.NONE;
         c.anchor = GridBagConstraints.WEST;
         JButton resetBtn = new JButton("重置为默认");
         settingPanel.add(resetBtn, c);
