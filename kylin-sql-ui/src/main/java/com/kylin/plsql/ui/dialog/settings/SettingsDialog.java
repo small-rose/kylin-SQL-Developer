@@ -1518,10 +1518,13 @@ public class SettingsDialog extends JDialog {
         c.gridwidth = 1;
 
         c.anchor = GridBagConstraints.WEST;
+        Dimension labelSize = new Dimension(50, 24);
 
         // Font name row
-        c.gridx = 0; c.gridy = 1; c.weightx = 0.5;
-        settingPanel.add(new JLabel("字体:"), c);
+        JLabel fontLabel = new JLabel("字体:");
+        fontLabel.setPreferredSize(labelSize);
+        c.gridx = 0; c.gridy = 1; c.weightx = 0;
+        settingPanel.add(fontLabel, c);
         c.gridx = 1; c.weightx = 0.5;
         fontNameCombo = new JComboBox<>();
         for (String fn : allFonts) fontNameCombo.addItem(FontManager.getFontLabel(fn));
@@ -1529,17 +1532,21 @@ public class SettingsDialog extends JDialog {
         settingPanel.add(fontNameCombo, c);
 
         // Size row
-        c.gridx = 0; c.gridy = 2; c.weightx = 0.5;
-        settingPanel.add(new JLabel("大小:"), c);
+        JLabel sizeLabel = new JLabel("大小:");
+        sizeLabel.setPreferredSize(labelSize);
+        c.gridx = 0; c.gridy = 2; c.weightx = 0;
+        settingPanel.add(sizeLabel, c);
         c.gridx = 1; c.weightx = 0.5;
         fontSizeSpinner = new JSpinner(new SpinnerNumberModel(12, 6, 72, 1));
         fontSizeSpinner.setPreferredSize(new Dimension(70, 26));
         settingPanel.add(fontSizeSpinner, c);
 
         // Color picker row
-        c.gridx = 0; c.gridy = 3; c.gridwidth = 1; c.weightx = 0.5; c.weighty = 0;
+        JLabel colorLabel = new JLabel("颜色:");
+        colorLabel.setPreferredSize(labelSize);
+        c.gridx = 0; c.gridy = 3; c.gridwidth = 1; c.weightx = 0; c.weighty = 0;
         c.fill = GridBagConstraints.HORIZONTAL;
-        settingPanel.add(new JLabel("颜色:"), c);
+        settingPanel.add(colorLabel, c);
         c.gridx = 1; c.weightx = 0.5;
         fontColorSwatch = new JPanel();
         fontColorSwatch.setPreferredSize(new Dimension(36, 24));
