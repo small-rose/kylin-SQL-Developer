@@ -89,6 +89,8 @@ public class MainFrame extends JFrame {
     private final FormatOptions formatOptions = new FormatOptions();
     private final SqlHistory sqlHistory = new SqlHistory();
     private final PlSqlSymbolIndex symbolIndex = new PlSqlSymbolIndex();
+    /** 启动完成后延迟恢复 tab 连接/schema 的暂存数据（索引与 editorTabs 对齐）。 */
+    private java.util.List<ConfigManager.TabState> pendingTabStates;
     private int consoleCounter;
     private Timer autoSaveTimer;
     private JToolBar toolbar;
@@ -241,6 +243,22 @@ public class MainFrame extends JFrame {
             int rightW = rightPanel.getPreferredSize().width;
             mainSplitRef[0].setDividerLocation(Math.max(w - rightW, w / 2));
         }
+        // 延迟到所有组件就绪后重新恢复连接和 schema（此时元数据缓存应已同步完成）
+        javax.swing.SwingUtilities.invokeLater(this::deferredRestoreTabConnections);
+    }
+
+    /** 在启动后期延迟恢复各 tab 的连接和 schema（等待元数据同步完成）。 */
+    private void deferredRestoreTabConnections() {
+        if (pendingTabStates == null) return;
+        for (int i = 0; i < pendingTabStates.size() && i < editorTabs.getTabCount(); i++) {
+            ConfigManager.TabState ts = pendingTabStates.get(i);
+            Component c = editorTabs.getComponentAt(i);
+            if (c instanceof SqlEditorPanel ep) {
+                if (ts.connName != null) ep.setConnectionName(ts.connName);
+                if (ts.schema != null) ep.setSchema(ts.schema);
+            }
+        }
+        pendingTabStates = null;
     }
 
     private void initComponents() {
@@ -2626,6 +2644,8 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                 }
             });
         }
+        // 保存 tab 状态以便 finishLayout 完成后延迟恢复连接和 schema
+        this.pendingTabStates = new java.util.ArrayList<>(state.tabs);
         // 恢复格式化配置
         if (state.formatProfiles != null && !state.formatProfiles.isEmpty()) {
             formatOptions.profilesFromMap(state.formatProfiles);
