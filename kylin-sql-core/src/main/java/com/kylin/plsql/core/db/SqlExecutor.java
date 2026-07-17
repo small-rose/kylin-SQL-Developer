@@ -166,21 +166,24 @@ public class SqlExecutor {
 
     // ── DDL Generation ──
 
-    public String generateDDL(Connection conn, String schema, String table, String type) {
-        if (!"TABLE".equalsIgnoreCase(type)) {
-            return "-- \u65E0\u6CD5\u83B7\u53D6 " + type + " " + schema + "." + table + " \u7684 DDL";
-        }
-
+    public String generateDDL(Connection conn, String schema, String name, String type) {
         String dbType = getDbType(conn);
+        boolean plsql = "PACKAGE".equals(type) || "PACKAGE_BODY".equals(type) || "PROCEDURE".equals(type) || "FUNCTION".equals(type);
+        if (plsql && "oracle".equals(dbType)) {
+            return getOracleDdl(conn, schema, name, type);
+        }
+        if (!"TABLE".equalsIgnoreCase(type)) {
+            return "-- \u65E0\u6CD5\u83B7\u53D6 " + type + " " + schema + "." + name + " \u7684 DDL";
+        }
 
         // Oracle: try DBMS_METADATA
         if ("oracle".equals(dbType)) {
-            String oracleDDL = tryOracleDdl(conn, schema, table);
+            String oracleDDL = tryOracleDdl(conn, schema, name);
             if (oracleDDL != null) return oracleDDL;
         }
 
         // Fallback: build from metadata
-        return buildDDLFromMeta(conn, schema, table, dbType);
+        return buildDDLFromMeta(conn, schema, name, dbType);
     }
 
     private String tryOracleDdl(Connection conn, String schema, String table) {
@@ -250,6 +253,36 @@ public class SqlExecutor {
         } catch (SQLException e) {
             log.debug("Oracle DDL \u751F\u6210\u5931\u8D25: {}", e.getMessage());
             return null;
+        }
+    }
+
+    /** 通过 DBMS_METADATA 获取 PL/SQL 对象的原始 DDL（含 EDITIONABLE 等关键字），供右键"查看 DDL"使用。 */
+    public String getOracleDdl(Connection conn, String schema, String name, String type) {
+        String ddlType = switch (type) {
+            case "PACKAGE" -> "PACKAGE";
+            case "PACKAGE_BODY" -> "PACKAGE_BODY";
+            case "PROCEDURE" -> "PROCEDURE";
+            case "FUNCTION" -> "FUNCTION";
+            default -> null;
+        };
+        if (ddlType == null) return null;
+        try {
+            String q = "SELECT DBMS_METADATA.GET_DDL(?, ?, ?) AS DDL FROM DUAL";
+            try (PreparedStatement ps = conn.prepareStatement(q)) {
+                ps.setString(1, ddlType);
+                ps.setString(2, name);
+                ps.setString(3, schema);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        String ddl = rs.getString("DDL");
+                        if (ddl != null) return ddl.replaceAll("\r\n?", "\n").trim() + "\n/";
+                    }
+                }
+            }
+            return "-- \u65E0\u6CD5\u83B7\u53D6 " + type + " " + schema + "." + name + " \u7684 DDL";
+        } catch (SQLException e) {
+            log.error("DBMS_METADATA \u83B7\u53D6 DDL \u5931\u8D25", e);
+            return "-- DBMS_METADATA \u83B7\u53D6\u5931\u8D25: " + e.getMessage();
         }
     }
 
@@ -470,33 +503,7 @@ public class SqlExecutor {
     }
 
     private String getOracleSource(Connection conn, String schema, String name, String type) {
-        // Try DBMS_METADATA (skip PACKAGE - returns spec+body combined in some DBs)
-        String ddlType = switch (type) {
-            case "PACKAGE_BODY" -> "PACKAGE_BODY";
-            case "PROCEDURE" -> "PROCEDURE";
-            case "FUNCTION" -> "FUNCTION";
-            default -> null;
-        };
-        if (ddlType != null) {
-            try {
-                String q = "SELECT DBMS_METADATA.GET_DDL(?, ?, ?) AS DDL FROM DUAL";
-                try (PreparedStatement ps = conn.prepareStatement(q)) {
-                    ps.setString(1, ddlType);
-                    ps.setString(2, name);
-                    ps.setString(3, schema);
-                    try (ResultSet rs = ps.executeQuery()) {
-                        if (rs.next()) {
-                            String ddl = rs.getString("DDL");
-                            if (ddl != null) return ddl.replaceAll("\r\n?", "\n").trim() + "\n/";
-                        }
-                    }
-                }
-            } catch (SQLException e) {
-                log.debug("DBMS_METADATA fallback to ALL_SOURCE: {}", e.getMessage());
-            }
-        }
-
-        // Fallback to ALL_SOURCE
+        // ALL_SOURCE
         String sourceType = switch (type) {
             case "PACKAGE_BODY" -> "PACKAGE BODY";
             default -> type;

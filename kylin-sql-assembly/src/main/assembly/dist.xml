@@ -19,25 +19,34 @@
     </dependencySets>
 
     <fileSets>
-        <!-- 启动脚本 -->
+        <!-- Shell 脚本：强制 LF 换行，确保 Linux 可执行 -->
         <fileSet>
             <directory>src/main/assembly</directory>
             <outputDirectory>/</outputDirectory>
             <includes>
                 <include>kylin-sql.sh</include>
+                <include>install-desktop.sh</include>
+            </includes>
+            <fileMode>0755</fileMode>
+            <lineEnding>unix</lineEnding>
+        </fileSet>
+        <!-- Windows 启动脚本 -->
+        <fileSet>
+            <directory>src/main/assembly</directory>
+            <outputDirectory>/</outputDirectory>
+            <includes>
                 <include>kylin-sql.bat</include>
                 <include>kylin-sql.vbs</include>
+                <include>install-shortcut.vbs</include>
             </includes>
             <fileMode>0755</fileMode>
         </fileSet>
-        <!-- 桌面集成 -->
+        <!-- Linux 桌面集成 -->
         <fileSet>
             <directory>src/main/assembly</directory>
             <outputDirectory>/</outputDirectory>
             <includes>
                 <include>kylin-sql.desktop</include>
-                <include>install-desktop.sh</include>
-                <include>install-shortcut.vbs</include>
             </includes>
             <fileMode>0755</fileMode>
         </fileSet>

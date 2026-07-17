@@ -177,6 +177,7 @@ public class SourceViewerPanel extends JPanel {
         textArea.setTabsEmulated(true);
         textArea.setTabSize(4);
         textArea.setFont(new Font("Monospaced", Font.PLAIN, 14));
+        textArea.setAntiAliasingEnabled(true);
         textArea.setEditable(false);
         textArea.setMargin(new Insets(3, 16, 3, 3));
         textArea.setBackground(theme.resolve("bg.editor"));

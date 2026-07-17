@@ -195,12 +195,12 @@ public class MetadataCache {
         load(connName).tableComments.put(schema + "." + table, comment);
     }
 
-    public String getDDL(String connName, String schema, String table) {
-        return load(connName).ddlCache.get(schema + "." + table);
+    public String getDDL(String connName, String schema, String type, String objectName) {
+        return load(connName).ddlCache.get(type + ":" + schema + "." + objectName);
     }
 
-    public void putDDL(String connName, String schema, String table, String ddl) {
-        load(connName).ddlCache.put(schema + "." + table, ddl);
+    public void putDDL(String connName, String schema, String type, String objectName, String ddl) {
+        load(connName).ddlCache.put(type + ":" + schema + "." + objectName, ddl);
         save(connName);
     }
 

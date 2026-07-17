@@ -47,13 +47,15 @@ public class ConnectionManager {
         config.setAutoCommit(true);
 
         // Connection test query: Oracle/OceanBase needs FROM DUAL
-        String url = info.getJdbcUrl().toLowerCase();
-        if (url.contains("oracle") || "oracle".equalsIgnoreCase(info.getDbType())
-            || "oceanbase".equalsIgnoreCase(info.getDbType())) {
+        boolean isOceanBase = "oceanbase".equalsIgnoreCase(info.getDbType()) || info.getJdbcUrl().toLowerCase().contains("oceanbase");
+        boolean isOracle = "oracle".equalsIgnoreCase(info.getDbType()) || info.getJdbcUrl().toLowerCase().contains("oracle");
+        if (isOracle || isOceanBase) {
             config.setConnectionTestQuery("SELECT 1 FROM DUAL");
         } else {
             config.setConnectionTestQuery("SELECT 1");
         }
+        // OceanBase JDBC 的 isValid() 内部发 SELECT 1(无 FROM DUAL) 会报错，跳过启动时验证
+        if (isOceanBase) config.setInitializationFailTimeout(-1);
 
         if (info.getSchema() != null && !info.getSchema().isBlank()) {
             String db = info.getDbType() != null ? info.getDbType().toLowerCase() : "";

@@ -2505,10 +2505,10 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                         }
                         case "DDL" -> {
                             MetadataCache cache = MetadataCache.getInstance();
-                            String ddl = cache.getDDL(connName, schema, objectName);
+                            String ddl = cache.getDDL(connName, schema, objectType, objectName);
                             if (ddl == null) {
                                 ddl = executor.generateDDL(conn, schema, objectName, objectType);
-                                cache.putDDL(connName, schema, objectName, ddl);
+                                cache.putDDL(connName, schema, objectType, objectName, ddl);
                             }
                             String finalDdl = ddl;
                             SwingUtilities.invokeLater(() -> openInNewEditor(finalDdl, connName, schema));

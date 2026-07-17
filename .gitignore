@@ -6,4 +6,5 @@ target/
 *.bak.*
 dist/
 .class
-target/
+*.flattened-pom.xml
+dependency-reduced-pom.xml

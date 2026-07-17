@@ -17,11 +17,13 @@ public class ConnectionDialog extends JDialog {
     private final ConnectionManager connectionManager;
     private final JList<ConnectionInfo> connList;
     private final DefaultListModel<ConnectionInfo> listModel;
-    private JTextField nameField, hostField, portField, serviceField, userField, schemaField, urlField, timeoutField;
+    private JTextField nameField, hostField, portField, serviceField, userField, schemaField, timeoutField;
+    private JTextArea urlField;
+    private JScrollPane urlScroll;
     private JPasswordField passwordField;
     private JComboBox<String> dbTypeCombo;
     private JCheckBox useUrlCheck;
-    private JLabel hostLabel, portLabel, serviceLabel;
+    private JLabel urlLabel, hostLabel, portLabel, serviceLabel;
     private ConnectionInfo editing;
     private String savedConnName;
     private boolean parsingUrl;
@@ -117,16 +119,22 @@ public class ConnectionDialog extends JDialog {
         // ── JDBC URL (required in URL mode) ──
         row++;
         c.gridx = 0; c.gridy = row; c.gridwidth = 1; c.weightx = 0;
-        formPanel.add(new JLabel("<html>JDBC URL: " + REQ + "</html>"), c);
+        urlLabel = new JLabel("<html>JDBC URL: " + REQ + "</html>");
+        formPanel.add(urlLabel, c);
         c.gridx = 1; c.weightx = 1;
-        urlField = new JTextField();
+        urlField = new JTextArea(3, 1);
+        urlField.setLineWrap(true);
+        urlField.setWrapStyleWord(true);
+        urlField.setFont(UIManager.getFont("TextField.font"));
+        urlField.setMargin(new Insets(2, 4, 2, 4));
         urlField.setToolTipText("例如: jdbc:oracle:thin:@host:1521/service");
         urlField.getDocument().addDocumentListener(new DocumentListener() {
             @Override public void insertUpdate(DocumentEvent e) { onUrlChange(); }
             @Override public void removeUpdate(DocumentEvent e) { onUrlChange(); }
             @Override public void changedUpdate(DocumentEvent e) { onUrlChange(); }
         });
-        formPanel.add(urlField, c);
+        urlScroll = new JScrollPane(urlField);
+        formPanel.add(urlScroll, c);
 
         // ── 主机 (required) ──
         row++;
@@ -321,7 +329,8 @@ public class ConnectionDialog extends JDialog {
 
     private void toggleUrlMode() {
         boolean useUrl = useUrlCheck.isSelected();
-        urlField.setVisible(useUrl);
+        urlLabel.setVisible(useUrl);
+        urlScroll.setVisible(useUrl);
         hostLabel.setVisible(!useUrl);
         hostField.setVisible(!useUrl);
         portLabel.setVisible(!useUrl);
