@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!DOCTYPE RSyntaxTheme SYSTEM "theme.dtd">
 <RSyntaxTheme version="1.0">
+   <!-- baseFont is read by SettingsDialog for default font name/size in font panel -->
+   <baseFont family="Monospaced" size="14"/>
    <background color="ffffff"/>
    <caret color="333333"/>
    <selection fg="333333" useFG="true" bg="c6e2ff"/>

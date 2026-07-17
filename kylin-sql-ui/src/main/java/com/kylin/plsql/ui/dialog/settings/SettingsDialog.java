@@ -1484,7 +1484,10 @@ public class SettingsDialog extends JDialog {
     private JLabel fontSectionHeader;
     private JPanel fontPreviewPanel;
     private String fontPanelSelectedKey;
-    private RSyntaxTextArea fontPreviewEditor;
+    /** RSTA IDENTIFIER token foreground — default editor text color from current theme XML */
+    private Color rstaEditorFg;
+    /** RSTA COMMENT_EOL token foreground — default comment text color from current theme XML */
+    private Color rstaCommentFg;
 
     private JPanel buildFontPanel() {
         JPanel root = new JPanel(new BorderLayout());
@@ -1577,14 +1580,6 @@ public class SettingsDialog extends JDialog {
         fontPreviewPanel.setOpaque(true);
         fontPreviewPanel.setBackground(ThemeManager.getInstance().resolve("bg.editor"));
         fontPreviewPanel.setPreferredSize(new Dimension(0, 80));
-        // Default: a read-only RSyntaxTextArea for code-style preview
-        fontPreviewEditor = new RSyntaxTextArea(3, 30);
-        fontPreviewEditor.setSyntaxEditingStyle("text/plsql");
-        fontPreviewEditor.setEditable(false);
-        fontPreviewEditor.setHighlightCurrentLine(false);
-        fontPreviewEditor.setCodeFoldingEnabled(false);
-        fontPreviewEditor.setBorder(null);
-        fontPreviewPanel.add(fontPreviewEditor, BorderLayout.CENTER);
         settingPanel.add(fontPreviewPanel, c);
 
         // Filler
@@ -1608,6 +1603,27 @@ public class SettingsDialog extends JDialog {
             String curName = val.split(",")[0].trim();
             int curSize = Integer.parseInt(val.split(",")[1].trim());
 
+            // Set swatch FIRST, before combo/spinner listeners fire,
+            // so that applyFontOverride() reads the correct default color
+            // instead of the initial JPanel background color.
+            Color fc = FontManager.getInstance().resolveColor(fontPanelSelectedKey);
+            if (fc != null) {
+                fontColorSwatch.setBackground(fc);
+            } else if ("font.editor".equals(fontPanelSelectedKey) && rstaEditorFg != null) {
+                fontColorSwatch.setBackground(rstaEditorFg);
+            } else if ("font.editor.comment".equals(fontPanelSelectedKey) && rstaCommentFg != null) {
+                fontColorSwatch.setBackground(rstaCommentFg);
+            } else {
+                fontColorSwatch.setBackground(ThemeManager.getInstance().resolve("fg.main"));
+            }
+
+            // Suppress listeners during programmatic combo/spinner updates
+            // to avoid accidental override saves with stale swatch colors.
+            var comboAls = fontNameCombo.getActionListeners();
+            var spinCls = fontSizeSpinner.getChangeListeners();
+            for (var l : comboAls) fontNameCombo.removeActionListener(l);
+            for (var l : spinCls) fontSizeSpinner.removeChangeListener(l);
+
             for (int i = 0; i < allFonts.length; i++) {
                 if (allFonts[i].equalsIgnoreCase(curName)) {
                     fontNameCombo.setSelectedIndex(i);
@@ -1615,8 +1631,10 @@ public class SettingsDialog extends JDialog {
                 }
             }
             fontSizeSpinner.setValue(curSize);
-            Color fc = FontManager.getInstance().resolveColor(fontPanelSelectedKey);
-            fontColorSwatch.setBackground(fc != null ? fc : ThemeManager.getInstance().resolve("fg.main"));
+
+            for (var l : comboAls) fontNameCombo.addActionListener(l);
+            for (var l : spinCls) fontSizeSpinner.addChangeListener(l);
+
             fontSectionHeader.setText(FontManager.getLabel(fontPanelSelectedKey));
             rebuildFontPreview();
             applyFontPreview();
@@ -1645,7 +1663,10 @@ public class SettingsDialog extends JDialog {
                 }
             }
             fontSizeSpinner.setValue(Integer.parseInt(def.split(",")[1].trim()));
-            fontColorSwatch.setBackground(ThemeManager.getInstance().resolve("fg.main"));
+            Color resetFg = null;
+            if ("font.editor".equals(fontPanelSelectedKey)) resetFg = rstaEditorFg;
+            else if ("font.editor.comment".equals(fontPanelSelectedKey)) resetFg = rstaCommentFg;
+            fontColorSwatch.setBackground(resetFg != null ? resetFg : ThemeManager.getInstance().resolve("fg.main"));
             applyFontOverride();
         });
 
@@ -1656,11 +1677,34 @@ public class SettingsDialog extends JDialog {
         root.add(split, BorderLayout.CENTER);
 
         // Select first item
+        loadRstaEditorColors();
         SwingUtilities.invokeLater(() -> {
             fontTree.setSelectionRow(0);
         });
 
         return root;
+    }
+
+    /** Load default editor/comment text colors from the current RSTA theme XML.
+     *  Used as fallback in swatch and preview when no user color override is set. */
+    private void loadRstaEditorColors() {
+        String path = ThemeManager.getInstance().getCurrentTheme().config("rsta.theme");
+        InputStream in = getClass().getClassLoader().getResourceAsStream(path);
+        if (in == null) {
+            in = RSyntaxTextArea.class.getResourceAsStream(path);
+        }
+        if (in != null) {
+            try {
+                Theme t = Theme.load(in);
+                var s = t.scheme.getStyle(TokenTypes.IDENTIFIER);
+                if (s != null && s.foreground != null) rstaEditorFg = s.foreground;
+                s = t.scheme.getStyle(TokenTypes.COMMENT_EOL);
+                if (s != null && s.foreground != null) rstaCommentFg = s.foreground;
+            } catch (Exception ignored) {
+            } finally {
+                try { in.close(); } catch (Exception ignored) {}
+            }
+        }
     }
 
     private Color getRstaCommentColor() {
@@ -1705,18 +1749,9 @@ public class SettingsDialog extends JDialog {
         Color editorBg = tm.resolve("bg.editor");
         Color panelBg = tm.resolve("bg.panel");
         Color mainBg = tm.resolve("bg.main");
+        Color mainFg = tm.resolve("fg.main");
 
-        if ("font.editor".equals(key) || "font.editor.comment".equals(key)) {
-            String text = FontManager.getPreviewText(key);
-            fontPreviewEditor.setText(text);
-            fontPreviewEditor.setBackground(editorBg);
-            fontPreviewEditor.setSyntaxEditingStyle(SyntaxConstants.SYNTAX_STYLE_NONE);
-            Color fc = fm.resolveColor(key);
-            fontPreviewEditor.setForeground(fc != null ? fc : tm.resolve("fg.main"));
-            fontPreviewEditor.setFont(fm.resolve(key).deriveFont((float) Math.min(fm.resolve(key).getSize(), 28)));
-            fontPreviewEditor.setEditable(false);
-            fontPreviewPanel.add(fontPreviewEditor, BorderLayout.CENTER);
-        } else if ("font.table".equals(key)) {
+        if ("font.table".equals(key)) {
             String[] cols = {"用户名", "状态", "创建时间"};
             Object[][] data = {{"张三", "ACTIVE", "2024-01-15"}, {"李四", "INACTIVE", "2024-02-20"}};
             JTable table = new JTable(data, cols);
@@ -1726,14 +1761,24 @@ public class SettingsDialog extends JDialog {
             table.setFont(fm.resolve("font.table"));
             table.getTableHeader().setFont(fm.resolve("font.ui.bold"));
             Color fc = fm.resolveColor(key);
-            table.setForeground(fc != null ? fc : Color.BLACK);
+            table.setForeground(fc != null ? fc : mainFg);
             fontPreviewPanel.add(new JScrollPane(table), BorderLayout.CENTER);
-        } else if ("font.mono".equals(key)) {
+        } else if ("font.mono".equals(key) || "font.editor".equals(key) || "font.editor.comment".equals(key)) {
             JTextArea ta = new JTextArea(FontManager.getPreviewText(key));
-            ta.setFont(fm.resolve("font.mono"));
+            ta.setFont(fm.resolve(key));
             ta.setBackground(editorBg);
+            // Fallback to RSTA theme token color when no user override,
+            // so preview accurately reflects the actual editor text color.
             Color fc = fm.resolveColor(key);
-            ta.setForeground(fc != null ? fc : Color.BLACK);
+            if (fc != null) {
+                ta.setForeground(fc);
+            } else if ("font.editor".equals(key) && rstaEditorFg != null) {
+                ta.setForeground(rstaEditorFg);
+            } else if ("font.editor.comment".equals(key) && rstaCommentFg != null) {
+                ta.setForeground(rstaCommentFg);
+            } else {
+                ta.setForeground(mainFg);
+            }
             ta.setEditable(false);
             ta.setBorder(null);
             fontPreviewPanel.add(ta, BorderLayout.CENTER);
@@ -1743,7 +1788,7 @@ public class SettingsDialog extends JDialog {
             JLabel line1 = new JLabel(FontManager.getPreviewText(key));
             line1.setFont(fm.resolve(key));
             Color fc = fm.resolveColor(key);
-            line1.setForeground(fc != null ? fc : Color.BLACK);
+            line1.setForeground(fc != null ? fc : mainFg);
             line1.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
             sim.add(line1, BorderLayout.CENTER);
             JLabel line2 = new JLabel("次要信息 / Secondary Info");

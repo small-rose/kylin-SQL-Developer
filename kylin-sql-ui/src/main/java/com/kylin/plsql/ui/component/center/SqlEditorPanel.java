@@ -657,14 +657,23 @@ public class SqlEditorPanel extends JPanel {
         } catch (Exception e) { log.warn("Load RSTA theme failed: {}", path, e); }
     }
 
+    /** Apply FontManager overrides on top of RSTA theme — font, color, comment styles. */
     private void afterThemeApplied() {
-        textArea.setFont(FontManager.getInstance().resolve("font.editor"));
+        FontManager fm = FontManager.getInstance();
+        textArea.setFont(fm.resolve("font.editor"));
+        // Apply editor color override (if user has set one)
+        Color editorColor = fm.resolveColor("font.editor");
+        if (editorColor != null) textArea.setForeground(editorColor);
         textArea.setMargin(new Insets(3, 16, 3, 3));
-        // Set comment font separately
-        Font cf = FontManager.getInstance().resolve("font.editor.comment");
+        // Set comment font and color separately
+        Font cf = fm.resolve("font.editor.comment");
+        Color cc = fm.resolveColor("font.editor.comment");
         SyntaxScheme scheme = textArea.getSyntaxScheme();
         for (int type : new int[]{TokenTypes.COMMENT_EOL, TokenTypes.COMMENT_MULTILINE, TokenTypes.COMMENT_DOCUMENTATION}) {
-            if (scheme.getStyle(type) != null) scheme.getStyle(type).font = cf;
+            if (scheme.getStyle(type) != null) {
+                scheme.getStyle(type).font = cf;
+                if (cc != null) scheme.getStyle(type).foreground = cc;
+            }
         }
         textArea.setSyntaxScheme(scheme);
         if (scrollPane != null && scrollPane.getGutter() != null) {

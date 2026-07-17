@@ -43,7 +43,7 @@ public enum AppTheme {
         d.put("scroll.bg", new Color(0x252526));
         PALETTES.put(DARK, Collections.unmodifiableMap(d));
         Map<String, String> dc = new HashMap<>();
-        dc.put("rsta.theme", "/org/fife/ui/rsyntaxtextarea/themes/dark.xml");
+        dc.put("rsta.theme", "themes/dark.xml"); // local copy with added baseFont
         dc.put("flatlaf", "DARK");
         CONFIGS.put(DARK, Collections.unmodifiableMap(dc));
 
