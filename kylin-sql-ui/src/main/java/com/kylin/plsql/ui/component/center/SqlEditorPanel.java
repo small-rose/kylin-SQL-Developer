@@ -60,6 +60,7 @@ public class SqlEditorPanel extends JPanel {
 
     private final RTextScrollPane scrollPane;
     private final SearchReplacePanel searchPanel = new SearchReplacePanel();
+    private Font defaultFont;
     private final JPanel toolBar;
     private final JPanel topWrapper;
     private final List<Object> execTags = new ArrayList<>();
@@ -130,6 +131,9 @@ public class SqlEditorPanel extends JPanel {
         rollbackBtn.setEnabled(false);
         toolBar.add(rollbackBtn);
 
+        JButton resetZoomBtn = flatBtn("search-alert", "缩放", "重置缩放 (Ctrl+0)", e -> resetZoom());
+        toolBar.add(resetZoomBtn);
+
         topWrapper = new JPanel(new BorderLayout());
         searchPanel.setVisible(false);
         topWrapper.add(toolBar, BorderLayout.NORTH);
@@ -149,11 +153,27 @@ public class SqlEditorPanel extends JPanel {
         scrollPane.setFoldIndicatorEnabled(true);
         scrollPane.setLineNumbersEnabled(true);
         scrollPane.getGutter().setLineNumberFont(new Font("Monospaced", Font.PLAIN, 14));
+
+        // Ctrl+滚轮缩放（监听 scrollPane 而非 textArea，避免干扰内置滚动）
+        scrollPane.addMouseWheelListener(e -> {
+            if (e.isControlDown()) {
+                int rot = e.getWheelRotation();
+                Font f = textArea.getFont();
+                int newSize = Math.max(6, Math.min(120, f.getSize() - rot));
+                textArea.setFont(f.deriveFont((float) newSize));
+                if (scrollPane.getGutter() != null) {
+                    Font gf = scrollPane.getGutter().getLineNumberFont();
+                    if (gf != null) scrollPane.getGutter().setLineNumberFont(gf.deriveFont((float) newSize));
+                }
+                e.consume();
+            }
+        });
+
         textArea.setMargin(new Insets(3, 16, 3, 3));
         add(scrollPane, BorderLayout.CENTER);
 
         applyEditorTheme();
-        textArea.setFont(new Font("Monospaced", Font.PLAIN, 14));
+        defaultFont = textArea.getFont();
 
         // Block KeymapWrapper's Ctrl+P → print via "none" in WHEN_FOCUSED InputMap.
         // JDK 17 JTextComponent.setKeymap() inserts a KeymapWrapper into the InputMap chain,
@@ -161,6 +181,18 @@ public class SqlEditorPanel extends JPanel {
         // "none" shadows the KeymapWrapper binding so processKeyBinding returns false,
         // allowing the menu accelerator in MainFrame to fire for global search.
         textArea.getInputMap().put(KeyStroke.getKeyStroke("control P"), "none");
+        textArea.getInputMap().put(KeyStroke.getKeyStroke("control 0"), "resetZoom");
+        textArea.getActionMap().put("resetZoom", new javax.swing.AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { resetZoom(); }
+        });
+        textArea.getInputMap().put(KeyStroke.getKeyStroke("control EQUALS"), "zoomIn");
+        textArea.getInputMap().put(KeyStroke.getKeyStroke("control MINUS"), "zoomOut");
+        textArea.getActionMap().put("zoomIn", new javax.swing.AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { zoomBy(1); }
+        });
+        textArea.getActionMap().put("zoomOut", new javax.swing.AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { zoomBy(-1); }
+        });
 
         InputMap im = textArea.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
         ActionMap am = textArea.getActionMap();
@@ -729,6 +761,27 @@ public class SqlEditorPanel extends JPanel {
             }
         } catch (Exception e) {
             log.warn("loadColumns {} {} failed: {}", schema, table, e.getMessage());
+        }
+    }
+
+    /** 重置缩放到默认字体大小 (Ctrl+0)。 */
+    private void resetZoom() {
+        if (defaultFont != null) {
+            textArea.setFont(defaultFont);
+            if (scrollPane.getGutter() != null) {
+                scrollPane.getGutter().setLineNumberFont(defaultFont);
+            }
+        }
+    }
+
+    /** 缩放一步 (Ctrl+= / Ctrl+-)。delta=1 放大，delta=-1 缩小。 */
+    private void zoomBy(int delta) {
+        Font f = textArea.getFont();
+        int newSize = Math.max(6, Math.min(120, f.getSize() + delta));
+        textArea.setFont(f.deriveFont((float) newSize));
+        if (scrollPane.getGutter() != null) {
+            Font gf = scrollPane.getGutter().getLineNumberFont();
+            if (gf != null) scrollPane.getGutter().setLineNumberFont(gf.deriveFont((float) newSize));
         }
     }
 

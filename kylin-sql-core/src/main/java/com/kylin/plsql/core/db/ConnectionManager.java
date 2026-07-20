@@ -54,8 +54,8 @@ public class ConnectionManager {
         } else {
             config.setConnectionTestQuery("SELECT 1");
         }
-        // OceanBase JDBC 的 isValid() 内部发 SELECT 1(无 FROM DUAL) 会报错，跳过启动时验证
-        if (isOceanBase) config.setInitializationFailTimeout(-1);
+        // OceanBase JDBC 驱动建立连接较慢，设合理初始化超时避免惰性创建导致 total=0 尸池
+        if (isOceanBase) config.setInitializationFailTimeout(15000);
 
         if (info.getSchema() != null && !info.getSchema().isBlank()) {
             String db = info.getDbType() != null ? info.getDbType().toLowerCase() : "";
@@ -97,7 +97,18 @@ public class ConnectionManager {
 
         HikariDataSource ds = dataSources.get(name);
         if (ds == null) throw new SQLException("连接 '" + name + "' 未打开");
+        if (ds.isClosed()) {
+            dataSources.remove(name);
+            throw new SQLException("连接 '" + name + "' 已关闭");
+        }
         return ds.getConnection();
+    }
+
+    /** 强制重新连接（替换可能已失效的池后获取连接）。 */
+    public Connection reconnectAndGet(String name, ConnectionInfo info) throws SQLException {
+        disconnect(name);
+        connect(info);
+        return getConnection(name);
     }
 
     public boolean isConnected(String name) {

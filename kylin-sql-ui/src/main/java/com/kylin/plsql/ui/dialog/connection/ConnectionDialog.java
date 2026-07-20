@@ -8,8 +8,20 @@ import com.kylin.plsql.core.db.ConnectionManager;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
-import java.awt.*;
+import java.io.File;
+import java.awt.BorderLayout;
+import java.awt.Component;
+import java.awt.Cursor;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
+import java.awt.Frame;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
+import java.awt.Insets;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import javax.swing.table.DefaultTableModel;
 
 /** Database connection management dialog: create, edit, test, save, delete connections */
 public class ConnectionDialog extends JDialog {
@@ -24,6 +36,10 @@ public class ConnectionDialog extends JDialog {
     private JComboBox<String> dbTypeCombo;
     private JCheckBox useUrlCheck;
     private JLabel urlLabel, hostLabel, portLabel, serviceLabel;
+    private JTable paramsTable;
+    private DefaultTableModel paramsTableModel;
+    private JTextField customJarField;
+    private JComboBox<String> customDriverCombo;
     private ConnectionInfo editing;
     private String savedConnName;
     private boolean parsingUrl;
@@ -86,14 +102,7 @@ public class ConnectionDialog extends JDialog {
         GridBagConstraints c = new GridBagConstraints();
         c.fill = GridBagConstraints.HORIZONTAL;
         c.insets = new Insets(4, 6, 4, 6);
-        int row = 0;
-
-        // ── 连接名称 (required) ──
-        c.gridx = 0; c.gridy = row; c.gridwidth = 1; c.weightx = 0;
-        formPanel.add(new JLabel("<html>连接名称: " + REQ + "</html>"), c);
-        c.gridx = 1; c.weightx = 1;
-        nameField = new JTextField(20);
-        formPanel.add(nameField, c);
+        int row = -1;
 
         // ── 数据库类型 ──
         row++;
@@ -201,8 +210,32 @@ public class ConnectionDialog extends JDialog {
 
         toggleUrlMode();
 
-        // ── 操作按钮 ──
+        // blank filler row to push everything to top
         row++;
+        c.fill = GridBagConstraints.BOTH;
+        c.gridx = 0; c.gridy = row; c.gridwidth = 2; c.weightx = 0; c.weighty = 1;
+        formPanel.add(Box.createGlue(), c);
+        c.fill = GridBagConstraints.HORIZONTAL;
+
+        // ── 右侧：名称 + 标签面板 + 按钮 ──
+        JPanel rightPanel = new JPanel(new BorderLayout());
+
+        // 顶部：连接名称（始终可见）
+        JPanel namePanel = new JPanel(new BorderLayout(6, 0));
+        namePanel.setBorder(BorderFactory.createEmptyBorder(6, 8, 4, 8));
+        namePanel.add(new JLabel("<html>连接名称: " + REQ + "</html>"), BorderLayout.WEST);
+        nameField = new JTextField(20);
+        namePanel.add(nameField, BorderLayout.CENTER);
+        rightPanel.add(namePanel, BorderLayout.NORTH);
+
+        // 中间：标签面板
+        JTabbedPane rightTabs = new JTabbedPane();
+        rightTabs.addTab("连接信息", formScroll);
+        rightTabs.addTab("参数", createParamsPanel());
+        rightTabs.addTab("自定义驱动", createDriverPanel());
+        rightPanel.add(rightTabs, BorderLayout.CENTER);
+
+        // 底部：操作按钮
         JPanel actionPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         JButton testBtn = new JButton("测试连接");
         testBtn.addActionListener(e -> testConnection());
@@ -213,18 +246,9 @@ public class ConnectionDialog extends JDialog {
         actionPanel.add(testBtn);
         actionPanel.add(saveBtn);
         actionPanel.add(closeBtn);
+        rightPanel.add(actionPanel, BorderLayout.SOUTH);
 
-        c.gridx = 0; c.gridy = row; c.gridwidth = 2; c.weighty = 0;
-        formPanel.add(actionPanel, c);
-
-        // blank filler row to push everything to top
-        row++;
-        c.fill = GridBagConstraints.BOTH;
-        c.gridx = 0; c.gridy = row; c.gridwidth = 2; c.weightx = 0; c.weighty = 1;
-        formPanel.add(Box.createGlue(), c);
-        c.fill = GridBagConstraints.HORIZONTAL;
-
-        add(formScroll, BorderLayout.CENTER);
+        add(rightPanel, BorderLayout.CENTER);
 
         loadConnections();
         if (selectConnName != null && !selectConnName.isEmpty()) {
@@ -339,6 +363,197 @@ public class ConnectionDialog extends JDialog {
         serviceField.setVisible(!useUrl);
     }
 
+    // ── 参数标签页 ──
+
+    private JPanel createParamsPanel() {
+        JPanel panel = new JPanel(new BorderLayout());
+        JLabel hint = new JLabel("追加到 JDBC URL 的参数（键值对）");
+        hint.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        panel.add(hint, BorderLayout.NORTH);
+
+        paramsTableModel = new DefaultTableModel(new String[]{"参数名", "参数值"}, 0);
+        paramsTable = new JTable(paramsTableModel);
+        paramsTable.getColumnModel().getColumn(0).setPreferredWidth(120);
+        paramsTable.getColumnModel().getColumn(1).setPreferredWidth(180);
+        panel.add(new JScrollPane(paramsTable), BorderLayout.CENTER);
+
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JButton addParamBtn = new JButton("+");
+        addParamBtn.setToolTipText("添加参数");
+        addParamBtn.addActionListener(e -> paramsTableModel.addRow(new Object[]{"", ""}));
+        JButton rmParamBtn = new JButton("-");
+        rmParamBtn.setToolTipText("删除选中参数");
+        rmParamBtn.addActionListener(e -> {
+            int row = paramsTable.getSelectedRow();
+            if (row >= 0) paramsTableModel.removeRow(row);
+        });
+        btnPanel.add(addParamBtn);
+        btnPanel.add(rmParamBtn);
+        JButton presetBtn = new JButton("预设");
+        presetBtn.setToolTipText("插入当前数据库类型的常用参数");
+        presetBtn.addActionListener(e -> insertPresetParams());
+        btnPanel.add(presetBtn);
+        panel.add(btnPanel, BorderLayout.SOUTH);
+        return panel;
+    }
+
+    /** 从参数表收集所有参数到 Map。 */
+    private Map<String, String> collectParams() {
+        Map<String, String> map = new LinkedHashMap<>();
+        for (int i = 0; i < paramsTableModel.getRowCount(); i++) {
+            Object n = paramsTableModel.getValueAt(i, 0);
+            Object v = paramsTableModel.getValueAt(i, 1);
+            if (n != null && !n.toString().trim().isEmpty()) {
+                map.put(n.toString().trim(), v != null ? v.toString().trim() : "");
+            }
+        }
+        return map;
+    }
+
+    /** 用 ConnectionInfo 的参数填充参数表。 */
+    private void loadParamsFrom(ConnectionInfo ci) {
+        paramsTableModel.setRowCount(0);
+        if (ci.getJdbcParams() != null) {
+            for (Map.Entry<String, String> e : ci.getJdbcParams().entrySet()) {
+                paramsTableModel.addRow(new Object[]{e.getKey(), e.getValue()});
+            }
+        }
+    }
+
+    /** 根据当前数据库类型插入常用 JDBC URL 参数。 */
+    private void insertPresetParams() {
+        String dbType;
+        int idx = dbTypeCombo.getSelectedIndex();
+        if (idx == 2) dbType = "oracle";
+        else if (idx == 1) dbType = "postgresql";
+        else dbType = "oceanbase";
+        Map<String, String> presets = new LinkedHashMap<>();
+        switch (dbType) {
+            case "oceanbase" -> {
+                presets.put("compatibleOjdbcVersion", "8");
+                presets.put("useServerPrepStmts", "true");
+                presets.put("characterEncoding", "UTF-8");
+                presets.put("useCompression", "true");
+                presets.put("rewriteBatchedStatements", "true");
+                presets.put("useLocalSessionState", "true");
+                presets.put("maintainTimeStats", "false");
+            }
+            case "postgresql" -> {
+                presets.put("ApplicationName", "KylinSQL");
+                presets.put("stringtype", "unspecified");
+                presets.put("prepareThreshold", "5");
+                presets.put("ssl", "false");
+                presets.put("sslmode", "prefer");
+                presets.put("reWriteBatchedInserts", "true");
+            }
+            default -> { // oracle
+                presets.put("oracle.jdbc.defaultNChar", "true");
+                presets.put("oracle.jdbc.J2EE13Compliant", "true");
+                presets.put("defaultLongFetchSize", "1000");
+                presets.put("oracle.jdbc.ReadTimeout", "30000");
+                presets.put("oracle.net.CONNECT_TIMEOUT", "10000");
+            }
+        }
+        for (Map.Entry<String, String> e : presets.entrySet()) {
+            // 跳过已有同名参数
+            boolean exists = false;
+            for (int i = 0; i < paramsTableModel.getRowCount(); i++) {
+                Object n = paramsTableModel.getValueAt(i, 0);
+                if (n != null && e.getKey().equals(n.toString().trim())) {
+                    exists = true; break;
+                }
+            }
+            if (!exists) paramsTableModel.addRow(new Object[]{e.getKey(), e.getValue()});
+        }
+    }
+
+    // ── 自定义驱动标签页 ──
+
+    private JPanel createDriverPanel() {
+        JPanel panel = new JPanel(new BorderLayout());
+        JLabel hint = new JLabel("自定义 JDBC 驱动（选择驱动包后自动识别驱动类）");
+        hint.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        panel.add(hint, BorderLayout.NORTH);
+
+        JPanel form = new JPanel(new GridBagLayout());
+        GridBagConstraints gc = new GridBagConstraints();
+        gc.fill = GridBagConstraints.HORIZONTAL;
+        gc.insets = new Insets(4, 8, 4, 8);
+
+        // Row 0: JAR path
+        gc.gridx = 0; gc.gridy = 0; gc.weightx = 0;
+        form.add(new JLabel("驱动包路径:"), gc);
+        gc.gridx = 1; gc.weightx = 1;
+        customJarField = new JTextField();
+        form.add(customJarField, gc);
+        gc.gridx = 2; gc.weightx = 0;
+        JButton browseBtn = new JButton("浏览");
+        browseBtn.addActionListener(e -> {
+            JFileChooser fc = new JFileChooser();
+            fc.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("JAR 文件 (*.jar)", "jar"));
+            if (fc.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+                customJarField.setText(fc.getSelectedFile().getAbsolutePath());
+            }
+        });
+        form.add(browseBtn, gc);
+        JButton scanBtn = new JButton("扫描");
+        scanBtn.addActionListener(e -> scanDriverJar());
+        form.add(scanBtn, gc);
+
+        // Row 1: Driver class
+        gc.gridx = 0; gc.gridy = 1; gc.weightx = 0;
+        form.add(new JLabel("驱动类名:"), gc);
+        gc.gridx = 1; gc.gridwidth = 2; gc.weightx = 1;
+        customDriverCombo = new JComboBox<>();
+        customDriverCombo.setEditable(true);
+        form.add(customDriverCombo, gc);
+
+        panel.add(form, BorderLayout.NORTH);
+        return panel;
+    }
+
+    /** 扫描 JAR 包中的 JDBC 驱动类，识别后填入下拉框。 */
+    private void scanDriverJar() {
+        String jarPath = customJarField.getText().trim();
+        if (jarPath.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "请先选择驱动包路径");
+            return;
+        }
+        File jarFile = new File(jarPath);
+        if (!jarFile.exists() || !jarFile.isFile()) {
+            JOptionPane.showMessageDialog(this, "文件不存在: " + jarPath);
+            return;
+        }
+        customDriverCombo.removeAllItems();
+        try (java.net.URLClassLoader cl = new java.net.URLClassLoader(
+                new java.net.URL[]{jarFile.toURI().toURL()},
+                ClassLoader.getSystemClassLoader())) {
+            try (java.util.jar.JarFile jar = new java.util.jar.JarFile(jarFile)) {
+                java.util.Enumeration<java.util.jar.JarEntry> entries = jar.entries();
+                while (entries.hasMoreElements()) {
+                    java.util.jar.JarEntry entry = entries.nextElement();
+                    String name = entry.getName();
+                    if (!entry.isDirectory() && name.endsWith(".class")) {
+                        String className = name.replace('/', '.').replace(".class", "");
+                        try {
+                            Class<?> cls = cl.loadClass(className);
+                            if (java.sql.Driver.class.isAssignableFrom(cls) && !cls.isInterface()) {
+                                customDriverCombo.addItem(className);
+                            }
+                        } catch (Exception | NoClassDefFoundError ignored) {}
+                    }
+                }
+            }
+            if (customDriverCombo.getItemCount() == 0) {
+                JOptionPane.showMessageDialog(this, "未在 JAR 包中找到 JDBC 驱动类");
+            } else {
+                customDriverCombo.setSelectedIndex(0);
+            }
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this, "扫描失败: " + e.getMessage());
+        }
+    }
+
     private void loadConnections() {
         listModel.clear();
         for (ConnectionInfo ci : configManager.loadConnections()) {
@@ -362,6 +577,10 @@ public class ConnectionDialog extends JDialog {
         schemaField.setText(ci.getSchema());
         timeoutField.setText(String.valueOf(ci.getQueryTimeout()));
         dbTypeCombo.setSelectedIndex("oracle".equals(ci.getDbType()) ? 2 : "postgresql".equals(ci.getDbType()) ? 1 : 0);
+        loadParamsFrom(ci);
+        customJarField.setText(ci.getCustomDriverJar());
+        customDriverCombo.removeAllItems();
+        if (ci.getCustomDriverClass() != null) customDriverCombo.addItem(ci.getCustomDriverClass());
         toggleUrlMode();
     }
 
@@ -378,6 +597,9 @@ public class ConnectionDialog extends JDialog {
         schemaField.setText("");
         timeoutField.setText("0");
         dbTypeCombo.setSelectedIndex(0);
+        paramsTableModel.setRowCount(0);
+        customJarField.setText("");
+        customDriverCombo.removeAllItems();
         connList.clearSelection();
         toggleUrlMode();
     }
@@ -423,6 +645,10 @@ public class ConnectionDialog extends JDialog {
         }
         ci.setUsername(username);
         ci.setPassword(new String(passwordField.getPassword()));
+        ci.setJdbcParams(collectParams());
+        ci.setCustomDriverJar(customJarField.getText().trim());
+        Object sel = customDriverCombo.getSelectedItem();
+        ci.setCustomDriverClass(sel != null ? sel.toString().trim() : "");
         ci.setSchema(schemaField.getText().trim());
         try {
             ci.setQueryTimeout(Integer.parseInt(timeoutField.getText().trim()));

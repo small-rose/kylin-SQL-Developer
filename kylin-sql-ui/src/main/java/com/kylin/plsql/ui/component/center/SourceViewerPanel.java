@@ -37,6 +37,7 @@ public class SourceViewerPanel extends JPanel {
     private final SqlExecutor executor = new SqlExecutor();
     private final JLabel statusLabel = new JLabel(" ");
 
+    private Font defaultFont;
     private boolean editable;
     private boolean fileMode;
     private String specSource;
@@ -56,6 +57,29 @@ public class SourceViewerPanel extends JPanel {
 
     private Runnable onSourceChanged;
     public void setOnSourceChanged(Runnable r) { this.onSourceChanged = r; }
+
+    /** 重置缩放到默认字体大小 (Ctrl+0)。 */
+    private void resetZoom() {
+        if (defaultFont != null) {
+            textArea.setFont(defaultFont);
+            if (scrollPane != null && scrollPane.getGutter() != null) {
+                scrollPane.getGutter().setLineNumberFont(defaultFont);
+            }
+        }
+    }
+
+    private RTextScrollPane scrollPane;
+
+    /** 缩放一步 (Ctrl+= / Ctrl+-)。delta=1 放大，delta=-1 缩小。 */
+    private void zoomBy(int delta) {
+        Font f = textArea.getFont();
+        int newSize = Math.max(6, Math.min(120, f.getSize() + delta));
+        textArea.setFont(f.deriveFont((float) newSize));
+        if (scrollPane != null && scrollPane.getGutter() != null) {
+            Font gf = scrollPane.getGutter().getLineNumberFont();
+            if (gf != null) scrollPane.getGutter().setLineNumberFont(gf.deriveFont((float) newSize));
+        }
+    }
 
     private JList<String> methodList;
     private DefaultListModel<String> methodListModel;
@@ -166,6 +190,9 @@ public class SourceViewerPanel extends JPanel {
         compileBtn = flatBtn("compile", "编译", e -> compile());
         compileBtn.setToolTipText("编译");
         rightBar.add(compileBtn);
+        JButton resetZoomBtn = flatBtn("search-alert", "缩放", e -> resetZoom());
+        resetZoomBtn.setToolTipText("重置缩放 (Ctrl+0)");
+        rightBar.add(resetZoomBtn);
         toolBar.add(rightBar, BorderLayout.EAST);
 
         add(toolBar, BorderLayout.NORTH);
@@ -176,8 +203,9 @@ public class SourceViewerPanel extends JPanel {
         textArea.setCodeFoldingEnabled(true);
         textArea.setTabsEmulated(true);
         textArea.setTabSize(4);
-        textArea.setFont(new Font("Monospaced", Font.PLAIN, 14));
         textArea.setAntiAliasingEnabled(true);
+        textArea.setFractionalFontMetricsEnabled(true);
+        textArea.setFont(new Font("Monospaced", Font.PLAIN, 14));
         textArea.setEditable(false);
         textArea.setMargin(new Insets(3, 16, 3, 3));
         textArea.setBackground(theme.resolve("bg.editor"));
@@ -185,11 +213,38 @@ public class SourceViewerPanel extends JPanel {
         textArea.setCaretColor(theme.resolve("editor.caret"));
         textArea.setSelectionColor(theme.resolve("selection.bg"));
         textArea.getInputMap().put(KeyStroke.getKeyStroke("control P"), "none");
+        textArea.getInputMap().put(KeyStroke.getKeyStroke("control 0"), "resetZoom");
+        textArea.getActionMap().put("resetZoom", new javax.swing.AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { resetZoom(); }
+        });
+        textArea.getInputMap().put(KeyStroke.getKeyStroke("control EQUALS"), "zoomIn");
+        textArea.getInputMap().put(KeyStroke.getKeyStroke("control MINUS"), "zoomOut");
+        textArea.getActionMap().put("zoomIn", new javax.swing.AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { zoomBy(1); }
+        });
+        textArea.getActionMap().put("zoomOut", new javax.swing.AbstractAction() {
+            @Override public void actionPerformed(java.awt.event.ActionEvent e) { zoomBy(-1); }
+        });
 
-        RTextScrollPane scrollPane = new RTextScrollPane(textArea);
+        scrollPane = new RTextScrollPane(textArea);
         scrollPane.setFoldIndicatorEnabled(true);
         scrollPane.setLineNumbersEnabled(true);
         scrollPane.getGutter().setLineNumberFont(new Font("Monospaced", Font.PLAIN, 14));
+
+        // Ctrl+滚轮缩放（监听 scrollPane 而非 textArea，避免干扰内置滚动）
+        scrollPane.addMouseWheelListener(e -> {
+            if (e.isControlDown()) {
+                int rot = e.getWheelRotation();
+                Font f = textArea.getFont();
+                int newSize = Math.max(6, Math.min(120, f.getSize() - rot));
+                textArea.setFont(f.deriveFont((float) newSize));
+                if (scrollPane.getGutter() != null) {
+                    Font gf = scrollPane.getGutter().getLineNumberFont();
+                    if (gf != null) scrollPane.getGutter().setLineNumberFont(gf.deriveFont((float) newSize));
+                }
+                e.consume();
+            }
+        });
 
         String rstaPath = theme.getCurrentTheme().config("rsta.theme");
         try (var in = getClass().getClassLoader().getResourceAsStream(rstaPath)) {
@@ -200,6 +255,7 @@ public class SourceViewerPanel extends JPanel {
                 }
             }
         } catch (Exception ignored) {}
+        this.defaultFont = textArea.getFont();
 
         // ── Method navigation panel (left) ──
         methodListModel = new DefaultListModel<>();

@@ -3,7 +3,7 @@ package com.kylin.plsql.core.db;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Objects;
+import java.util.*;
 
 /** Database connection information model with JDBC URL and driver auto-detection. */
 public class ConnectionInfo {
@@ -23,6 +23,9 @@ public class ConnectionInfo {
     private boolean useUrl;      // true = 使用直接 JDBC URL 模式
     private String jdbcUrl;      // 直接 JDBC URL（useUrl=true 时生效）
     private int queryTimeout;    // SQL/存过执行超时秒数（0=不限）
+    private Map<String, String> jdbcParams = new LinkedHashMap<>();  // 自定义 JDBC URL 参数
+    private String customDriverClass;                                // 自定义驱动类名
+    private String customDriverJar;                                  // 自定义驱动包路径
 
     public ConnectionInfo() {
         this.createdAt = System.currentTimeMillis();
@@ -43,19 +46,39 @@ public class ConnectionInfo {
     // ── JDBC URL 生成 ──
 
     public String getJdbcUrl() {
+        String url;
         if (useUrl && jdbcUrl != null && !jdbcUrl.isBlank()) {
-            return jdbcUrl;
+            url = jdbcUrl;
+        } else if ("oceanbase".equalsIgnoreCase(dbType)) {
+            url = String.format("jdbc:oceanbase:oracle://%s:%d/%s", host, port, serviceName);
+        } else if ("postgresql".equalsIgnoreCase(dbType)) {
+            url = String.format("jdbc:postgresql://%s:%d/%s", host, port, serviceName);
+        } else {
+            url = String.format("jdbc:oracle:thin:@%s:%d/%s", host, port, serviceName);
         }
-        if ("oceanbase".equalsIgnoreCase(dbType)) {
-            return String.format("jdbc:oceanbase:oracle://%s:%d/%s", host, port, serviceName);
+        // OceanBase Oracle 模式 JDBC 驱动未实现 conn.getSchema() 等 JDBC 4.2 方法，
+        // 追加 compatibleOjdbcVersion=8 让驱动启用 JDK8 兼容 API。
+        if ("oceanbase".equalsIgnoreCase(dbType) && !url.toLowerCase().contains("compatibleojdbcversion")) {
+            url += url.contains("?") ? "&compatibleOjdbcVersion=8" : "?compatibleOjdbcVersion=8";
         }
-        if ("postgresql".equalsIgnoreCase(dbType)) {
-            return String.format("jdbc:postgresql://%s:%d/%s", host, port, serviceName);
+        // 追加用户自定义参数
+        if (jdbcParams != null && !jdbcParams.isEmpty()) {
+            StringBuilder sb = new StringBuilder(url);
+            for (Map.Entry<String, String> e : jdbcParams.entrySet()) {
+                if (e.getKey() != null && !e.getKey().isBlank()) {
+                    sb.append(sb.indexOf("?") >= 0 ? '&' : '?');
+                    sb.append(e.getKey()).append('=').append(e.getValue() != null ? e.getValue() : "");
+                }
+            }
+            url = sb.toString();
         }
-        return String.format("jdbc:oracle:thin:@%s:%d/%s", host, port, serviceName);
+        return url;
     }
 
     public String getDriverClass() {
+        if (customDriverClass != null && !customDriverClass.isBlank()) {
+            return customDriverClass;
+        }
         if (useUrl && jdbcUrl != null && !jdbcUrl.isBlank()) {
             String fromUrl = detectDriverFromUrl(jdbcUrl);
             if (!fromUrl.isEmpty()) return fromUrl;
@@ -116,6 +139,12 @@ public class ConnectionInfo {
     public void setRawJdbcUrl(String jdbcUrl) { this.jdbcUrl = jdbcUrl; }
     public int getQueryTimeout() { return queryTimeout; }
     public void setQueryTimeout(int queryTimeout) { this.queryTimeout = queryTimeout; }
+    public Map<String, String> getJdbcParams() { return jdbcParams; }
+    public void setJdbcParams(Map<String, String> jdbcParams) { this.jdbcParams = jdbcParams; }
+    public String getCustomDriverClass() { return customDriverClass; }
+    public void setCustomDriverClass(String customDriverClass) { this.customDriverClass = customDriverClass; }
+    public String getCustomDriverJar() { return customDriverJar; }
+    public void setCustomDriverJar(String customDriverJar) { this.customDriverJar = customDriverJar; }
 
     @Override
     public String toString() {

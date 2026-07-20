@@ -1,8 +1,13 @@
 package com.kylin.plsql.core.parser;
 
-import java.sql.*;
-import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.sql.Connection;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 /** Cross-file symbol index for PL/SQL identifiers from local and database sources. */
 public class PlSqlSymbolIndex {
