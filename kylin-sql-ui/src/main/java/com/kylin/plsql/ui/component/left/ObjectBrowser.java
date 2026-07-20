@@ -1,5 +1,6 @@
 package com.kylin.plsql.ui.component.left;
 
+import com.kylin.plsql.core.config.FontManager;
 import com.kylin.plsql.ui.component.common.IconUtil;
 import com.kylin.plsql.core.cache.MetadataCache;
 import com.kylin.plsql.core.config.ConfigManager;
@@ -19,6 +20,7 @@ import java.awt.image.BufferedImage;
 import java.sql.*;
 import java.util.List;
 import java.util.*;
+import java.util.regex.*;
 import java.util.stream.Collectors;
 
 /** Database object browser tree with schema/table/view/procedure navigation. */
@@ -32,6 +34,7 @@ public class ObjectBrowser extends JPanel {
     public interface Callback {
         void onObjectAction(String connName, String schema, String objectType, String objectName, String action);
         void onNewSqlEditor(String connName);
+        void onNewSqlEditor(String connName, String schema);
         void onOpenConnections();
         void onConnectionProperties(String connName);
         void onOpenSourceObject(String connName, String schema, String objectType, String objectName);
@@ -86,7 +89,7 @@ public class ObjectBrowser extends JPanel {
         new ObjectType("同义词", "SYNONYM","SELECT synonym_name FROM all_synonyms WHERE owner = ? ORDER BY synonym_name", false),
         new ObjectType("函数", "FUNCTION", "SELECT object_name FROM all_objects WHERE owner = ? AND object_type = 'FUNCTION' ORDER BY object_name", false),
         new ObjectType("过程", "PROCEDURE","SELECT object_name FROM all_objects WHERE owner = ? AND object_type = 'PROCEDURE' ORDER BY object_name", false),
-        new ObjectType("包", "PACKAGE",   "SELECT DISTINCT object_name FROM all_procedures WHERE owner = ? AND object_type IN ('PACKAGE','PACKAGE BODY') ORDER BY object_name", true)
+        new ObjectType("包", "PACKAGE",   "SELECT DISTINCT object_name FROM all_objects WHERE owner = ? AND object_type IN ('PACKAGE','PACKAGE BODY') ORDER BY object_name", true)
     );
 
     private static final List<ObjectType> PG_TYPES = List.of(
@@ -116,9 +119,9 @@ public class ObjectBrowser extends JPanel {
         new ObjectType("同义词", "SYNONYM", "SELECT synonym_name FROM all_synonyms WHERE owner = ? ORDER BY synonym_name", false),
         new ObjectType("函数", "FUNCTION",  "SELECT object_name FROM all_objects WHERE owner = ? AND object_type = 'FUNCTION' ORDER BY object_name", false),
         new ObjectType("过程", "PROCEDURE", "SELECT object_name FROM all_objects WHERE owner = ? AND object_type = 'PROCEDURE' ORDER BY object_name", false),
-        new ObjectType("包", "PACKAGE",     "SELECT DISTINCT object_name FROM all_procedures WHERE owner = ? AND object_type IN ('PACKAGE','PACKAGE BODY') ORDER BY object_name", true)
+        new ObjectType("包", "PACKAGE",     "SELECT DISTINCT object_name FROM all_objects WHERE owner = ? AND object_type IN ('PACKAGE','PACKAGE BODY') ORDER BY object_name", true)
     );
-
+ 
     private static final Map<String, String> LABEL_TO_CODE = new LinkedHashMap<>();
     private static final Map<String, String> CODE_TO_LABEL = new LinkedHashMap<>();
     static {
@@ -298,10 +301,10 @@ public class ObjectBrowser extends JPanel {
                     JPanel p = new JPanel(new BorderLayout(10, 0));
                     p.setOpaque(true); p.setBackground(bg);
                     JLabel nl = new JLabel(cn);
-                    nl.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12)); nl.setForeground(fg);
+                    nl.setFont(FontManager.getInstance().resolve("font.left")); nl.setForeground(fg);
                     p.add(nl, BorderLayout.CENTER);
                     JLabel bl = new JLabel(shown + "  of  " + total);
-                    bl.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 10));
+                    bl.setFont(FontManager.getInstance().resolve("font.left"));
                     bl.setForeground(sel ? fg : theme.resolve("fg.muted")); bl.setBorder(BorderFactory.createEmptyBorder(0, 6, 0, 4));
                     p.add(bl, BorderLayout.EAST);
                     JPanel wrap = new JPanel(new BorderLayout(6, 0));
@@ -556,7 +559,7 @@ public class ObjectBrowser extends JPanel {
         boolean dark = bg.getRed() + bg.getGreen() + bg.getBlue() < 382;
         label.setBackground(dark ? new Color(0xE0E0E0) : new Color(0x444444));
         label.setForeground(dark ? new Color(0x222222) : Color.WHITE);
-        label.setFont(new Font("Dialog", Font.PLAIN, 12));
+        label.setFont(FontManager.getInstance().resolve("font.left"));
         label.setBorder(BorderFactory.createCompoundBorder(
             BorderFactory.createLineBorder(dark ? new Color(0xAAAAAA) : new Color(0x666666)),
             BorderFactory.createEmptyBorder(6, 12, 6, 12)));
@@ -856,7 +859,7 @@ public class ObjectBrowser extends JPanel {
 
         // ALL_SCHEMA checkbox
         JCheckBox allCb = new JCheckBox("ALL SCHEMA");
-        allCb.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+        allCb.setFont(FontManager.getInstance().resolve("font.left.title"));
         allCb.setSelected(hidden.isEmpty());
         allCb.addActionListener(ev -> {
             if (allCb.isSelected()) hidden.clear();
@@ -879,7 +882,7 @@ public class ObjectBrowser extends JPanel {
 
         for (String s : all) {
             JCheckBox cb = new JCheckBox(s);
-            cb.setFont(new Font(Font.SANS_SERIF, hasDefault && s.equals(defaultSchema) ? Font.BOLD : Font.PLAIN, 11));
+            cb.setFont(FontManager.getInstance().resolve("font.left"));
             cb.setSelected(!hidden.contains(s));
             cb.addActionListener(ev -> {
                 if (cb.isSelected()) hidden.remove(s);
@@ -1291,13 +1294,47 @@ public class ObjectBrowser extends JPanel {
         new SwingWorker<Void, Void>() {
             @Override
             protected Void doInBackground() {
+                // 1) ALL_PROCEDURES 标准路径（Oracle / OB 4.x+）
                 String sql = "SELECT OBJECT_NAME, PROCEDURE_NAME, OBJECT_TYPE FROM ALL_PROCEDURES WHERE OWNER = ? AND OBJECT_NAME = ? ORDER BY PROCEDURE_NAME";
                 try (Connection conn = cm.getConnection(connName); PreparedStatement ps = conn.prepareStatement(sql)) {
                     ps.setString(1, schema); ps.setString(2, packageName);
                     try (ResultSet rs = ps.executeQuery()) {
-                        while (rs.next()) { String p = rs.getString("PROCEDURE_NAME"); if (p != null) nodeRef.add(new DefaultMutableTreeNode(p + " (过程)")); }
+                        while (rs.next()) {
+                            String sub = rs.getString("PROCEDURE_NAME");
+                            if (sub != null) nodeRef.add(new DefaultMutableTreeNode(sub + " (过程)"));
+                        }
+                        if (nodeRef.getChildCount() > 0) return null; // ALL_PROCEDURES 有数据，直接返回
                     }
                 } catch (SQLException e) { log.error("展开包失败: {}", e.getMessage()); }
+
+                // 2) ALL_PROCEDURES 无结果，且为 OceanBase → 从 ALL_SOURCE 解析子程序
+                try (Connection conn = cm.getConnection(connName)) {
+                    String product = conn.getMetaData().getDatabaseProductName().toLowerCase();
+                    if (!product.contains("oceanbase")) return null; // 非 OB 不再降级
+
+                    String q = "SELECT text FROM all_source WHERE owner=? AND name=? AND type='PACKAGE' ORDER BY line";
+                    try (PreparedStatement ps = conn.prepareStatement(q)) {
+                        ps.setString(1, schema);
+                        ps.setString(2, packageName);
+                        try (ResultSet rs = ps.executeQuery()) {
+                            StringBuilder src = new StringBuilder();
+                            while (rs.next()) src.append(rs.getString("text"));
+                            if (src.length() == 0) return null;
+
+                            Pattern p = Pattern.compile(
+                                "^\\s*(FUNCTION|PROCEDURE)\\s+(\\w+)\\b",
+                                Pattern.CASE_INSENSITIVE | Pattern.MULTILINE);
+                            Matcher m = p.matcher(src);
+                            while (m.find()) {
+                                String subName = m.group(2);
+                                String kind = m.group(1).equalsIgnoreCase("FUNCTION") ? "函数" : "过程";
+                                nodeRef.add(new DefaultMutableTreeNode(subName + " (" + kind + ")"));
+                            }
+                        }
+                    }
+                } catch (SQLException e) {
+                    log.warn("ALL_SOURCE 降级展开包也失败: {}", e.getMessage());
+                }
                 return null;
             }
             @Override
@@ -1376,6 +1413,14 @@ public class ObjectBrowser extends JPanel {
             menu.add(menuItem("刷新", "refresh", () -> refreshSelected()));
             menu.addSeparator();
             menu.add(menuItem("新建 SQL 编辑器", "new", () -> callback.onNewSqlEditor(cname)));
+        } else if (level == 2) {
+            // Schema node
+            String connName = getConnName(node);
+            String schema = node.getUserObject().toString();
+            menu.add(menuItem("新建 SQL 编辑器", "new", () -> callback.onNewSqlEditor(connName, schema)));
+            menu.add(menuItem("刷新", "refresh", () -> refreshAll()));
+            menu.addSeparator();
+            menu.add(menuItem("复制 Schema 名", "copy", () -> copyToClipboard(schema)));
         } else if (level == 4) {
             String connName = getConnName(node);
             String schema = getNodePath(node, 2);

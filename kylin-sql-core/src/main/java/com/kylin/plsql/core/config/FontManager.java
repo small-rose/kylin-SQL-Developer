@@ -13,38 +13,64 @@ public class FontManager {
 
     private static final Map<String, String> DEFAULTS = new LinkedHashMap<>();
     static {
-        DEFAULTS.put("font.editor",          "Monospaced,14");
-        DEFAULTS.put("font.editor.comment",  "Monospaced,13");
-        DEFAULTS.put("font.table",           "Monospaced,12");
-        DEFAULTS.put("font.mono",            "Monospaced,12");
-        DEFAULTS.put("font.ui",              "Microsoft YaHei UI,12");
-        DEFAULTS.put("font.ui.bold",         "Microsoft YaHei UI,12");
-        DEFAULTS.put("font.status",          "Microsoft YaHei UI,11");
-        DEFAULTS.put("font.tab",             "Microsoft YaHei UI,10");
+        putDefault("font.default",           "Microsoft YaHei UI,12");
+        putDefault("font.top",               null);  // → font.default
+        putDefault("font.left",              null);  // → font.default
+        putDefault("font.left.title",        null);  // → font.default
+        putDefault("font.editor",            "Monospaced,14");
+        putDefault("font.editor.comment",    "Monospaced,13");
+        putDefault("font.editor.lineNum",    null);  // → font.editor
+        putDefault("font.right",             null);  // → font.default
+        putDefault("font.right.title",       null);  // → font.default
+        putDefault("font.bottom",            null);  // → font.default
+        putDefault("font.bottom.title",      null);  // → font.default
+        putDefault("font.bottom.result",     "Monospaced,12");
+        putDefault("font.bottom.result.header", null); // → font.default
+        putDefault("font.status",            null);  // → font.default
+        putDefault("font.dialog",            null);  // → font.default
+        putDefault("font.dialog.title",      null);  // → font.default
     }
+
+    private static void putDefault(String key, String val) { DEFAULTS.put(key, val); }
 
     private static final Map<String, String> KEY_LABELS = new LinkedHashMap<>();
     static {
-        KEY_LABELS.put("font.editor",          "代码编辑器");
-        KEY_LABELS.put("font.editor.comment",  "代码注释");
-        KEY_LABELS.put("font.table",           "结果表");
-        KEY_LABELS.put("font.mono",            "等宽辅助");
-        KEY_LABELS.put("font.ui",              "通用界面");
-        KEY_LABELS.put("font.ui.bold",         "粗体标题");
-        KEY_LABELS.put("font.status",          "状态栏");
-        KEY_LABELS.put("font.tab",             "标签栏");
+        KEY_LABELS.put("font.default",           "通用界面（兜底）");
+        KEY_LABELS.put("font.top",               "顶部");
+        KEY_LABELS.put("font.left",              "左侧面板");
+        KEY_LABELS.put("font.left.title",        "左侧面板标题");
+        KEY_LABELS.put("font.editor",            "代码编辑器");
+        KEY_LABELS.put("font.editor.comment",    "代码注释");
+        KEY_LABELS.put("font.editor.lineNum",    "行号栏");
+        KEY_LABELS.put("font.right",             "右侧面板");
+        KEY_LABELS.put("font.right.title",       "右侧面板标题");
+        KEY_LABELS.put("font.bottom",            "底部面板");
+        KEY_LABELS.put("font.bottom.title",      "底部面板标题");
+        KEY_LABELS.put("font.bottom.result",     "结果表（等宽）");
+        KEY_LABELS.put("font.bottom.result.header", "结果表表头");
+        KEY_LABELS.put("font.status",            "状态栏");
+        KEY_LABELS.put("font.dialog",            "对话框");
+        KEY_LABELS.put("font.dialog.title",      "对话框标题");
     }
 
     private static final Map<String, String> PREVIEW_TEXTS = new LinkedHashMap<>();
     static {
-        PREVIEW_TEXTS.put("font.editor",          "SELECT * FROM orders");
-        PREVIEW_TEXTS.put("font.editor.comment",  "-- 查询当月订单");
-        PREVIEW_TEXTS.put("font.table",           "-- 用户名      状态\n张三    ACTIVE");
-        PREVIEW_TEXTS.put("font.mono",            "AaBbCc 你好世界 12345");
-        PREVIEW_TEXTS.put("font.ui",              "AaBbCc 你好世界 12345");
-        PREVIEW_TEXTS.put("font.ui.bold",         "AaBbCc 你好世界 12345");
-        PREVIEW_TEXTS.put("font.status",          "AaBbCc 你好世界 12345");
-        PREVIEW_TEXTS.put("font.tab",             "AaBbCc 你好世界");
+        PREVIEW_TEXTS.put("font.default",           "AaBbCc 你好世界 12345");
+        PREVIEW_TEXTS.put("font.top",               "文件 编辑 视图 执行 帮助");
+        PREVIEW_TEXTS.put("font.left",              "HR\n  表\n    EMPLOYEES\n  视图\n视图");
+        PREVIEW_TEXTS.put("font.left.title",        "已保存的连接");
+        PREVIEW_TEXTS.put("font.editor",            "SELECT * FROM orders");
+        PREVIEW_TEXTS.put("font.editor.comment",    "-- 查询当月订单");
+        PREVIEW_TEXTS.put("font.editor.lineNum",    "  1\n  2\n  3");
+        PREVIEW_TEXTS.put("font.right",             "Outline 面板内容");
+        PREVIEW_TEXTS.put("font.right.title",       "属性 / 导航");
+        PREVIEW_TEXTS.put("font.bottom",            "SQL检查 / Services 标签");
+        PREVIEW_TEXTS.put("font.bottom.title",      "输入 SQL：");
+        PREVIEW_TEXTS.put("font.bottom.result",     "12345 张三 ACTIVE");
+        PREVIEW_TEXTS.put("font.bottom.result.header", "ID  姓名  状态");
+        PREVIEW_TEXTS.put("font.status",            "就绪 | 连接: localhost | UTF-8");
+        PREVIEW_TEXTS.put("font.dialog",            "设置对话框内容");
+        PREVIEW_TEXTS.put("font.dialog.title",      "关于 Kylin SQL Developer");
     }
 
     private static final String CHINESE_TEST = "\u4f60\u597d";
@@ -54,9 +80,15 @@ public class FontManager {
         return instance;
     }
 
-    /** Parse font name+size from value (optionally with color suffix). */
+    /** Resolve font for key, with cascading fallback: override → default → font.default → Dialog,PLAIN,12 */
     public Font resolve(String key) {
-        String val = overrides.getOrDefault(key, DEFAULTS.get(key));
+        String val = overrides.get(key);
+        if (val == null) val = DEFAULTS.get(key);
+        // Fallback chain
+        if (val == null && !"font.default".equals(key)) {
+            val = overrides.get("font.default");
+            if (val == null) val = DEFAULTS.get("font.default");
+        }
         if (val == null) return new Font("Dialog", Font.PLAIN, 12);
         String[] parts = val.split(",");
         String name = parts[0].trim();
@@ -65,9 +97,13 @@ public class FontManager {
         return new Font(name, style, size);
     }
 
-    /** Parse optional hex color from the end of override value, e.g. "Monospaced,14,#D4D4D4". */
     public Color resolveColor(String key) {
-        String val = overrides.getOrDefault(key, DEFAULTS.get(key));
+        String val = overrides.get(key);
+        if (val == null) val = DEFAULTS.get(key);
+        if (val == null && !"font.default".equals(key)) {
+            val = overrides.get("font.default");
+            if (val == null) val = DEFAULTS.get("font.default");
+        }
         if (val == null) return null;
         int hash = val.lastIndexOf(",#");
         if (hash < 0) return null;
@@ -79,7 +115,17 @@ public class FontManager {
     }
 
     public String resolveValue(String key) {
-        return overrides.getOrDefault(key, DEFAULTS.get(key));
+        String val = overrides.get(key);
+        if (val != null) return val;
+        val = DEFAULTS.get(key);
+        if (val != null) return val;
+        if (!"font.default".equals(key)) {
+            val = overrides.get("font.default");
+            if (val != null) return val;
+            val = DEFAULTS.get("font.default");
+            if (val != null) return val;
+        }
+        return null;
     }
 
     public String[] getAllFonts() {
@@ -107,7 +153,6 @@ public class FontManager {
 
     public void setOverride(String key, String value) { overrides.put(key, value); }
 
-    /** Set font + color override. Color may be null. */
     public void setOverride(String key, String fontName, int size, Color color) {
         StringBuilder sb = new StringBuilder(fontName).append(",").append(size);
         if (color != null) {

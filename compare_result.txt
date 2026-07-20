@@ -1,0 +1,433 @@
+==============================================================================
+Test item              | Route    | NewEng | Identical? | Score  | Fallback
+==============================================================================
+SELECT_1              | SIMPLE | OK    | NO        | 100   |
+SELECT_2              | SIMPLE | OK    | NO        | 100   |
+SELECT_3              | SIMPLE | OK    | NO        | 100   |
+INSERT_VALUES         | SIMPLE | OK    | NO        | 100   |
+INSERT_SELECT         | SIMPLE | OK    | NO        | 100   |
+UPDATE                | SIMPLE | OK    | NO        | 100   |
+DELETE                | SIMPLE | OK    | NO        | 100   |
+MERGE_BASIC           | SIMPLE | OK    | NO        | 100   |
+CREATE_TABLE          | SIMPLE | OK    | NO        | 100   |
+CREATE_TABLE_CONST    | SIMPLE | OK    | NO        | 100   |
+CREATE_TABLE_STORAGE  | SIMPLE | OK    | NO        | 100   |
+CREATE_INDEX          | SIMPLE | OK    | NO        | 100   |
+CREATE_VIEW           | SIMPLE | OK    | NO        | 100   |
+ALTER_TABLE           | SIMPLE | OK    | NO        | 100   |
+DROP_TABLE            | SIMPLE | OK    | NO        | 100   |
+TRUNCATE              | SIMPLE | OK    | NO        | 100   |
+SIMPLE_BLOCK          | SIMPLE | FAIL  | NO        | FALLBACK|
+IF_THEN_ELSE          | COMPLEX| FAIL  | YES       | FALLBACK|
+SIMPLE_LOOP           | COMPLEX| FAIL  | YES       | FALLBACK|
+FOR_LOOP              | COMPLEX| FAIL  | YES       | FALLBACK|
+WHILE_LOOP            | COMPLEX| FAIL  | YES       | FALLBACK|
+CASE_EXPR             | COMPLEX| OK    | YES       | 100   |
+CASE_SEARCHED         | COMPLEX| OK    | YES       | 100   |
+FUNCTION              | COMPLEX| FAIL  | YES       | FALLBACK|
+PROCEDURE             | COMPLEX| FAIL  | YES       | FALLBACK|
+CURSOR_LOOP           | COMPLEX| FAIL  | YES       | FALLBACK|
+COMMENT_LINE          | SIMPLE | OK    | NO        | 100   |
+COMMENT_BLOCK         | SIMPLE | OK    | NO        | 100   |
+UNION                 | SIMPLE | OK    | NO        | 100   |
+UNION_ALL             | SIMPLE | OK    | NO        | 100   |
+BULK_COLLECT          | COMPLEX| FAIL  | YES       | FALLBACK|
+WITH_CTE              | SIMPLE | OK    | NO        | 100   |
+FORALL                | COMPLEX| FAIL  | YES       | FALLBACK|
+EXECUTE_IMMEDIATE     | SIMPLE | FAIL  | NO        | FALLBACK|
+EMPTY                 | SIMPLE | OK    | YES       | 100   |
+BLANK                 | SIMPLE | OK    | NO        | 100   |
+COMMENT_ONLY          | SIMPLE | FAIL  | NO        | FALLBACK|
+SEMICOLON             | SIMPLE | OK    | NO        | 100   |
+==============================================================================
+
+=== SUMMARY ===
+Total: 38
+Identical output: 12 (31%)
+Different output: 26 (68%)
+Old engine failure: 0
+New engine failure: 0
+
+
+=== DETAILED DIFFERENCES ===
+
+>>>>>>>>>> [SELECT_1] <<<<<<<<<<
+--- SQL ---
+SELECT employee_id, first_name, last_name, salary FROM employees WHERE department_id = 10 ORDER BY last_name
+--- OLD(formatSimple) ---
+SELECT employee_id ,
+      first_name ,
+      last_name ,
+      salary
+FROM employees
+WHERE department_id = 10
+ORDER BY last_name
+--- NEW(PlSqlFormatter) ---
+SELECT EMPLOYEE_ID, FIRST_NAME, LAST_NAME, SALARY FROM EMPLOYEES WHERE DEPARTMENT_ID = 10 ORDER BY LAST_NAME
+--- Score=100 fallback=false ---
+
+>>>>>>>>>> [SELECT_2] <<<<<<<<<<
+--- SQL ---
+SELECT e.first_name, e.salary, d.department_name FROM employees e JOIN departments d ON e.department_id = d.department_id WHERE e.salary > 5000
+--- OLD(formatSimple) ---
+SELECT e.first_name ,
+      e.salary ,
+      d.department_name
+FROM employees e JOIN departments d ON e.department_id = d.department_id
+WHERE e.salary > 5000
+--- NEW(PlSqlFormatter) ---
+SELECT E.FIRST_NAME,
+E.SALARY,
+D.DEPARTMENT_NAME FROM EMPLOYEES E JOIN DEPARTMENTS D ON E.DEPARTMENT_ID = D.DEPARTMENT_ID WHERE E.SALARY > 5000
+--- Score=100 fallback=false ---
+
+>>>>>>>>>> [SELECT_3] <<<<<<<<<<
+--- SQL ---
+SELECT * FROM (SELECT employee_id, salary FROM employees WHERE department_id = 20) WHERE rownum <= 5
+--- OLD(formatSimple) ---
+SELECT *
+FROM (
+    SELECT employee_id ,
+          salary
+    FROM employees
+    WHERE department_id = 20
+)
+WHERE rownum < = 5
+--- NEW(PlSqlFormatter) ---
+SELECT * FROM(SELECT EMPLOYEE_ID, SALARY FROM EMPLOYEES WHERE DEPARTMENT_ID = 20) WHERE ROWNUM <= 5
+--- Score=100 fallback=false ---
+
+>>>>>>>>>> [INSERT_VALUES] <<<<<<<<<<
+--- SQL ---
+INSERT INTO employees (employee_id, first_name, last_name, hire_date) VALUES (100, 'John', 'Doe', SYSDATE)
+--- OLD(formatSimple) ---
+INSERT INTO employees (
+employee_id ,
+first_name ,
+last_name ,
+hire_date ) VALUES (
+100 ,
+'John' ,
+'Doe' ,
+SYSDATE )
+--- NEW(PlSqlFormatter) ---
+INSERT INTO EMPLOYEES(EMPLOYEE_ID, FIRST_NAME, LAST_NAME, HIRE_DATE) VALUES(100, 'John', 'Doe', SYSDATE)
+--- Score=100 fallback=false ---
+
+>>>>>>>>>> [INSERT_SELECT] <<<<<<<<<<
+--- SQL ---
+INSERT INTO high_salary_emps SELECT * FROM employees WHERE salary > 10000
+--- OLD(formatSimple) ---
+INSERT INTO high_salary_emps SELECT *
+FROM employees
+WHERE salary > 10000
+--- NEW(PlSqlFormatter) ---
+INSERT INTO HIGH_SALARY_EMPS SELECT * FROM EMPLOYEES WHERE SALARY > 10000
+--- Score=100 fallback=false ---
+
+>>>>>>>>>> [UPDATE] <<<<<<<<<<
+--- SQL ---
+UPDATE employees SET salary = salary * 1.1, last_updated = SYSDATE WHERE department_id = 50
+--- OLD(formatSimple) ---
+UPDATE employees SET salary = salary * 1.1 , last_updated = SYSDATE
+WHERE department_id = 50
+--- NEW(PlSqlFormatter) ---
+UPDATE EMPLOYEES SET SALARY = SALARY * 1.1, LAST_UPDATED = SYSDATE WHERE DEPARTMENT_ID = 50
+--- Score=100 fallback=false ---
+
+>>>>>>>>>> [DELETE] <<<<<<<<<<
+--- SQL ---
+DELETE FROM employees WHERE employee_id = 200
+--- OLD(formatSimple) ---
+DELETE
+FROM employees
+WHERE employee_id = 200
+--- NEW(PlSqlFormatter) ---
+DELETE FROM EMPLOYEES WHERE EMPLOYEE_ID = 200
+--- Score=100 fallback=false ---
+
+>>>>>>>>>> [MERGE_BASIC] <<<<<<<<<<
+--- SQL ---
+MERGE INTO employees t USING (SELECT 200 AS emp_id, 'Jane' AS name FROM dual) s ON (t.employee_id = s.emp_id) WHEN MATCHED THEN UPDATE SET t.first_name = s.name WHEN NOT MATCHED THEN INSERT (employee_id, first_name) VALUES (s.emp_id, s.name)
+--- OLD(formatSimple) ---
+MERGE
+INTO employees t USING (SELECT 200 AS emp_id, 'Jane' AS name FROM dual)s ON (t.employee_id = s.emp_id )
+WHEN MATCHED THEN UPDATE SET t.first_name = s.name
+    WHEN NOT MATCHED THEN INSERT (employee_id , first_name ) VALUES (
+        s.emp_id ,
+        s.name )
+--- NEW(PlSqlFormatter) ---
+MERGE INTO EMPLOYEES T USING(SELECT 200 AS EMP_ID,
+'Jane' AS NAME
+FROM DUAL) S
+ON(T.EMPLOYEE_ID = S.EMP_ID) WHEN MATCHED THEN UPDATE
+SET T.FIRST_NAME = S.NAME WHEN NOT MATCHED THEN INSERT(EMPLOYEE_ID, FIRST_NAME) VALUES(S.EMP_ID, S.NAME)
+--- Score=100 fallback=false ---
+
+>>>>>>>>>> [CREATE_TABLE] <<<<<<<<<<
+--- SQL ---
+CREATE TABLE employees (employee_id NUMBER(6) NOT NULL, first_name VARCHAR2(20), last_name VARCHAR2(25) NOT NULL, hire_date DATE DEFAULT SYSDATE) TABLESPACE users
+--- OLD(formatSimple) ---
+CREATE TABLE employees (employee_id NUMBER (6 ) NOT NULL , first_name VARCHAR2 (20 ) , last_name
+VARCHAR2 (25 ) NOT NULL , hire_date DATE DEFAULT SYSDATE )
+TABLESPACE users
+--- NEW(PlSqlFormatter) ---
+CREATE TABLE EMPLOYEES(
+    EMPLOYEE_ID NUMBER(6) NOT NULL,
+    FIRST_NAME VARCHAR2(20),
+    LAST_NAME VARCHAR2(25) NOT NULL,
+    HIRE_DATE DATE DEFAULT SYSDATE
+)
+TABLESPACE USERS
+--- Score=100 fallback=false ---
+
+>>>>>>>>>> [CREATE_TABLE_CONST] <<<<<<<<<<
+--- SQL ---
+CREATE TABLE project_assignments (assignment_id NUMBER(10) NOT NULL, project_id NUMBER(10) NOT NULL, employee_id NUMBER(10) NOT NULL, CONSTRAINT pk_assignments PRIMARY KEY (assignment_id), CONSTRAINT fk_assign_proj FOREIGN KEY (project_id) REFERENCES projects(project_id))
+--- OLD(formatSimple) ---
+CREATE TABLE project_assignments (assignment_id NUMBER (10 ) NOT NULL , project_id NUMBER (10
+) NOT NULL , employee_id NUMBER (10 ) NOT NULL ,
+CONSTRAINT pk_assignments PRIMARY KEY
+(assignment_id ) ,
+CONSTRAINT fk_assign_proj FOREIGN KEY
+(project_id ) REFERENCES
+projects (project_id )
+)
+--- NEW(PlSqlFormatter) ---
+CREATE TABLE PROJECT_ASSIGNMENTS(
+    ASSIGNMENT_ID NUMBER(10) NOT NULL,
+    PROJECT_ID NUMBER(10) NOT NULL,
+    EMPLOYEE_ID NUMBER(10) NOT NULL,
+    CONSTRAINT PK_ASSIGNMENTS PRIMARY KEY(ASSIGNMENT_ID),
+    CONSTRAINT FK_ASSIGN_PROJ FOREIGN KEY(PROJECT_ID) REFERENCES PROJECTS(PROJECT_ID)
+)
+--- Score=100 fallback=false ---
+
+>>>>>>>>>> [CREATE_TABLE_STORAGE] <<<<<<<<<<
+--- SQL ---
+CREATE TABLE audit_log (log_id NUMBER(12) NOT NULL, table_name VARCHAR2(30) NOT NULL, action VARCHAR2(10) NOT NULL, CONSTRAINT pk_audit_log PRIMARY KEY (log_id)) TABLESPACE users STORAGE (INITIAL 64K NEXT 32K MINEXTENTS 1 MAXEXTENTS 121 PCTINCREASE 0) PCTFREE 10 PCTUSED 40
+--- OLD(formatSimple) ---
+CREATE TABLE audit_log (log_id NUMBER (12 ) NOT NULL , table_name VARCHAR2 (30 ) NOT NULL
+, action VARCHAR2 (10 ) NOT NULL ,
+CONSTRAINT pk_audit_log PRIMARY KEY
+(log_id ) )
+TABLESPACE users
+STORAGE (INITIAL 64
+K NEXT 32 K
+MINEXTENTS 1 MAXEXTENTS 121
+PCTINCREASE 0 )
+PCTFREE 10
+PCTUSED 40
+--- NEW(PlSqlFormatter) ---
+CREATE TABLE AUDIT_LOG(
+    LOG_ID NUMBER(12) NOT NULL,
+    TABLE_NAME VARCHAR2(30) NOT NULL,
+    ACTION VARCHAR2(10) NOT NULL,
+    CONSTRAINT PK_AUDIT_LOG PRIMARY KEY(LOG_ID)
+)
+TABLESPACE USERS STORAGE (
+    INITIAL 64 K
+    NEXT 32 K
+    MINEXTENTS 1
+    MAXEXTENTS 121
+    PCTINCREASE 0
+) PCTFREE
+10 PCTUSED
+40
+--- Score=100 fallback=false ---
+
+>>>>>>>>>> [CREATE_INDEX] <<<<<<<<<<
+--- SQL ---
+CREATE INDEX idx_emp_dept ON employees (department_id, hire_date) TABLESPACE users PCTFREE 10
+--- OLD(formatSimple) ---
+CREATE INDEX idx_emp_dept ON
+employees (department_id ,
+hire_date )
+TABLESPACE users
+PCTFREE 10
+--- NEW(PlSqlFormatter) ---
+CREATE INDEX IDX_EMP_DEPT ON EMPLOYEES(DEPARTMENT_ID, HIRE_DATE)
+TABLESPACE USERS
+PCTFREE 10
+--- Score=100 fallback=false ---
+
+>>>>>>>>>> [CREATE_VIEW] <<<<<<<<<<
+--- SQL ---
+CREATE OR REPLACE VIEW high_salary_v AS SELECT employee_id, first_name, last_name, salary FROM employees WHERE salary > 10000 WITH READ ONLY
+--- OLD(formatSimple) ---
+CREATE OR REPLACE VIEW high_salary_v AS
+    SELECT employee_id ,
+           first_name ,
+           last_name ,
+           salary
+    FROM employees
+    WHERE salary > 10000 WITH READ ONLY
+--- NEW(PlSqlFormatter) ---
+CREATE OR REPLACE VIEW HIGH_SALARY_V AS
+    SELECT EMPLOYEE_ID, FIRST_NAME, LAST_NAME, SALARY FROM
+    EMPLOYEES WHERE SALARY > 10000 WITH READ ONLY
+--- Score=100 fallback=false ---
+
+>>>>>>>>>> [ALTER_TABLE] <<<<<<<<<<
+--- SQL ---
+ALTER TABLE employees ADD (middle_name VARCHAR2(20), nickname VARCHAR2(30))
+--- OLD(formatSimple) ---
+ALTER TABLE employees ADD (middle_name VARCHAR2 (20 ) , nickname VARCHAR2 (30 ) )
+--- NEW(PlSqlFormatter) ---
+ALTER TABLE EMPLOYEES
+ADD(MIDDLE_NAME VARCHAR2(20), NICKNAME VARCHAR2(30))
+--- Score=100 fallback=false ---
+
+>>>>>>>>>> [DROP_TABLE] <<<<<<<<<<
+--- SQL ---
+DROP TABLE employees PURGE
+--- OLD(formatSimple) ---
+DROP TABLE employees PURGE
+--- NEW(PlSqlFormatter) ---
+DROP TABLE EMPLOYEES PURGE
+--- Score=100 fallback=false ---
+
+>>>>>>>>>> [TRUNCATE] <<<<<<<<<<
+--- SQL ---
+TRUNCATE TABLE audit_log DROP STORAGE
+--- OLD(formatSimple) ---
+TRUNCATE TABLE audit_log DROP
+STORAGE
+--- NEW(PlSqlFormatter) ---
+TRUNCATE TABLE AUDIT_LOG DROP STORAGE
+--- Score=100 fallback=false ---
+
+>>>>>>>>>> [SIMPLE_BLOCK] <<<<<<<<<<
+--- SQL ---
+DECLARE v_name VARCHAR2(100); BEGIN SELECT first_name INTO v_name FROM employees WHERE employee_id = 100; DBMS_OUTPUT.put_line(v_name); END;
+--- OLD(formatSimple) ---
+DECLARE v_name VARCHAR2 (100 );
+BEGIN
+    SELECT first_name INTO v_name
+    FROM employees
+    WHERE employee_id = 100;
+    DBMS_OUTPUT.put_line (v_name );
+END;
+--- NEW(PlSqlFormatter) ---
+DECLARE v_name VARCHAR2(100); BEGIN SELECT first_name INTO v_name FROM employees WHERE employee_id = 100; DBMS_OUTPUT.put_line(v_name); END;
+--- Score=0 fallback=true ---
+
+>>>>>>>>>> [COMMENT_LINE] <<<<<<<<<<
+--- SQL ---
+SELECT employee_id, -- employee identifier
+first_name, last_name FROM employees WHERE department_id = 10
+--- OLD(formatSimple) ---
+SELECT employee_id ,
+-- employee identifier
+      first_name ,
+      last_name
+FROM employees
+WHERE department_id = 10
+--- NEW(PlSqlFormatter) ---
+SELECT EMPLOYEE_ID, -- employee identifier first_name, last_name FROM employees WHERE department_id = 10
+--- Score=100 fallback=false ---
+
+>>>>>>>>>> [COMMENT_BLOCK] <<<<<<<<<<
+--- SQL ---
+SELECT employee_id, /* This is the name */ first_name, last_name FROM employees WHERE department_id = 10
+--- OLD(formatSimple) ---
+SELECT employee_id ,
+/* This is the name */
+      first_name ,
+      last_name
+FROM employees
+WHERE department_id = 10
+--- NEW(PlSqlFormatter) ---
+SELECT EMPLOYEE_ID, /* This is the name */ first_name, last_name FROM employees WHERE department_id = 10
+--- Score=100 fallback=false ---
+
+>>>>>>>>>> [UNION] <<<<<<<<<<
+--- SQL ---
+SELECT employee_id FROM employees UNION SELECT employee_id FROM former_employees ORDER BY employee_id
+--- OLD(formatSimple) ---
+SELECT employee_id
+FROM employees
+UNION SELECT employee_id
+FROM former_employees
+ORDER BY employee_id
+--- NEW(PlSqlFormatter) ---
+SELECT EMPLOYEE_ID FROM EMPLOYEES UNION SELECT EMPLOYEE_ID FROM FORMER_EMPLOYEES ORDER BY EMPLOYEE_ID
+--- Score=100 fallback=false ---
+
+>>>>>>>>>> [UNION_ALL] <<<<<<<<<<
+--- SQL ---
+SELECT * FROM sales_2023 UNION ALL SELECT * FROM sales_2024
+--- OLD(formatSimple) ---
+SELECT *
+FROM sales_2023
+UNION ALL SELECT *
+FROM sales_2024
+--- NEW(PlSqlFormatter) ---
+SELECT * FROM SALES_2023 UNION ALL SELECT * FROM SALES_2024
+--- Score=100 fallback=false ---
+
+>>>>>>>>>> [WITH_CTE] <<<<<<<<<<
+--- SQL ---
+WITH dept_stats AS (SELECT department_id, COUNT(*) AS emp_count, AVG(salary) AS avg_sal FROM employees GROUP BY department_id) SELECT department_id, emp_count, avg_sal FROM dept_stats WHERE emp_count > 5
+--- OLD(formatSimple) ---
+WITH dept_stats AS
+ (
+        SELECT department_id ,
+              COUNT (* ) AS emp_count ,
+              AVG (salary ) AS avg_sal
+        FROM employees
+        GROUP BY department_id
+    )    SELECT department_id ,
+                emp_count ,
+                avg_sal
+    FROM dept_stats
+    WHERE emp_count > 5
+--- NEW(PlSqlFormatter) ---
+WITH DEPT_STATS AS(SELECT DEPARTMENT_ID,
+COUNT(*) AS EMP_COUNT,
+AVG(SALARY) AS AVG_SAL FROM EMPLOYEES GROUP BY DEPARTMENT_ID) SELECT DEPARTMENT_ID,
+EMP_COUNT, AVG_SAL FROM DEPT_STATS WHERE EMP_COUNT > 5
+--- Score=100 fallback=false ---
+
+>>>>>>>>>> [EXECUTE_IMMEDIATE] <<<<<<<<<<
+--- SQL ---
+DECLARE v_sql VARCHAR2(200); BEGIN v_sql := 'DELETE FROM employees WHERE employee_id = :1'; EXECUTE IMMEDIATE v_sql USING 100; COMMIT; END;
+--- OLD(formatSimple) ---
+DECLARE v_sql VARCHAR2 (200 );
+BEGIN
+    v_sql := 'DELETE FROM employees WHERE employee_id = :1';
+    EXECUTE IMMEDIATE v_sql USING 100;
+    COMMIT;
+END;
+--- NEW(PlSqlFormatter) ---
+DECLARE v_sql VARCHAR2(200); BEGIN v_sql := 'DELETE FROM employees WHERE employee_id = :1'; EXECUTE IMMEDIATE v_sql USING 100; COMMIT; END;
+--- Score=0 fallback=true ---
+
+>>>>>>>>>> [BLANK] <<<<<<<<<<
+--- SQL ---
+
+--- OLD(formatSimple) ---
+  
+  
+--- NEW(PlSqlFormatter) ---
+
+--- Score=100 fallback=false ---
+
+>>>>>>>>>> [COMMENT_ONLY] <<<<<<<<<<
+--- SQL ---
+-- just a comment
+--- OLD(formatSimple) ---
+
+--- NEW(PlSqlFormatter) ---
+-- just a comment
+--- Score=0 fallback=true ---
+
+>>>>>>>>>> [SEMICOLON] <<<<<<<<<<
+--- SQL ---
+SELECT 1 FROM DUAL;
+--- OLD(formatSimple) ---
+SELECT 1
+FROM DUAL;
+--- NEW(PlSqlFormatter) ---
+SELECT 1 FROM DUAL;
+--- Score=100 fallback=false ---

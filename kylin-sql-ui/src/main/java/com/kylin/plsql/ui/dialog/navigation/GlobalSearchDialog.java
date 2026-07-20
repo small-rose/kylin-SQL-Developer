@@ -4,6 +4,7 @@ import com.kylin.plsql.ui.dialog.common.BaseToolDialog;
 
 import com.kylin.plsql.core.cache.MetadataCache;
 import com.kylin.plsql.core.config.ConfigManager;
+import com.kylin.plsql.core.config.FontManager;
 import com.kylin.plsql.core.config.ThemeManager;
 import com.kylin.plsql.core.db.ConnectionManager;
 import com.kylin.plsql.core.db.SqlExecutor;
@@ -253,7 +254,7 @@ public class GlobalSearchDialog extends JDialog {
 
         add(top, BorderLayout.NORTH);
 
-        resultsList.setFont(new Font("Monospaced", Font.PLAIN, 12));
+        resultsList.setFont(FontManager.getInstance().resolve("font.dialog"));
         resultsList.setCellRenderer(new ResultRenderer());
         resultsList.setBackground(UIManager.getColor("Panel.background"));
         resultsList.getSelectionModel().addListSelectionListener(this::onSelectionChanged);
@@ -279,7 +280,7 @@ public class GlobalSearchDialog extends JDialog {
         previewArea.setSyntaxEditingStyle("text/plsql");
         previewArea.setEditable(false);
         previewArea.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
-        previewArea.setFont(new Font("Monospaced", Font.PLAIN, 12));
+        previewArea.setFont(FontManager.getInstance().resolve("font.editor"));
         previewArea.setCodeFoldingEnabled(false);
         previewArea.setHighlightCurrentLine(false);
         previewArea.setLineWrap(false);
@@ -712,7 +713,7 @@ public class GlobalSearchDialog extends JDialog {
                     if (in != null) Theme.load(in).apply(previewArea);
                 }
             } catch (Exception ignored) {}
-            previewArea.setFont(new Font("Monospaced", Font.PLAIN, 12));
+            previewArea.setFont(FontManager.getInstance().resolve("font.editor"));
         }
         if (previewScroll != null) {
             Color bg = previewArea.getBackground();

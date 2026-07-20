@@ -1,5 +1,6 @@
 package com.kylin.plsql.ui.component.right;
 
+import com.kylin.plsql.core.config.FontManager;
 import com.kylin.plsql.ui.component.common.IconUtil;
 import com.kylin.plsql.core.config.ConfigManager;
 import com.kylin.plsql.core.config.ConfigManager.SavedFileRecord;

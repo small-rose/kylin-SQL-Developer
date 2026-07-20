@@ -2,6 +2,7 @@ package com.kylin.plsql.ui.dialog.tools;
 
 import com.kylin.plsql.ui.dialog.common.BaseToolDialog;
 
+import com.kylin.plsql.core.config.FontManager;
 import com.kylin.plsql.ui.component.common.ToastManager;
 
 import javax.swing.*;
@@ -124,7 +125,7 @@ public class AdvancedExportDialog extends BaseToolDialog {
 
         JLabel hintLabel = new JLabel(
                 "选择要导出的列，切换格式自动预览 | INSERT 格式需填写表名 | 大数据量建议使用异步导出");
-        hintLabel.setFont(new Font("Dialog", Font.PLAIN, 11));
+        hintLabel.setFont(FontManager.getInstance().resolve("font.dialog"));
         hintLabel.setOpaque(true);
         hintLabel.setBackground(theme.resolve("bg.panel"));
         hintLabel.setForeground(theme.resolve("fg.muted"));

@@ -1,5 +1,6 @@
 package com.kylin.plsql.ui.dialog.common;
 
+import com.kylin.plsql.core.config.FontManager;
 import com.kylin.plsql.core.config.ThemeManager;
 
 import javax.swing.*;
@@ -31,7 +32,7 @@ public abstract class BaseToolDialog extends JDialog {
     }
 
     protected Font monoFont() {
-        return new Font("Monospaced", Font.PLAIN, 12);
+        return FontManager.getInstance().resolve("font.editor");
     }
 
     protected JButton btn(String text, java.awt.event.ActionListener listener) {

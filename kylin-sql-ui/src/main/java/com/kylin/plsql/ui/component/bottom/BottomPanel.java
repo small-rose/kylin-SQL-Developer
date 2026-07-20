@@ -1,6 +1,7 @@
 package com.kylin.plsql.ui.component.bottom;
 
 import com.kylin.plsql.ui.component.common.IconUtil;
+import com.kylin.plsql.core.config.FontManager;
 import com.kylin.plsql.core.config.ThemeManager;
 import com.kylin.plsql.core.db.SqlExecutor;
 
@@ -15,9 +16,9 @@ import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 import java.util.function.Consumer;
 
-/** DataGrip-style bottom tool window with TODO and Services tabs. */
+/** DataGrip-style bottom tool window with SQL syntax checker and Services tabs. */
 public class BottomPanel extends JPanel {
-    private enum Tab { TODO, SERVICES }
+    private enum Tab { SQL_CHECK, SERVICES }
 
     public interface TabDataProvider {
         java.util.List<TabInfo> getOpenTabs();
@@ -34,17 +35,24 @@ public class BottomPanel extends JPanel {
     private final CardLayout cardLayout = new CardLayout();
     private final JPanel contentPanel = new JPanel(cardLayout);
     private final JPanel tabBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-    private final JTextArea todoArea = new JTextArea();
     private final ResultPanel resultPanel = new ResultPanel();
     private final JTree connTree;
     private final DefaultTreeModel connTreeModel;
     private final DefaultMutableTreeNode connRoot;
+
+    // ── SQL 检查器组件 ──
+    private final JTextArea sqlInputArea = new JTextArea();
+    private final DefaultListModel<String> errorListModel = new DefaultListModel<>();
+    private final JList<String> errorList = new JList<>(errorListModel);
+    private final JButton checkBtn;
+    private final JButton fixBtn;
 
     private Tab activeTab = Tab.SERVICES;
     private boolean expanded = true;
     private TabDataProvider dataProvider;
     private Runnable onReopenClosedTab;
     private Runnable onRefresh;
+    private Runnable onToggle;
     private Consumer<String> onNewQuery;
     private Consumer<String> onCloseAllTabs;
     private Consumer<TabInfo> onSaveTab;
@@ -54,7 +62,7 @@ public class BottomPanel extends JPanel {
     private Consumer<TabInfo> onOpenClosedTab;
     private final java.util.Map<String, String> connectionDialects = new java.util.HashMap<>();
 
-    private final JButton todoBtn;
+    private final JButton sqlBtn;
     private final JButton servicesBtn;
 
     public BottomPanel() {
@@ -65,24 +73,65 @@ public class BottomPanel extends JPanel {
         tabBar.setBackground(theme.resolve("bg.main"));
         tabBar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, theme.resolve("border.light")));
 
-        todoBtn = makeTabBtn("TODO");
+        sqlBtn = makeTabBtn("SQL检查");
         servicesBtn = makeTabBtn("Services");
-        tabBar.add(todoBtn);
+        tabBar.add(sqlBtn);
         tabBar.add(servicesBtn);
         tabBar.add(Box.createHorizontalGlue());
 
-        todoBtn.addActionListener(e -> toggleTab(Tab.TODO));
+        sqlBtn.addActionListener(e -> toggleTab(Tab.SQL_CHECK));
         servicesBtn.addActionListener(e -> toggleTab(Tab.SERVICES));
 
-        todoArea.setFont(new Font("Monospaced", Font.PLAIN, 13));
-        todoArea.setBackground(theme.resolve("bg.main"));
-        todoArea.setForeground(theme.resolve("fg.secondary"));
-        todoArea.setCaretColor(theme.resolve("fg.secondary"));
-        JScrollPane todoScroll = new JScrollPane(todoArea);
-        todoScroll.setBorder(null);
-        todoScrollViewport = todoScroll.getViewport();
-        todoScrollViewport.setBackground(theme.resolve("bg.main"));
-        contentPanel.add(todoScroll, "TODO");
+        // ── SQL 检查器面板 ──
+        JPanel sqlPanel = new JPanel(new BorderLayout(0, 4));
+        sqlPanel.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
+        sqlPanel.setBackground(theme.resolve("bg.main"));
+
+        JLabel sqlHeader = new JLabel("输入 SQL：");
+        sqlHeader.setFont(FontManager.getInstance().resolve("font.bottom.title"));
+        sqlHeader.setForeground(theme.resolve("fg.main"));
+        sqlPanel.add(sqlHeader, BorderLayout.NORTH);
+
+        sqlInputArea.setFont(UIManager.getFont("TextArea.font"));
+        sqlInputArea.setBackground(theme.resolve("bg.main"));
+        sqlInputArea.setForeground(theme.resolve("fg.main"));
+        sqlInputArea.setCaretColor(theme.resolve("editor.caret"));
+        sqlInputArea.setBorder(BorderFactory.createLineBorder(theme.resolve("border.default")));
+        JScrollPane inputScroll = new JScrollPane(sqlInputArea);
+        inputScroll.setBorder(null);
+        sqlPanel.add(inputScroll, BorderLayout.CENTER);
+
+        // Button bar
+        JPanel btnBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        btnBar.setBackground(theme.resolve("bg.main"));
+        checkBtn = new JButton("检查语法");
+        checkBtn.setFont(FontManager.getInstance().resolve("font.bottom"));
+        checkBtn.addActionListener(e -> checkSql());
+        fixBtn = new JButton("一键修复");
+        fixBtn.setFont(FontManager.getInstance().resolve("font.bottom"));
+        fixBtn.addActionListener(e -> fixSql());
+        btnBar.add(checkBtn);
+        btnBar.add(fixBtn);
+        sqlPanel.add(btnBar, BorderLayout.SOUTH);
+
+        // 上方垂直分割：输入区在上，错误列表在下
+        JPanel sqlTopPanel = new JPanel(new BorderLayout());
+        sqlTopPanel.setBackground(theme.resolve("bg.main"));
+        sqlTopPanel.add(sqlPanel, BorderLayout.CENTER);
+
+        errorList.setFont(UIManager.getFont("TextArea.font"));
+        errorList.setBackground(theme.resolve("bg.main"));
+        errorList.setForeground(theme.resolve("fg.secondary"));
+        errorList.setBorder(BorderFactory.createTitledBorder("错误信息"));
+        JScrollPane errorScroll = new JScrollPane(errorList);
+        errorScroll.setBorder(null);
+
+        JSplitPane sqlSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, sqlTopPanel, errorScroll);
+        sqlSplit.setBorder(null);
+        sqlSplit.setResizeWeight(0.65);
+        sqlSplit.setDividerLocation(180);
+        sqlSplit.setDividerSize(3);
+        contentPanel.add(sqlSplit, "SQL_CHECK");
 
         connRoot = new DefaultMutableTreeNode("数据库连接 (0)");
         connTreeModel = new DefaultTreeModel(connRoot);
@@ -153,10 +202,11 @@ public class BottomPanel extends JPanel {
         setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, theme.resolve("border.light")));
         tabBar.setBackground(theme.resolve("bg.main"));
         tabBar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, theme.resolve("border.light")));
-        todoArea.setBackground(theme.resolve("bg.main"));
-        todoArea.setForeground(theme.resolve("fg.secondary"));
-        todoArea.setCaretColor(theme.resolve("fg.secondary"));
-        todoScrollViewport.setBackground(theme.resolve("bg.main"));
+        sqlInputArea.setBackground(theme.resolve("bg.main"));
+        sqlInputArea.setForeground(theme.resolve("fg.main"));
+        sqlInputArea.setCaretColor(theme.resolve("editor.caret"));
+        errorList.setBackground(theme.resolve("bg.main"));
+        errorList.setForeground(theme.resolve("fg.secondary"));
         connTree.setBackground(theme.resolve("bg.main"));
         connTree.setForeground(theme.resolve("fg.secondary"));
         connScrollViewport.setBackground(theme.resolve("bg.main"));
@@ -164,7 +214,6 @@ public class BottomPanel extends JPanel {
         selectTab(activeTab);
     }
 
-    private JViewport todoScrollViewport;
     private JViewport connScrollViewport;
 
     public void setDataProvider(TabDataProvider provider) {
@@ -176,6 +225,7 @@ public class BottomPanel extends JPanel {
     }
 
     public void setOnRefresh(Runnable r) { this.onRefresh = r; }
+    public void setOnToggle(Runnable r) { this.onToggle = r; }
     public void setOnNewQuery(Consumer<String> c) { this.onNewQuery = c; }
     public void setOnCloseAllTabs(Consumer<String> c) { this.onCloseAllTabs = c; }
     public void setOnSaveTab(Consumer<TabInfo> c) { this.onSaveTab = c; }
@@ -183,6 +233,33 @@ public class BottomPanel extends JPanel {
     public void setOnOpenInNewTab(Consumer<TabInfo> c) { this.onOpenInNewTab = c; }
     public void setOnDeleteRecord(Consumer<TabInfo> c) { this.onDeleteRecord = c; }
     public void setOnOpenClosedTab(Consumer<TabInfo> c) { this.onOpenClosedTab = c; }
+
+    // ── SQL 语法检查 ──
+
+    private void checkSql() {
+        String sql = sqlInputArea.getText();
+        errorListModel.clear();
+        java.util.List<SqlValidator.SqlError> errors = SqlValidator.validate(sql);
+        if (errors.isEmpty()) {
+            errorListModel.addElement("✓ 语法正确");
+        } else {
+            for (SqlValidator.SqlError e : errors) {
+                if (e.line > 0 || e.column > 0) {
+                    errorListModel.addElement("× 第" + e.line + "行,第" + e.column + "列: " + e.message);
+                } else {
+                    errorListModel.addElement("× " + e.message);
+                }
+            }
+        }
+    }
+
+    private void fixSql() {
+        String sql = sqlInputArea.getText();
+        String fixed = SqlValidator.fixPunctuation(sql);
+        sqlInputArea.setText(fixed);
+        // 修复后自动检查
+        checkSql();
+    }
 
     public void refreshConnTree() {
         java.util.Set<String> expanded = new java.util.HashSet<>();
@@ -324,12 +401,13 @@ public class BottomPanel extends JPanel {
             }
         }
         selectTab(activeTab);
+        if (onToggle != null) onToggle.run();
         revalidate();
         repaint();
     }
 
     private void selectTab(Tab tab) {
-        updateBtnStyle(todoBtn, tab == Tab.TODO);
+        updateBtnStyle(sqlBtn, tab == Tab.SQL_CHECK);
         updateBtnStyle(servicesBtn, tab == Tab.SERVICES);
     }
 
@@ -344,7 +422,7 @@ public class BottomPanel extends JPanel {
 
     private static JButton makeTabBtn(String text) {
         JButton btn = new JButton(text);
-        btn.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+        btn.setFont(FontManager.getInstance().resolve("font.bottom"));
         btn.setFocusable(false);
         btn.setContentAreaFilled(false);
         btn.setCursor(new Cursor(Cursor.HAND_CURSOR));

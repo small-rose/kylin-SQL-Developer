@@ -1,0 +1,160 @@
+package com.kylin.plsql.ui.dialog.common;
+
+import com.kylin.plsql.core.config.ThemeManager;
+
+import javax.swing.*;
+import java.awt.*;
+import java.awt.image.BufferedImage;
+
+public class AboutDialog extends JDialog {
+
+    private static final Color BLUE = new Color(0x337AB7);
+    private static final Color RED  = new Color(0xD9534F);
+    private static final String FONT_NAME = "Microsoft YaHei";
+
+    private final ThemeManager theme = ThemeManager.getInstance();
+    private final JLabel versionLabel = new JLabel("Version 1.0.0  (Build 2026.1)");
+    private final JLabel copyrightLabel = new JLabel("\u00A9 2026 Kylin Team. All rights reserved."); /* © */
+    private final JPanel root = new JPanel(new BorderLayout());
+    private JLabel logoLabel;
+
+    public AboutDialog(Frame owner) {
+        super(owner, "\u5173\u4E8E", true); /* 关于 */
+        setUndecorated(false);
+        setResizable(false);
+        initUI();
+        applyTheme();
+        ThemeManager.getInstance().addListener(this::applyTheme);
+        pack();
+        setMinimumSize(getPreferredSize());
+        setLocationRelativeTo(owner);
+    }
+
+    private void initUI() {
+        root.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(new Color(0x555555), 1),
+                BorderFactory.createEmptyBorder(32, 40, 24, 40)));
+
+        logoLabel = new JLabel(new ImageIcon(createLogo(200, 64)));
+        logoLabel.setHorizontalAlignment(SwingConstants.CENTER);
+
+        JLabel nameLabel = new JLabel("Kylin SQL Developer");
+        nameLabel.setFont(new Font(FONT_NAME, Font.BOLD, 22));
+        nameLabel.setHorizontalAlignment(SwingConstants.CENTER);
+
+        versionLabel.setFont(new Font(FONT_NAME, Font.PLAIN, 12));
+        versionLabel.setHorizontalAlignment(SwingConstants.CENTER);
+
+        JSeparator sep = new JSeparator();
+
+        JPanel infoPanel = new JPanel();
+        infoPanel.setLayout(new BoxLayout(infoPanel, BoxLayout.Y_AXIS));
+        infoPanel.setOpaque(false);
+        infoPanel.setBorder(BorderFactory.createEmptyBorder(8, 0, 0, 0));
+
+        addInfoLine(infoPanel, "\u5185\u6838\u5F15\u64CE", "PL/SQL \u683C\u5F0F\u5316\u5F15\u64CE + ANTLR4 \u8BED\u6CD5\u89E3\u6790"); /* 内核引擎格式化引擎语法解析 */
+        addInfoLine(infoPanel, "\u652F\u6301\u6570\u636E\u5E93", "Oracle / MySQL / PostgreSQL / OceanBase"); /* 支持数据库 */
+        addInfoLine(infoPanel, "\u5185\u7F6E\u5DE5\u5177", "SQL \u683C\u5F0F\u5316 / \u6570\u636E\u751F\u6210\u5668 / \u6587\u672C\u6BD4\u8F83 / \u6B63\u5219\u6D4B\u8BD5 / \u5BF9\u8C61\u641C\u7D22"); /* 内置工具格式化数据生成器文本比较正则测试对象搜索 */
+        addInfoLine(infoPanel, "\u8FD0\u884C\u73AF\u5883", "Java " + System.getProperty("java.version") /* 运行环境 */
+                + " / " + System.getProperty("os.name") + " " + System.getProperty("os.arch"));
+
+        copyrightLabel.setFont(new Font(FONT_NAME, Font.PLAIN, 11));
+        copyrightLabel.setHorizontalAlignment(SwingConstants.CENTER);
+
+        JPanel topSection = new JPanel();
+        topSection.setLayout(new BoxLayout(topSection, BoxLayout.Y_AXIS));
+        topSection.setOpaque(false);
+        topSection.add(logoLabel);
+        topSection.add(Box.createVerticalStrut(8));
+        topSection.add(nameLabel);
+        topSection.add(Box.createVerticalStrut(4));
+        topSection.add(versionLabel);
+
+        root.add(topSection, BorderLayout.NORTH);
+        root.add(sep, BorderLayout.CENTER);
+
+        JPanel bottomSection = new JPanel(new BorderLayout());
+        bottomSection.setOpaque(false);
+        bottomSection.add(infoPanel, BorderLayout.CENTER);
+        bottomSection.add(copyrightLabel, BorderLayout.SOUTH);
+        root.add(bottomSection, BorderLayout.SOUTH);
+
+        setContentPane(root);
+    }
+
+    private void applyTheme() {
+        Color bg = theme.resolve("bg.main");
+        Color fg = theme.resolve("fg.main");
+        Color muted = theme.resolve("fg.muted");
+        Color border = theme.resolve("border.light");
+        if (border == null) border = new Color(0x555555);
+
+        if (bg != null) root.setBackground(bg);
+        versionLabel.setForeground(muted != null ? muted : new Color(0x888888));
+        copyrightLabel.setForeground(muted != null ? muted.darker() : new Color(0x666666));
+        root.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(border, 1),
+                BorderFactory.createEmptyBorder(32, 40, 24, 40)));
+    }
+
+    private void addInfoLine(JPanel parent, String label, String value) {
+        JPanel row = new JPanel(new BorderLayout(8, 0));
+        row.setOpaque(false);
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 22));
+
+        Color muted = theme.resolve("fg.muted");
+
+        JLabel lbl = new JLabel(label + ":");
+        lbl.setFont(new Font(FONT_NAME, Font.BOLD, 11));
+        lbl.setForeground(muted != null ? muted : new Color(0xBBBBBB));
+        lbl.setPreferredSize(new Dimension(100, 22));
+        lbl.setHorizontalAlignment(SwingConstants.RIGHT);
+
+        JLabel val = new JLabel(value);
+        val.setFont(new Font(FONT_NAME, Font.PLAIN, 11));
+        val.setForeground(theme.resolve("fg.main"));
+
+        row.add(lbl, BorderLayout.WEST);
+        row.add(val, BorderLayout.CENTER);
+        parent.add(row);
+        parent.add(Box.createVerticalStrut(3));
+    }
+
+    private static Image createLogo(int w, int h) {
+        BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = img.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+
+        g.setColor(new Color(0x2B2B2B));
+        g.fillRoundRect(0, 0, w, h, 12, 12);
+
+        Font tmpFont = new Font(FONT_NAME, Font.BOLD, 28);
+        FontMetrics tmpFm = g.getFontMetrics(tmpFont);
+        int kw = tmpFm.stringWidth("Kylin") + 20;
+
+        g.setColor(BLUE);
+        g.fillRoundRect(0, 0, kw, h, 12, 12);
+        g.fillRect(kw - 4, 0, 4, h);
+
+        int sx = kw;
+        int sw = w - kw;
+        g.setColor(RED);
+        g.fillRoundRect(sx, 0, sw, h, 12, 12);
+        g.fillRect(sx, 0, 4, h);
+
+        Font sqlFont = new Font(FONT_NAME, Font.BOLD, 28);
+        g.setColor(Color.WHITE);
+
+        g.setFont(sqlFont);
+        FontMetrics fmK = g.getFontMetrics();
+        g.drawString("Kylin", (kw - fmK.stringWidth("Kylin")) / 2, (h + fmK.getAscent()) / 2 - 2);
+
+        FontMetrics fmS = g.getFontMetrics();
+        String sql = "SQL";
+        g.drawString(sql, sx + (sw - fmS.stringWidth(sql)) / 2, (h + fmS.getAscent()) / 2 - 2);
+
+        g.dispose();
+        return img;
+    }
+}

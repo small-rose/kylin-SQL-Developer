@@ -172,6 +172,16 @@ public class SqlExecutor {
         if (plsql && "oracle".equals(dbType)) {
             return getOracleDdl(conn, schema, name, type);
         }
+        if ("SEQUENCE".equalsIgnoreCase(type) && "oracle".equals(dbType)) {
+            String ddl = getOracleDdl(conn, schema, name, type);
+            if (ddl != null && !ddl.startsWith("-- ")) return ddl;
+            return buildSequenceDDL(conn, schema, name);
+        }
+        if ("INDEX".equalsIgnoreCase(type) && "oracle".equals(dbType)) {
+            String ddl = getOracleDdl(conn, schema, name, type);
+            if (ddl != null && !ddl.startsWith("-- ")) return ddl;
+            return buildIndexDDL(conn, schema, name);
+        }
         if (!"TABLE".equalsIgnoreCase(type)) {
             return "-- \u65E0\u6CD5\u83B7\u53D6 " + type + " " + schema + "." + name + " \u7684 DDL";
         }
@@ -256,13 +266,15 @@ public class SqlExecutor {
         }
     }
 
-    /** 通过 DBMS_METADATA 获取 PL/SQL 对象的原始 DDL（含 EDITIONABLE 等关键字），供右键"查看 DDL"使用。 */
+    /** 通过 DBMS_METADATA 获取对象的原始 DDL，供右键"查看 DDL"使用。 */
     public String getOracleDdl(Connection conn, String schema, String name, String type) {
         String ddlType = switch (type) {
             case "PACKAGE" -> "PACKAGE";
             case "PACKAGE_BODY" -> "PACKAGE_BODY";
             case "PROCEDURE" -> "PROCEDURE";
             case "FUNCTION" -> "FUNCTION";
+            case "SEQUENCE" -> "SEQUENCE";
+            case "INDEX" -> "INDEX";
             default -> null;
         };
         if (ddlType == null) return null;
@@ -284,6 +296,71 @@ public class SqlExecutor {
             log.error("DBMS_METADATA \u83B7\u53D6 DDL \u5931\u8D25", e);
             return "-- DBMS_METADATA \u83B7\u53D6\u5931\u8D25: " + e.getMessage();
         }
+    }
+
+    /** DBMS_METADATA 不支持时，从 ALL_SEQUENCES 手动构建 SEQUENCE DDL。 */
+    private String buildSequenceDDL(Connection conn, String schema, String name) {
+        String sql = "SELECT sequence_name, min_value, max_value, increment_by, cycle_flag, order_flag, cache_size, last_number FROM all_sequences WHERE sequence_owner = ? AND sequence_name = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, schema);
+            ps.setString(2, name);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("CREATE SEQUENCE ").append(schema).append(".").append(name).append("\n");
+                    sb.append("  INCREMENT BY ").append(rs.getLong("increment_by")).append("\n");
+                    sb.append("  START WITH ").append(rs.getLong("last_number")).append("\n");
+                    sb.append("  MINVALUE ").append(rs.getLong("min_value")).append("\n");
+                    sb.append("  MAXVALUE ").append(rs.getLong("max_value")).append("\n");
+                    sb.append("  CACHE ").append(rs.getLong("cache_size")).append("\n");
+                    sb.append("  ").append("Y".equals(rs.getString("cycle_flag")) ? "CYCLE" : "NOCYCLE").append("\n");
+                    sb.append("  ").append("Y".equals(rs.getString("order_flag")) ? "ORDER" : "NOORDER");
+                    return sb.toString();
+                }
+            }
+        } catch (SQLException e) {
+            log.error("\u624B\u52A8\u6784\u5EFA SEQUENCE DDL \u5931\u8D25", e);
+        }
+        return "-- \u65E0\u6CD5\u83B7\u53D6 " + name + " \u7684 DDL (ALL_SEQUENCES)";
+    }
+
+    /** DBMS_METADATA 不支持时，从 ALL_INDEXES + ALL_IND_COLUMNS 手动构建 INDEX DDL。 */
+    private String buildIndexDDL(Connection conn, String schema, String name) {
+        String idxSql = "SELECT table_name, uniqueness FROM all_indexes WHERE owner = ? AND index_name = ?";
+        try (PreparedStatement ps = conn.prepareStatement(idxSql)) {
+            ps.setString(1, schema);
+            ps.setString(2, name);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    String tableName = rs.getString("table_name");
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("CREATE ");
+                    if ("UNIQUE".equalsIgnoreCase(rs.getString("uniqueness"))) sb.append("UNIQUE ");
+                    sb.append("INDEX ").append(schema).append(".").append(name);
+                    sb.append(" ON ").append(schema).append(".").append(tableName).append(" (");
+
+                    String colSql = "SELECT column_name, column_position, descend FROM all_ind_columns WHERE index_owner = ? AND index_name = ? ORDER BY column_position";
+                    try (PreparedStatement ps2 = conn.prepareStatement(colSql)) {
+                        ps2.setString(1, schema);
+                        ps2.setString(2, name);
+                        try (ResultSet rs2 = ps2.executeQuery()) {
+                            boolean first = true;
+                            while (rs2.next()) {
+                                if (!first) sb.append(", ");
+                                sb.append(rs2.getString("column_name"));
+                                if ("DESC".equalsIgnoreCase(rs2.getString("descend"))) sb.append(" DESC");
+                                first = false;
+                            }
+                        }
+                    }
+                    sb.append(")");
+                    return sb.toString();
+                }
+            }
+        } catch (SQLException e) {
+            log.error("\u624B\u52A8\u6784\u5EFA INDEX DDL \u5931\u8D25", e);
+        }
+        return "-- \u65E0\u6CD5\u83B7\u53D6 " + name + " \u7684 DDL (ALL_INDEXES)";
     }
 
     private String buildDDLFromMeta(Connection conn, String schema, String table, String dbType) {
@@ -503,12 +580,13 @@ public class SqlExecutor {
     }
 
     private String getOracleSource(Connection conn, String schema, String name, String type) {
-        // ALL_SOURCE
+        // ALL_SOURCE 不含 CREATE OR REPLACE 头，手动拼接
         String sourceType = switch (type) {
             case "PACKAGE_BODY" -> "PACKAGE BODY";
             default -> type;
         };
         try {
+            // 1) ALL_SOURCE 按类型过滤查询（Oracle / OceanBase 标准路径）
             String q = "SELECT text FROM all_source WHERE owner = ? AND name = ? AND type = ? ORDER BY line";
             try (PreparedStatement ps = conn.prepareStatement(q)) {
                 ps.setString(1, schema.toUpperCase());
@@ -520,9 +598,13 @@ public class SqlExecutor {
                         sb.append(rs.getString("text"));
                     }
                     String src = sb.toString().replaceAll("\r\n?", "\n").trim();
-                    if (!src.isEmpty()) return src;
+                    if (!src.isEmpty()) return "CREATE OR REPLACE\n" + src;
                 }
             }
+
+            // 2) ALL_SOURCE 无数据时尝试 DBMS_METADATA 降级（Oracle 有效，OceanBase 4.x+ 部分支持）
+            String ddl = getOracleDdl(conn, schema, name, type);
+            if (ddl != null && !ddl.startsWith("-- ")) return ddl;
         } catch (SQLException e) {
             log.error("ALL_SOURCE 查询失败", e);
         }

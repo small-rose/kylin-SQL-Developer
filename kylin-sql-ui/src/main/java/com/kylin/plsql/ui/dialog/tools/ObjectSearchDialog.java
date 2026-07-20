@@ -2,6 +2,7 @@ package com.kylin.plsql.ui.dialog.tools;
 
 import com.kylin.plsql.ui.dialog.common.BaseToolDialog;
 
+import com.kylin.plsql.core.config.FontManager;
 import com.kylin.plsql.ui.component.common.ToastManager;
 
 import javax.swing.*;

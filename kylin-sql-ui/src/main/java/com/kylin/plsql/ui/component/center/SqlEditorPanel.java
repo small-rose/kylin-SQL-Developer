@@ -152,7 +152,7 @@ public class SqlEditorPanel extends JPanel {
         scrollPane = new RTextScrollPane(textArea);
         scrollPane.setFoldIndicatorEnabled(true);
         scrollPane.setLineNumbersEnabled(true);
-        scrollPane.getGutter().setLineNumberFont(new Font("Monospaced", Font.PLAIN, 14));
+        scrollPane.getGutter().setLineNumberFont(FontManager.getInstance().resolve("font.editor.lineNum"));
 
         // Ctrl+滚轮缩放（监听 scrollPane 而非 textArea，避免干扰内置滚动）
         scrollPane.addMouseWheelListener(e -> {

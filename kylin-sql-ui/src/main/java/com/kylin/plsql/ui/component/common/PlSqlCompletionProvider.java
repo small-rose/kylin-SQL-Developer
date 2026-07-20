@@ -1,6 +1,7 @@
 package com.kylin.plsql.ui.component.common;
 
 import com.kylin.plsql.core.cache.MetadataCache;
+import com.kylin.plsql.core.config.FontManager;
 import org.fife.ui.autocomplete.BasicCompletion;
 import org.fife.ui.autocomplete.Completion;
 import org.fife.ui.autocomplete.CompletionCellRenderer;

@@ -598,6 +598,7 @@ public class ConnectionDialog extends JDialog {
         timeoutField.setText("0");
         dbTypeCombo.setSelectedIndex(0);
         paramsTableModel.setRowCount(0);
+        insertPresetParams();
         customJarField.setText("");
         customDriverCombo.removeAllItems();
         connList.clearSelection();

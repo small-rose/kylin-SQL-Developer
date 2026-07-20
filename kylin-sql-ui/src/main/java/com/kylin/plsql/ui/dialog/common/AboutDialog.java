@@ -1,6 +1,7 @@
 package com.kylin.plsql.ui.dialog.common;
 
 import javax.swing.*;
+import com.kylin.plsql.core.config.FontManager;
 import java.awt.*;
 
 public class AboutDialog extends JDialog {
@@ -25,11 +26,11 @@ public class AboutDialog extends JDialog {
         root.setBackground(PURPLE);
 
         JLabel titleLabel = new JLabel("Kylin SQL Developer");
-        titleLabel.setFont(new Font(FONT_NAME, Font.BOLD, 22));
+        titleLabel.setFont(FontManager.getInstance().resolve("font.dialog.title"));
         titleLabel.setForeground(Color.WHITE);
         titleLabel.setHorizontalAlignment(SwingConstants.CENTER);
 
-        versionLabel.setFont(new Font(FONT_NAME, Font.PLAIN, 12));
+        versionLabel.setFont(FontManager.getInstance().resolve("font.dialog"));
         versionLabel.setForeground(new Color(0xE0E0E0));
         versionLabel.setHorizontalAlignment(SwingConstants.CENTER);
 
@@ -49,7 +50,7 @@ public class AboutDialog extends JDialog {
         addInfoLine(infoPanel, "\u8FD0\u884C\u73AF\u5883", "Java " + System.getProperty("java.version")
                 + " / " + System.getProperty("os.name") + " " + System.getProperty("os.arch"));
 
-        copyrightLabel.setFont(new Font(FONT_NAME, Font.PLAIN, 11));
+        copyrightLabel.setFont(FontManager.getInstance().resolve("font.dialog"));
         copyrightLabel.setForeground(new Color(0xCE93D8));
         copyrightLabel.setHorizontalAlignment(SwingConstants.CENTER);
 
@@ -75,13 +76,13 @@ public class AboutDialog extends JDialog {
         row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
 
         JLabel lbl = new JLabel(label + ":");
-        lbl.setFont(new Font(FONT_NAME, Font.BOLD, 12));
+        lbl.setFont(FontManager.getInstance().resolve("font.dialog.title"));
         lbl.setForeground(new Color(0xCE93D8));
         lbl.setPreferredSize(new Dimension(100, 24));
         lbl.setHorizontalAlignment(SwingConstants.RIGHT);
 
         JLabel val = new JLabel(value);
-        val.setFont(new Font(FONT_NAME, Font.PLAIN, 12));
+        val.setFont(FontManager.getInstance().resolve("font.dialog"));
         val.setForeground(Color.WHITE);
 
         row.add(lbl, BorderLayout.WEST);

@@ -2,6 +2,7 @@ package com.kylin.plsql.ui.component.bottom;
 
 import com.kylin.plsql.ui.component.common.IconUtil;
 import com.kylin.plsql.core.config.ThemeManager;
+import com.kylin.plsql.core.config.FontManager;
 import com.kylin.plsql.core.db.SqlExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -106,7 +107,7 @@ public class ResultPanel extends JPanel {
 
         messageArea = new JTextArea();
         messageArea.setEditable(false);
-        messageArea.setFont(new Font("Monospaced", Font.PLAIN, 12));
+        messageArea.setFont(FontManager.getInstance().resolve("font.bottom.result"));
         applyMessageColors();
         JScrollPane msgScroll = new JScrollPane(messageArea);
         msgScroll.setBorder(null);
@@ -183,7 +184,7 @@ public class ResultPanel extends JPanel {
     }
 
     private void applyTableTheme(JTable table) {
-        table.setFont(new Font("Monospaced", Font.PLAIN, 12));
+        table.setFont(FontManager.getInstance().resolve("font.bottom.result"));
         table.setRowHeight(22);
         table.setBackground(theme.resolve("bg.output"));
         table.setForeground(theme.resolve("fg.main"));
@@ -195,7 +196,7 @@ public class ResultPanel extends JPanel {
         JTableHeader h = table.getTableHeader();
         h.setBackground(theme.resolve("bg.toolbar"));
         h.setForeground(theme.resolve("fg.secondary"));
-        h.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        h.setFont(FontManager.getInstance().resolve("font.bottom.result.header"));
     }
 
     private String escapeHtml(String s) {
@@ -267,7 +268,7 @@ public class ResultPanel extends JPanel {
 
         JComboBox<String> psc = new JComboBox<>(new String[]{"25", "50", "100", "500", "全部"});
         psc.setSelectedItem("100");
-        psc.setFont(new Font("Dialog", Font.PLAIN, 12));
+        psc.setFont(FontManager.getInstance().resolve("font.bottom"));
         psc.setPreferredSize(new Dimension(55, 22));
         psc.setMaximumSize(new Dimension(55, 22));
         psc.addActionListener(e -> {
@@ -298,7 +299,7 @@ public class ResultPanel extends JPanel {
         });
 
         JLabel infoLbl = new JLabel();
-        infoLbl.setFont(new Font("Dialog", Font.PLAIN, 11));
+        infoLbl.setFont(FontManager.getInstance().resolve("font.bottom"));
         infoLbl.setForeground(theme.resolve("fg.muted"));
         infoLbl.setBorder(BorderFactory.createEmptyBorder(0, 8, 0, 8));
         d.pageInfoLabel = infoLbl;
@@ -344,7 +345,7 @@ public class ResultPanel extends JPanel {
             public Component getTableCellRendererComponent(JTable table, Object value,
                     boolean isSelected, boolean hasFocus, int row, int column) {
                 super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-                setFont(new Font("Monospaced", Font.BOLD, 12));
+                setFont(FontManager.getInstance().resolve("font.bottom.result"));
                 setHorizontalAlignment(SwingConstants.CENTER);
                 return this;
             }
@@ -416,7 +417,7 @@ public class ResultPanel extends JPanel {
     private JButton makeTbBtn(String text, String tip) {
         JButton btn = new JButton(text);
         btn.setToolTipText(tip);
-        btn.setFont(new Font("Dialog", Font.PLAIN, 11));
+        btn.setFont(FontManager.getInstance().resolve("font.bottom"));
         btn.setFocusable(false);
         btn.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
         btn.setContentAreaFilled(false);
@@ -611,7 +612,7 @@ public class ResultPanel extends JPanel {
                 g2.dispose();
             }
         };
-        btn.setFont(new Font("Dialog", Font.PLAIN, 12));
+        btn.setFont(FontManager.getInstance().resolve("font.bottom"));
         btn.setPreferredSize(new Dimension(18, 18));
         btn.setBorder(BorderFactory.createEmptyBorder());
         btn.setContentAreaFilled(false);

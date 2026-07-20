@@ -1,5 +1,6 @@
 package com.kylin.plsql.ui.component.left;
 
+import com.kylin.plsql.core.config.FontManager;
 import com.kylin.plsql.ui.component.common.IconUtil;
 import com.kylin.plsql.core.config.ThemeManager;
 
@@ -170,11 +171,11 @@ public class LocalFileBrowser extends JPanel {
                 if (uo instanceof DirEntry de) {
                     c.setIcon(ICON_FOLDER);
                     c.setText(de.isRoot ? de.name + " (" + de.path + ")" : de.name);
-                    c.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+                    c.setFont(FontManager.getInstance().resolve("font.left"));
                 } else if (uo instanceof File file) {
                     c.setIcon(iconForFile(file.getName()));
                     c.setText(file.getName());
-                    c.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 12));
+                    c.setFont(FontManager.getInstance().resolve("font.left"));
                 }
                 return c;
             }
@@ -254,7 +255,7 @@ public class LocalFileBrowser extends JPanel {
         label.setOpaque(true);
         label.setBackground(new Color(0x333333));
         label.setForeground(Color.WHITE);
-        label.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 13));
+        label.setFont(FontManager.getInstance().resolve("font.left"));
         label.setBorder(BorderFactory.createEmptyBorder(8, 16, 8, 16));
         hint.add(label);
         hint.pack();

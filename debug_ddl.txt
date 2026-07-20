@@ -1,0 +1,5 @@
+CREATE TABLE test_tab (
+    id   NUMBER(10) NOT NULL,
+    name VARCHAR2(100),
+    CONSTRAINT pk_id PRIMARY KEY (id)
+);

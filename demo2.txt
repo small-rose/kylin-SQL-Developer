@@ -1,0 +1,43 @@
+-- 测试1: MERGE (覆盖 mergeIntoNewline)
+MERGE INTO employees t
+USING (SELECT 200 AS emp_id, 'Jane' AS name FROM dual) s
+ON (t.employee_id = s.emp_id)
+WHEN MATCHED THEN
+    UPDATE SET t.first_name = s.name
+WHEN NOT MATCHED THEN
+    INSERT (employee_id, first_name) VALUES (s.emp_id, s.name);
+
+-- 测试2: CREATE TABLE + 约束 (覆盖 constraintFormat)
+CREATE TABLE project_assignments (
+    assignment_id   NUMBER(10) NOT NULL,
+    project_id      NUMBER(10) NOT NULL,
+    employee_id     NUMBER(10) NOT NULL,
+    role            VARCHAR2(50),
+    start_date      DATE DEFAULT SYSDATE,
+    end_date        DATE,
+    CONSTRAINT pk_assignments PRIMARY KEY (assignment_id),
+    CONSTRAINT fk_assign_proj FOREIGN KEY (project_id) REFERENCES projects(project_id),
+    CONSTRAINT fk_assign_emp FOREIGN KEY (employee_id) REFERENCES employees(employee_id)
+);
+
+-- 测试3: CREATE TABLE + STORAGE (覆盖 storageClauseFormat)
+CREATE TABLE audit_log (
+    log_id      NUMBER(12) NOT NULL,
+    table_name  VARCHAR2(30) NOT NULL,
+    action      VARCHAR2(10) NOT NULL,
+    old_data    CLOB,
+    new_data    CLOB,
+    created_by  VARCHAR2(30),
+    created_at  DATE DEFAULT SYSDATE,
+    CONSTRAINT pk_audit_log PRIMARY KEY (log_id)
+)
+TABLESPACE users
+STORAGE (
+    INITIAL 64K
+    NEXT 32K
+    MINEXTENTS 1
+    MAXEXTENTS 121
+    PCTINCREASE 0
+)
+PCTFREE 10
+PCTUSED 40;

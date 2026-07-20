@@ -3,6 +3,7 @@ package com.kylin.plsql.ui.dialog.common;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.LoggerContext;
 import com.kylin.plsql.core.config.ConfigManager;
+import com.kylin.plsql.core.config.FontManager;
 import com.kylin.plsql.core.config.ThemeManager;
 import org.slf4j.LoggerFactory;
 
@@ -38,7 +39,7 @@ public class LogViewerDialog extends JDialog {
 
     private void initUI() {
         logArea.setEditable(false);
-        logArea.setFont(new Font("Microsoft YaHei", Font.PLAIN, 12));
+        logArea.setFont(FontManager.getInstance().resolve("font.dialog"));
         logArea.setBorder(BorderFactory.createEmptyBorder(4, 6, 4, 6));
 
         filterField.setToolTipText("过滤关键字 (输入后自动筛选)");

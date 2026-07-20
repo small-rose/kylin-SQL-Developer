@@ -421,7 +421,7 @@ public class SettingsDialog extends JDialog {
                     if (in != null) Theme.load(in).apply(previewArea);
                 }
             } catch (Exception ignored) {}
-            previewArea.setFont(new Font("Monospaced", Font.PLAIN, 12));
+            previewArea.setFont(FontManager.getInstance().resolve("font.editor"));
         }
     }
 
@@ -695,7 +695,7 @@ public class SettingsDialog extends JDialog {
         previewArea.setEditable(false);
         previewArea.setCodeFoldingEnabled(false);
         previewArea.setHighlightCurrentLine(false);
-        previewArea.setFont(new Font("Monospaced", Font.PLAIN, 12));
+        previewArea.setFont(FontManager.getInstance().resolve("font.editor"));
         try {
             String path = ThemeManager.getInstance().getCurrentTheme().config("rsta.theme");
             try (InputStream in = getClass().getClassLoader().getResourceAsStream(path)) {
@@ -1341,7 +1341,7 @@ public class SettingsDialog extends JDialog {
         typeBtnPanel.add(delTypeBtn);
 
         sqlArea = new JTextArea(4, 30);
-        sqlArea.setFont(new Font("Monospaced", Font.PLAIN, 12));
+        sqlArea.setFont(FontManager.getInstance().resolve("font.dialog"));
         sqlArea.setLineWrap(true);
         var sqlScroll = new JScrollPane(sqlArea);
         sqlScroll.setBorder(BorderFactory.createTitledBorder("SQL 查询 (选中后编辑)"));
@@ -1471,6 +1471,7 @@ public class SettingsDialog extends JDialog {
         var node = (DefaultMutableTreeNode) metadataTree.getLastSelectedPathComponent();
         if (node instanceof MetadataNode mn) {
             mn.config.setTypes(new ArrayList<>(typeTableModel.types));
+            typeTableModel.types = mn.config.getTypes();
             mn.config.setExtraColumns(new ArrayList<>(columnModel.cols));
             configManager.saveMetadataConfigs(metadataConfigs);
         }
@@ -1751,19 +1752,19 @@ public class SettingsDialog extends JDialog {
         Color mainBg = tm.resolve("bg.main");
         Color mainFg = tm.resolve("fg.main");
 
-        if ("font.table".equals(key)) {
-            String[] cols = {"用户名", "状态", "创建时间"};
-            Object[][] data = {{"张三", "ACTIVE", "2024-01-15"}, {"李四", "INACTIVE", "2024-02-20"}};
+        if ("font.bottom.result".equals(key) || "font.bottom.result.header".equals(key)) {
+            String[] cols = {"ID", "用户名", "状态"};
+            Object[][] data = {{"1001", "张三", "ACTIVE"}, {"1002", "李四", "INACTIVE"}};
             JTable table = new JTable(data, cols);
-            table.setRowHeight(Math.min(fm.resolve("font.table").getSize() + 6, 24));
+            table.setRowHeight(Math.min(fm.resolve(key).getSize() + 6, 24));
             table.setEnabled(false);
             table.setBackground(editorBg);
-            table.setFont(fm.resolve("font.table"));
-            table.getTableHeader().setFont(fm.resolve("font.ui.bold"));
+            table.setFont(fm.resolve(key));
+            table.getTableHeader().setFont(fm.resolve("font.bottom.result.header"));
             Color fc = fm.resolveColor(key);
             table.setForeground(fc != null ? fc : mainFg);
             fontPreviewPanel.add(new JScrollPane(table), BorderLayout.CENTER);
-        } else if ("font.mono".equals(key) || "font.editor".equals(key) || "font.editor.comment".equals(key)) {
+        } else if ("font.editor".equals(key) || "font.editor.comment".equals(key) || "font.editor.lineNum".equals(key)) {
             JTextArea ta = new JTextArea(FontManager.getPreviewText(key));
             ta.setFont(fm.resolve(key));
             ta.setBackground(editorBg);
@@ -1844,6 +1845,8 @@ public class SettingsDialog extends JDialog {
         if (owner instanceof MainFrame) {
             ((MainFrame) owner).reapplyTheme();
         }
+        // 确保元数据配置中的 SQL 修改也被保存
+        saveCurrentSql();
         JOptionPane.showMessageDialog(this, "设置已保存");
         dispose();
     }

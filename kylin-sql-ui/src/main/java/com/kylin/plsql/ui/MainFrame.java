@@ -5,6 +5,7 @@ import com.kylin.plsql.core.config.AppTheme;
 import com.kylin.plsql.core.config.ConfigManager;
 import com.kylin.plsql.core.config.ConfigManager.TabState;
 import com.kylin.plsql.core.config.ConfigManager.WorkspaceState;
+import com.kylin.plsql.core.config.FontManager;
 import com.kylin.plsql.core.config.ThemeManager;
 import com.kylin.plsql.core.db.ConnectionInfo;
 import com.kylin.plsql.core.db.ConnectionManager;
@@ -79,6 +80,7 @@ public class MainFrame extends JFrame {
     private final JSplitPane[] leftSplitRef = new JSplitPane[1];
     private final JSplitPane[] mainSplitRef = new JSplitPane[1];
     private JPanel bottomWrapper;
+    private JSplitPane verticalSplit;
     private JPanel editorPanel;
     private JTabbedPane editorTabs;
     private WelcomePanel welcomePanel;
@@ -359,6 +361,10 @@ public class MainFrame extends JFrame {
                 newFile(connName, null);
             }
             @Override
+            public void onNewSqlEditor(String connName, String schema) {
+                newFile(connName, schema);
+            }
+            @Override
             public void onOpenConnections() { showConnectionDialog(); }
             @Override
             public void onConnectionProperties(String connName) {
@@ -584,6 +590,11 @@ public class MainFrame extends JFrame {
         bottomWrapper.setBorder(null);
         bottomWrapper.add(bottomPanel, BorderLayout.CENTER);
         bottomWrapper.add(statusBar, BorderLayout.SOUTH);
+        // 底部面板折叠/展开时同步 JSplitPane 分隔线
+        bottomPanel.setOnToggle(() -> {
+            int h = bottomPanel.isExpanded() ? 278 : 28;
+            if (verticalSplit != null) verticalSplit.setDividerLocation(verticalSplit.getHeight() - h);
+        });
 
         // ── StatusBar callbacks ──
         statusBar.setOnLockToggle(locked -> {
@@ -640,8 +651,11 @@ public class MainFrame extends JFrame {
             updateStatusBar();
             bottomPanel.refreshConnTree();
         });
-        add(mainSplit, BorderLayout.CENTER);
-        add(bottomWrapper, BorderLayout.SOUTH);
+        verticalSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, mainSplit, bottomWrapper);
+        verticalSplit.setBorder(null);
+        verticalSplit.setResizeWeight(1.0);
+        verticalSplit.setDividerSize(4);
+        add(verticalSplit, BorderLayout.CENTER);
 
         SwingUtilities.invokeLater(() -> {
             if (leftSplitRef[0] != null) leftSplitRef[0].setDividerLocation(250);
@@ -1106,7 +1120,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                 g2.dispose();
             }
         };
-        btn.setFont(new Font("Dialog", Font.PLAIN, 12));
+        btn.setFont(FontManager.getInstance().resolve("font.top"));
         btn.setPreferredSize(new Dimension(18, 18));
         btn.setBorder(BorderFactory.createEmptyBorder());
         btn.setContentAreaFilled(false);
@@ -2689,7 +2703,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         label.setOpaque(true);
         label.setBackground(new Color(0x333333));
         label.setForeground(Color.WHITE);
-        label.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        label.setFont(FontManager.getInstance().resolve("font.top"));
         label.setBorder(BorderFactory.createEmptyBorder(8, 16, 8, 16));
         hint.add(label);
         hint.pack();

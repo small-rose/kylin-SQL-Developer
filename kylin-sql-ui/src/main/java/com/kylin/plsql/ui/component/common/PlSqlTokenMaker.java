@@ -126,6 +126,8 @@ public class PlSqlTokenMaker extends AbstractTokenMaker {
                         case '/':
                             if (i + 1 < end && array[i + 1] == '*') {
                                 currentTokenType = TokenTypes.COMMENT_MULTILINE;
+                            } else {
+                                currentTokenType = TokenTypes.OPERATOR;
                             }
                             break;
                         case '(':
@@ -133,6 +135,10 @@ public class PlSqlTokenMaker extends AbstractTokenMaker {
                         case ',':
                         case ';':
                         case '.':
+                        // 全角分隔符
+                        case '\uFF08': case '\uFF09': case '\uFF0C':
+                        case '\uFF1B': case '\uFF0E':
+                        case '\u3001': case '\u3002':
                             currentTokenType = TokenTypes.SEPARATOR;
                             break;
                         case ':':
@@ -150,6 +156,28 @@ public class PlSqlTokenMaker extends AbstractTokenMaker {
                         case '+':
                         case '*':
                         case '%':
+                        case '|':
+                        case '~':
+                        case '^':
+                        case '&':
+                        case '@':
+                        case '\\':
+                        case '#':
+                        case '$':
+                        case '[':
+                        case ']':
+                        case '{':
+                        case '}':
+                        // 全角操作符
+                        case '\uFF1D': case '\uFF0B': case '\uFF0D':
+                        case '\uFF0A': case '\uFF0F': case '\uFF1C':
+                        case '\uFF1E': case '\uFF01': case '\uFF5C':
+                        case '\uFF5E': case '\uFF3E': case '\uFF06':
+                        case '\uFF20': case '\uFF03': case '\uFF05':
+                        case '\uFF1A':
+                        // 全角引号
+                        case '\u201C': case '\u201D': case '\u2018':
+                        case '\u2019': case '\uFF07': case '\uFF02':
                             currentTokenType = TokenTypes.OPERATOR;
                             break;
                         case '0':

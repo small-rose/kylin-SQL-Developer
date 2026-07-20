@@ -1,5 +1,6 @@
 package com.kylin.plsql.ui.component.common;
 
+import com.kylin.plsql.core.config.FontManager;
 import com.kylin.plsql.core.config.ThemeManager;
 
 import javax.swing.*;
@@ -7,7 +8,6 @@ import java.awt.*;
 
 /** Vertical text tab button used in left/right side panels. */
 public class VerticalTabButton extends JButton {
-    private static final Font TAB_FONT = new Font("Segoe UI", Font.PLAIN, 11);
     private static final int TAB_STRIP_WIDTH = 28;
     private boolean active;
     private Dimension fixedPrefSize;
@@ -16,7 +16,7 @@ public class VerticalTabButton extends JButton {
 
     public VerticalTabButton(String text) {
         super(text);
-        setFont(TAB_FONT);
+        setFont(FontManager.getInstance().resolve("font.top"));
         setFocusable(false);
         setContentAreaFilled(false);
         setBorder(BorderFactory.createEmptyBorder(2, 2, 2, 2));
@@ -26,8 +26,12 @@ public class VerticalTabButton extends JButton {
         recalcPrefSize();
     }
 
+    private static Font tabFont() {
+        return FontManager.getInstance().resolve("font.top");
+    }
+
     private void recalcPrefSize() {
-        FontMetrics fm = Toolkit.getDefaultToolkit().getFontMetrics(TAB_FONT);
+        FontMetrics fm = Toolkit.getDefaultToolkit().getFontMetrics(tabFont());
         int extra = "FILES".equals(getText()) ? 50 : 40;
         fixedPrefSize = new Dimension(TAB_STRIP_WIDTH, fm.stringWidth(getText()) + extra);
     }
@@ -52,7 +56,7 @@ public class VerticalTabButton extends JButton {
     @Override
     public void updateUI() {
         super.updateUI();
-        setFont(TAB_FONT);
+        setFont(tabFont());
         setOpaque(true);
         setContentAreaFilled(false);
         recalcPrefSize();
@@ -75,7 +79,7 @@ public class VerticalTabButton extends JButton {
         }
 
         g2.setColor(theme.resolve("fg.secondary"));
-        g2.setFont(TAB_FONT);
+        g2.setFont(tabFont());
         g2.rotate(-Math.PI / 2);
         FontMetrics fm = g2.getFontMetrics();
         String text = getText();

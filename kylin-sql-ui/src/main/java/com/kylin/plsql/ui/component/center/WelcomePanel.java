@@ -1,6 +1,7 @@
 package com.kylin.plsql.ui.component.center;
 
 import com.kylin.plsql.core.config.ThemeManager;
+import com.kylin.plsql.core.config.FontManager;
 
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
@@ -46,7 +47,7 @@ public class WelcomePanel extends JPanel {
         for (int i = 0; i < shortcuts.length; i++) {
             gc.gridx = 0; gc.gridy = i;
             JLabel key = new JLabel(shortcuts[i][0]);
-            key.setFont(new Font("Monospaced", Font.BOLD, 12));
+            key.setFont(FontManager.getInstance().resolve("font.editor"));
             key.setForeground(theme.resolve("accent.green"));
             shortcutsPanel.add(key, gc);
             gc.gridx = 1;

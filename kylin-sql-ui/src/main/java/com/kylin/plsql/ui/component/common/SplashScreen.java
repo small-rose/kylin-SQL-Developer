@@ -1,5 +1,7 @@
 package com.kylin.plsql.ui.component.common;
 
+import com.kylin.plsql.core.config.FontManager;
+
 import javax.swing.*;
 import java.awt.*;
 
@@ -15,8 +17,7 @@ public class SplashScreen extends JWindow {
         bar.setStringPainted(true);
         bar.setForeground(new Color(0x4CAF50));
 
-        String cnFont = "Microsoft YaHei";
-        statusLabel.setFont(new Font(cnFont, Font.PLAIN, 12));
+        statusLabel.setFont(FontManager.getInstance().resolve("font.top"));
         statusLabel.setForeground(Color.WHITE);
 
         java.net.URL imgUrl = getClass().getResource("/logo/splash1.png");

@@ -15,6 +15,7 @@ import javax.swing.text.BadLocationException;
 import com.kylin.plsql.core.cache.MetadataCache;
 import com.kylin.plsql.core.config.ConfigManager;
 import com.kylin.plsql.core.config.ThemeManager;
+import com.kylin.plsql.core.config.FontManager;
 import com.kylin.plsql.core.db.ConnectionManager;
 import com.kylin.plsql.core.db.SqlExecutor;
 import com.kylin.plsql.ui.component.common.PlSqlCompletionProvider;
@@ -153,7 +154,7 @@ public class SourceViewerPanel extends JPanel {
         String typeLabel = "PACKAGE".equals(this.objectType) ? "PACKAGE" :
                            "PACKAGE_BODY".equals(this.objectType) ? "PACKAGE BODY" : this.objectType;
         JLabel title = new JLabel(typeLabel + " " + schema + "." + objectName);
-        title.setFont(new Font("Segoe UI", Font.BOLD, 13));
+        title.setFont(FontManager.getInstance().resolve("font.top"));
         leftBar.add(title);
         leftBar.add(Box.createHorizontalStrut(12));
 
@@ -161,7 +162,7 @@ public class SourceViewerPanel extends JPanel {
             specBtn = new JToggleButton("Spec");
             bodyBtn = new JToggleButton("Body");
             for (var b : new JToggleButton[]{specBtn, bodyBtn}) {
-                b.setFont(new Font("Segoe UI", Font.PLAIN, 12));
+                b.setFont(FontManager.getInstance().resolve("font.top"));
                 b.setFocusable(false);
                 b.setContentAreaFilled(false);
                 b.setForeground(theme.resolve("fg.tab.inactive"));
@@ -205,7 +206,7 @@ public class SourceViewerPanel extends JPanel {
         textArea.setTabSize(4);
         textArea.setAntiAliasingEnabled(true);
         textArea.setFractionalFontMetricsEnabled(true);
-        textArea.setFont(new Font("Monospaced", Font.PLAIN, 14));
+        textArea.setFont(FontManager.getInstance().resolve("font.editor"));
         textArea.setEditable(false);
         textArea.setMargin(new Insets(3, 16, 3, 3));
         textArea.setBackground(theme.resolve("bg.editor"));
@@ -229,7 +230,7 @@ public class SourceViewerPanel extends JPanel {
         scrollPane = new RTextScrollPane(textArea);
         scrollPane.setFoldIndicatorEnabled(true);
         scrollPane.setLineNumbersEnabled(true);
-        scrollPane.getGutter().setLineNumberFont(new Font("Monospaced", Font.PLAIN, 14));
+        scrollPane.getGutter().setLineNumberFont(FontManager.getInstance().resolve("font.editor.lineNum"));
 
         // Ctrl+滚轮缩放（监听 scrollPane 而非 textArea，避免干扰内置滚动）
         scrollPane.addMouseWheelListener(e -> {
@@ -263,7 +264,7 @@ public class SourceViewerPanel extends JPanel {
             @Override
             public boolean getScrollableTracksViewportWidth() { return true; }
         };
-        methodList.setFont(new Font("Segoe UI", Font.PLAIN, 13));
+        methodList.setFont(FontManager.getInstance().resolve("font.left"));
         methodList.setBackground(theme.resolve("bg.main"));
         methodList.setForeground(theme.resolve("list.fg"));
         methodList.setSelectionBackground(theme.resolve("selection.listBg"));
@@ -307,7 +308,7 @@ public class SourceViewerPanel extends JPanel {
         JPanel leftPanel = new JPanel(new BorderLayout());
         leftPanel.setBackground(theme.resolve("bg.main"));
         JLabel header = new JLabel(" Methods");
-        header.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        header.setFont(FontManager.getInstance().resolve("font.left.title"));
         header.setForeground(theme.resolve("fg.muted"));
         header.setOpaque(true);
         header.setBackground(theme.resolve("bg.main"));
@@ -327,12 +328,20 @@ public class SourceViewerPanel extends JPanel {
         split.setDividerSize(3);
         split.setBorder(BorderFactory.createEmptyBorder());
         split.setBackground(theme.resolve("bg.main"));
-        SwingUtilities.invokeLater(() -> split.setDividerLocation(0.20));
+        // 等 SplitPane 首次完成布局后再设比例位置，避免 Linux 上因初始 width=0 导致左面板折叠
+        split.addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override public void componentResized(java.awt.event.ComponentEvent e) {
+                if (split.getWidth() > 0) {
+                    split.setDividerLocation(0.20);
+                    split.removeComponentListener(this);
+                }
+            }
+        });
         add(split, BorderLayout.CENTER);
 
         // ── Bottom output panel ──
         outputArea = new JTextArea(5, 0);
-        outputArea.setFont(new Font("Monospaced", Font.PLAIN, 12));
+        outputArea.setFont(FontManager.getInstance().resolve("font.bottom.result"));
         outputArea.setBackground(theme.resolve("bg.output"));
         outputArea.setForeground(theme.resolve("fg.secondary"));
         outputArea.setEditable(false);
@@ -342,7 +351,7 @@ public class SourceViewerPanel extends JPanel {
         JPanel outHeader = new JPanel(new BorderLayout());
         outHeader.setBackground(theme.resolve("bg.toolbar"));
         JLabel outTitle = new JLabel("  Compile Output");
-        outTitle.setFont(new Font("Segoe UI", Font.BOLD, 11));
+        outTitle.setFont(FontManager.getInstance().resolve("font.bottom.title"));
         outTitle.setForeground(theme.resolve("fg.muted"));
         outHeader.add(outTitle, BorderLayout.WEST);
         this.outHeader = outHeader;
@@ -356,7 +365,7 @@ public class SourceViewerPanel extends JPanel {
         add(outputPanel, BorderLayout.SOUTH);
 
         // ── Status bar ──
-        statusLabel.setFont(new Font("Segoe UI", Font.PLAIN, 11));
+        statusLabel.setFont(FontManager.getInstance().resolve("font.status"));
         statusLabel.setForeground(theme.resolve("fg.muted"));
         statusLabel.setBorder(BorderFactory.createEmptyBorder(2, 8, 2, 8));
         add(statusLabel, BorderLayout.PAGE_END);
