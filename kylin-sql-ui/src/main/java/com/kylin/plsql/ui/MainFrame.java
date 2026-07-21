@@ -592,8 +592,13 @@ public class MainFrame extends JFrame {
         bottomWrapper.add(statusBar, BorderLayout.SOUTH);
         // 底部面板折叠/展开时同步 JSplitPane 分隔线
         bottomPanel.setOnToggle(() -> {
-            int h = bottomPanel.isExpanded() ? 278 : 28;
-            if (verticalSplit != null) verticalSplit.setDividerLocation(verticalSplit.getHeight() - h);
+            if (verticalSplit == null || verticalSplit.getHeight() <= 0) return;
+            if (bottomPanel.isExpanded()) {
+                verticalSplit.setDividerLocation((int)(verticalSplit.getHeight() * 0.65));
+            } else {
+                int barH = statusBar.getPreferredSize().height;
+                verticalSplit.setDividerLocation(verticalSplit.getHeight() - 28 - barH);
+            }
         });
 
         // 执行 SQL 后确保底部面板合理展开（<5% 时强制到 35%）
@@ -665,6 +670,15 @@ public class MainFrame extends JFrame {
         verticalSplit.setBorder(null);
         verticalSplit.setResizeWeight(1.0);
         verticalSplit.setDividerSize(4);
+        // 等 SplitPane 首次完成布局后设分隔线为 65%/35%，避免 resizeWeight(1.0) 把底部压到最小
+        verticalSplit.addComponentListener(new java.awt.event.ComponentAdapter() {
+            @Override public void componentResized(java.awt.event.ComponentEvent e) {
+                if (verticalSplit.getHeight() > 0) {
+                    verticalSplit.setDividerLocation((int)(verticalSplit.getHeight() * 0.65));
+                    verticalSplit.removeComponentListener(this);
+                }
+            }
+        });
         add(verticalSplit, BorderLayout.CENTER);
 
         SwingUtilities.invokeLater(() -> {
