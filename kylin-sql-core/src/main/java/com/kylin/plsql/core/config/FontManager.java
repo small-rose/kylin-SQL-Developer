@@ -80,11 +80,11 @@ public class FontManager {
         return instance;
     }
 
-    /** Resolve font for key, with cascading fallback: override → default → font.default → Dialog,PLAIN,12 */
+    /** Resolve font for key, with cascading fallback: override → default → font.default → Dialog,PLAIN,12.
+     *  值格式: "FontName,Size" / "FontName,Size,Style" / "FontName,Size,Style,#RRGGBB" / "FontName,Size,#RRGGBB" */
     public Font resolve(String key) {
         String val = overrides.get(key);
         if (val == null) val = DEFAULTS.get(key);
-        // Fallback chain
         if (val == null && !"font.default".equals(key)) {
             val = overrides.get("font.default");
             if (val == null) val = DEFAULTS.get("font.default");
@@ -93,7 +93,18 @@ public class FontManager {
         String[] parts = val.split(",");
         String name = parts[0].trim();
         int size = parts.length > 1 ? Integer.parseInt(parts[1].trim()) : 12;
-        int style = "font.ui.bold".equals(key) ? Font.BOLD : Font.PLAIN;
+        int style = Font.PLAIN;
+        if (parts.length > 2) {
+            String third = parts[2].trim();
+            if (!third.startsWith("#")) {
+                style = switch (third.toUpperCase()) {
+                    case "BOLD" -> Font.BOLD;
+                    case "ITALIC" -> Font.ITALIC;
+                    case "BOLDITALIC" -> Font.BOLD | Font.ITALIC;
+                    default -> Font.PLAIN;
+                };
+            }
+        }
         return new Font(name, style, size);
     }
 
@@ -153,8 +164,17 @@ public class FontManager {
 
     public void setOverride(String key, String value) { overrides.put(key, value); }
 
+    /** 简版 setter（无样式、无颜色），向后兼容。 */
     public void setOverride(String key, String fontName, int size, Color color) {
+        setOverride(key, fontName, size, "PLAIN", color);
+    }
+
+    /** 完整 setter：字体名、大小、样式（""/"PLAIN"/"BOLD"/"ITALIC"/"BOLDITALIC"）、颜色。 */
+    public void setOverride(String key, String fontName, int size, String style, Color color) {
         StringBuilder sb = new StringBuilder(fontName).append(",").append(size);
+        if (style != null && !style.isEmpty() && !"PLAIN".equalsIgnoreCase(style)) {
+            sb.append(",").append(style.toUpperCase());
+        }
         if (color != null) {
             sb.append(",#").append(String.format("%02x%02x%02x", color.getRed(), color.getGreen(), color.getBlue()));
         }

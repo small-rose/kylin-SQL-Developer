@@ -1481,6 +1481,7 @@ public class SettingsDialog extends JDialog {
 
     private JComboBox<String> fontNameCombo;
     private JSpinner fontSizeSpinner;
+    private JComboBox<String> fontStyleCombo;
     private JPanel fontColorSwatch;
     private JLabel fontSectionHeader;
     private JPanel fontPreviewPanel;
@@ -1550,10 +1551,34 @@ public class SettingsDialog extends JDialog {
         settingPanel.add(fontSizeSpinner, c);
         addSpacer.run();
 
+        // Style row
+        JLabel styleLabel = new JLabel("样式:");
+        styleLabel.setPreferredSize(labelSize);
+        c.gridx = 0; c.gridy = 3; c.weightx = 0;
+        settingPanel.add(styleLabel, c);
+        addControl.run();
+        fontStyleCombo = new JComboBox<>(new String[]{"PLAIN", "BOLD", "ITALIC", "BOLDITALIC"});
+        fontStyleCombo.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value,
+                    int index, boolean isSelected, boolean cellHasFocus) {
+                String label = switch ((String) value) {
+                    case "BOLD" -> "BOLD（粗体）";
+                    case "ITALIC" -> "ITALIC（斜体）";
+                    case "BOLDITALIC" -> "BOLDITALIC（粗斜体）";
+                    default -> "PLAIN（常规）";
+                };
+                return super.getListCellRendererComponent(list, label, index, isSelected, cellHasFocus);
+            }
+        });
+        fontStyleCombo.setPreferredSize(new Dimension(100, 26));
+        settingPanel.add(fontStyleCombo, c);
+        addSpacer.run();
+
         // Color picker row
         JLabel colorLabel = new JLabel("颜色:");
         colorLabel.setPreferredSize(labelSize);
-        c.gridx = 0; c.gridy = 3; c.weightx = 0; c.weighty = 0;
+        c.gridx = 0; c.gridy = 4; c.weightx = 0; c.weighty = 0;
         c.fill = GridBagConstraints.HORIZONTAL;
         settingPanel.add(colorLabel, c);
         addControl.run();
@@ -1574,7 +1599,7 @@ public class SettingsDialog extends JDialog {
         settingPanel.add(fontColorSwatch, c);
 
         // Preview panel
-        c.gridx = 0; c.gridy = 4; c.gridwidth = 3; c.weightx = 1; c.weighty = 1;
+        c.gridx = 0; c.gridy = 5; c.gridwidth = 3; c.weightx = 1; c.weighty = 1;
         c.fill = GridBagConstraints.BOTH;
         fontPreviewPanel = new JPanel(new BorderLayout());
         fontPreviewPanel.setBorder(BorderFactory.createTitledBorder("预览"));
@@ -1584,11 +1609,11 @@ public class SettingsDialog extends JDialog {
         settingPanel.add(fontPreviewPanel, c);
 
         // Filler
-        c.gridx = 0; c.gridy = 5; c.gridwidth = 3; c.weighty = 1;
+        c.gridx = 0; c.gridy = 6; c.gridwidth = 3; c.weighty = 1;
         settingPanel.add(Box.createGlue(), c);
 
         // Reset button bottom
-        c.gridx = 0; c.gridy = 6; c.gridwidth = 3; c.weighty = 0; c.fill = GridBagConstraints.NONE;
+        c.gridx = 0; c.gridy = 7; c.gridwidth = 3; c.weighty = 0; c.fill = GridBagConstraints.NONE;
         c.anchor = GridBagConstraints.WEST;
         JButton resetBtn = new JButton("重置为默认");
         settingPanel.add(resetBtn, c);
@@ -1601,8 +1626,9 @@ public class SettingsDialog extends JDialog {
             if (idx < 0 || idx >= keys.size()) return;
             fontPanelSelectedKey = keys.get(idx);
             String val = FontManager.getInstance().resolveValue(fontPanelSelectedKey);
-            String curName = val.split(",")[0].trim();
-            int curSize = Integer.parseInt(val.split(",")[1].trim());
+            String[] parts = val.split(",");
+            String curName = parts[0].trim();
+            int curSize = Integer.parseInt(parts[1].trim());
 
             // Set swatch FIRST, before combo/spinner listeners fire,
             // so that applyFontOverride() reads the correct default color
@@ -1622,8 +1648,10 @@ public class SettingsDialog extends JDialog {
             // to avoid accidental override saves with stale swatch colors.
             var comboAls = fontNameCombo.getActionListeners();
             var spinCls = fontSizeSpinner.getChangeListeners();
+            var styleAls = fontStyleCombo.getActionListeners();
             for (var l : comboAls) fontNameCombo.removeActionListener(l);
             for (var l : spinCls) fontSizeSpinner.removeChangeListener(l);
+            for (var l : styleAls) fontStyleCombo.removeActionListener(l);
 
             for (int i = 0; i < allFonts.length; i++) {
                 if (allFonts[i].equalsIgnoreCase(curName)) {
@@ -1633,8 +1661,17 @@ public class SettingsDialog extends JDialog {
             }
             fontSizeSpinner.setValue(curSize);
 
+            // 解析样式（第3段，非 # 开头即为样式名）
+            String curStyle = "PLAIN";
+            if (parts.length > 2) {
+                String third = parts[2].trim();
+                if (!third.startsWith("#")) curStyle = third.toUpperCase();
+            }
+            fontStyleCombo.setSelectedItem(curStyle);
+
             for (var l : comboAls) fontNameCombo.addActionListener(l);
             for (var l : spinCls) fontSizeSpinner.addChangeListener(l);
+            for (var l : styleAls) fontStyleCombo.addActionListener(l);
 
             fontSectionHeader.setText(FontManager.getLabel(fontPanelSelectedKey));
             rebuildFontPreview();
@@ -1650,6 +1687,7 @@ public class SettingsDialog extends JDialog {
         };
         fontNameCombo.addActionListener(e -> onFontChange.run());
         fontSizeSpinner.addChangeListener(e -> onFontChange.run());
+        fontStyleCombo.addActionListener(e -> onFontChange.run());
 
         // ── Reset handler ──
         resetBtn.addActionListener(e -> {
@@ -1733,9 +1771,10 @@ public class SettingsDialog extends JDialog {
         int bracket = raw.indexOf("  [");
         if (bracket > 0) raw = raw.substring(0, bracket);
         int size = (Integer) fontSizeSpinner.getValue();
+        String style = (String) fontStyleCombo.getSelectedItem();
         Color color = fontColorSwatch.getBackground();
         if (fontPanelSelectedKey != null) {
-            FontManager.getInstance().setOverride(fontPanelSelectedKey, raw, size, color);
+            FontManager.getInstance().setOverride(fontPanelSelectedKey, raw, size, style, color);
         }
         applyFontPreview();
     }

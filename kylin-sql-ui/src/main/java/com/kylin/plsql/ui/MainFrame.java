@@ -596,6 +596,16 @@ public class MainFrame extends JFrame {
             if (verticalSplit != null) verticalSplit.setDividerLocation(verticalSplit.getHeight() - h);
         });
 
+        // 执行 SQL 后确保底部面板合理展开（<5% 时强制到 35%）
+        bottomPanel.setOnShowResult(() -> {
+            if (verticalSplit == null || verticalSplit.getHeight() <= 0) return;
+            int totalH = verticalSplit.getHeight();
+            int divLoc = verticalSplit.getDividerLocation();
+            if ((double)(totalH - divLoc) / totalH < 0.05) {
+                verticalSplit.setDividerLocation((int)(totalH * 0.65));
+            }
+        });
+
         // ── StatusBar callbacks ──
         statusBar.setOnLockToggle(locked -> {
             Component comp = editorTabs.getSelectedComponent();

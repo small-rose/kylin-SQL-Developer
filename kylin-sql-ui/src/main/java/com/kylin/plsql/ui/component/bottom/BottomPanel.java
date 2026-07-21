@@ -53,6 +53,7 @@ public class BottomPanel extends JPanel {
     private Runnable onReopenClosedTab;
     private Runnable onRefresh;
     private Runnable onToggle;
+    private Runnable onShowResult;
     private Consumer<String> onNewQuery;
     private Consumer<String> onCloseAllTabs;
     private Consumer<TabInfo> onSaveTab;
@@ -226,6 +227,7 @@ public class BottomPanel extends JPanel {
 
     public void setOnRefresh(Runnable r) { this.onRefresh = r; }
     public void setOnToggle(Runnable r) { this.onToggle = r; }
+    public void setOnShowResult(Runnable r) { this.onShowResult = r; }
     public void setOnNewQuery(Consumer<String> c) { this.onNewQuery = c; }
     public void setOnCloseAllTabs(Consumer<String> c) { this.onCloseAllTabs = c; }
     public void setOnSaveTab(Consumer<TabInfo> c) { this.onSaveTab = c; }
@@ -440,6 +442,7 @@ public class BottomPanel extends JPanel {
     public void showResult(String sql, SqlExecutor.SqlResult result, String connName) {
         ensureServicesVisible();
         resultPanel.showResult(sql, result, connName);
+        if (onShowResult != null) onShowResult.run();
     }
 
     public void setRefreshExecutor(java.util.function.BiConsumer<String, String> executor) {
@@ -468,8 +471,12 @@ public class BottomPanel extends JPanel {
         if (!expanded || activeTab != Tab.SERVICES) {
             activeTab = Tab.SERVICES;
             cardLayout.show(contentPanel, "SERVICES");
-            if (!expanded) { expanded = true; contentPanel.setVisible(true); }
+            if (!expanded) {
+                expanded = true;
+                contentPanel.setVisible(true);
+            }
             selectTab(Tab.SERVICES);
+            if (onToggle != null) onToggle.run();
             revalidate();
             repaint();
         }
