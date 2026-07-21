@@ -1,7 +1,6 @@
 package com.kylin.plsql.ui.component.common;
 
 import com.kylin.plsql.core.cache.MetadataCache;
-import com.kylin.plsql.core.config.FontManager;
 import com.kylin.plsql.core.db.type.DbTypeCoordinator;
 import org.fife.ui.autocomplete.BasicCompletion;
 import org.fife.ui.autocomplete.Completion;
@@ -18,7 +17,6 @@ import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -56,8 +54,8 @@ public class PlSqlCompletionProvider extends DefaultCompletionProvider {
     public void setDbTypeKey(String dbTypeKey) {
         if (!Objects.equals(this.dbTypeKey, dbTypeKey)) {
             this.dbTypeKey = dbTypeKey;
-            this.systemViews = null;
-            this.systemSchemas = null;
+            this.systemViews = Collections.emptyMap();
+            this.systemSchemas = Collections.emptySet();
         }
     }
 
@@ -262,7 +260,9 @@ public class PlSqlCompletionProvider extends DefaultCompletionProvider {
             var byType = cache.getObjectNamesByType(connName, schema);
             if (byType != null) {
                 for (var names : byType.values()) {
-                    if (names.contains(name)) return true;
+                    for (String n : names) {
+                        if (n.equalsIgnoreCase(name)) return true;
+                    }
                 }
             }
             return false;
@@ -271,7 +271,9 @@ public class PlSqlCompletionProvider extends DefaultCompletionProvider {
             var byType = cache.getObjectNamesByType(connName, s);
             if (byType == null) continue;
             for (var names : byType.values()) {
-                if (names.contains(name)) return true;
+                for (String n : names) {
+                    if (n.equalsIgnoreCase(name)) return true;
+                }
             }
         }
         return false;
@@ -310,7 +312,7 @@ public class PlSqlCompletionProvider extends DefaultCompletionProvider {
         for (var entry : byType.entrySet()) {
             String type = entry.getKey();
             for (String name : entry.getValue()) {
-                if (name.startsWith(upper)) {
+                if (name.toUpperCase().startsWith(upper)) {
                     String comment = cache.getTableComment(connName, schema, name);
                     result.add(new TableCompletion(this, name, schema, type, comment));
                 }
@@ -337,7 +339,7 @@ public class PlSqlCompletionProvider extends DefaultCompletionProvider {
             }
             if (cols != null && !cols.isEmpty()) {
                 for (var col : cols) {
-                    if (col.name.startsWith(upper)) {
+                    if (col.name.toUpperCase().startsWith(upper)) {
                         result.add(new ColumnCompletion(this, col.name, col.type, col.comment));
                     }
                 }
@@ -350,7 +352,7 @@ public class PlSqlCompletionProvider extends DefaultCompletionProvider {
     private Set<String> systemSchemas = Collections.emptySet();
 
     private void ensureSystemViews() {
-        if (!systemViews.isEmpty()) return;
+        if (systemViews != null && !systemViews.isEmpty()) return;
         if (dbTypeKey == null || dbTypeKey.isEmpty()) return;
         try {
             DbTypeCoordinator coord = DbTypeCoordinator.forTypeKey(dbTypeKey);

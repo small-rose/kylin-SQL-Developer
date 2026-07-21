@@ -11,7 +11,9 @@ import com.kylin.plsql.core.db.ConnectionInfo;
 import com.kylin.plsql.core.db.ConnectionManager;
 import com.kylin.plsql.core.db.SqlExecutor;
 import com.kylin.plsql.core.db.SqlHistory;
+import com.kylin.plsql.core.format.EngineManager;
 import com.kylin.plsql.core.format.FormatOptions;
+import com.kylin.plsql.core.format.SqlFormatterEngine;
 import com.kylin.plsql.core.format.dialect.DialectManager;
 import com.kylin.plsql.core.format.dialect.SqlDialect;
 import com.kylin.plsql.core.parser.PlSqlCallHierarchy;
@@ -41,17 +43,18 @@ import com.kylin.plsql.ui.dialog.tools.RegexTesterDialog;
 import com.kylin.plsql.ui.dialog.tools.SqlHistoryDialog;
 import com.kylin.plsql.ui.dialog.tools.SqlToolsDialog;
 import com.kylin.plsql.ui.dialog.tools.TextDiffDialog;
+import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
-import javax.swing.text.BadLocationException;
-
 import javax.swing.*;
+import javax.swing.event.CaretEvent;
 import javax.swing.event.CaretListener;
 import javax.swing.filechooser.FileNameExtensionFilter;
+import javax.swing.table.DefaultTableModel;
 import javax.swing.text.BadLocationException;
 import javax.swing.tree.DefaultMutableTreeNode;
+import javax.swing.tree.DefaultTreeCellRenderer;
 import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
@@ -62,6 +65,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.sql.Statement;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -102,7 +106,7 @@ public class MainFrame extends JFrame {
     private JMenuBar menuBar;
     private boolean caseModeIsUpper = true;
     private JButton caseBtn;
-    private JComboBox<com.kylin.plsql.core.format.SqlFormatterEngine> engineCombo;
+    private JComboBox<SqlFormatterEngine> engineCombo;
 
     // ── tab context menu support ──
     private JPanel tabContainer;
@@ -126,7 +130,7 @@ public class MainFrame extends JFrame {
         this.configManager = configManager;
         this.connectionManager = new ConnectionManager();
         consoleCounter = 1;
-        com.kylin.plsql.core.format.EngineManager.initEngines(formatOptions);
+        EngineManager.initEngines(formatOptions);
         initComponents();
         addWindowListener(new WindowAdapter() {
             @Override
@@ -177,7 +181,7 @@ public class MainFrame extends JFrame {
             if (splash.isVisible()) {
                 splash.setProgress(95, "启动超时，强制完成...");
                 try {
-                    javax.swing.SwingUtilities.invokeAndWait(frame::finishInit);
+                    SwingUtilities.invokeAndWait(frame::finishInit);
                 } catch (Exception ignored) {}
                 splash.setProgress(100, "启动完成");
                 splash.close();
@@ -191,16 +195,16 @@ public class MainFrame extends JFrame {
         new Thread(() -> {
             try {
                 splash.setProgress(5, "正在初始化界面...");
-                javax.swing.SwingUtilities.invokeAndWait(() -> { frame.setupMenu(); frame.buildToolbar(); });
+                SwingUtilities.invokeAndWait(() -> { frame.setupMenu(); frame.buildToolbar(); });
 
                 splash.setProgress(25, "正在构建编辑区...");
-                javax.swing.SwingUtilities.invokeAndWait(frame::buildPanels);
+                SwingUtilities.invokeAndWait(frame::buildPanels);
 
                 splash.setProgress(50, "正在构建输出面板...");
-                javax.swing.SwingUtilities.invokeAndWait(frame::buildBottomPanel);
+                SwingUtilities.invokeAndWait(frame::buildBottomPanel);
 
                 splash.setProgress(75, "正在组装界面...");
-                javax.swing.SwingUtilities.invokeAndWait(frame::buildAssembly);
+                SwingUtilities.invokeAndWait(frame::buildAssembly);
 
                 splash.setProgress(90, "正在启动...");
 
@@ -211,15 +215,15 @@ public class MainFrame extends JFrame {
                 }
 
                 splash.setProgress(95, "正在完成初始化...");
-                javax.swing.SwingUtilities.invokeAndWait(frame::finishInit);
+                SwingUtilities.invokeAndWait(frame::finishInit);
 
                 splash.setProgress(100, "启动完成");
-                javax.swing.SwingUtilities.invokeAndWait(() -> {
+                SwingUtilities.invokeAndWait(() -> {
                     splash.close();
                     frame.setVisible(true);
                 });
 
-                javax.swing.SwingUtilities.invokeAndWait(frame::finishLayout);
+                SwingUtilities.invokeAndWait(frame::finishLayout);
             } catch (Exception e) {
                 splash.setStatus("启动失败: " + e.getMessage());
                 log.error("启动失败", e);
@@ -232,7 +236,7 @@ public class MainFrame extends JFrame {
         loadSavedConnections();
         boolean restored = tryRestoreWorkspace();
         if (!restored) showWelcome();
-        var cur = com.kylin.plsql.core.format.EngineManager.getCurrent();
+        var cur = EngineManager.getCurrent();
         if (cur != null && engineCombo != null) engineCombo.setSelectedItem(cur);
         bottomPanel.refreshConnTree();
         restartAutoSaveTimer();
@@ -249,7 +253,7 @@ public class MainFrame extends JFrame {
             mainSplitRef[0].setDividerLocation(Math.max(w - rightW, w / 2));
         }
         // 延迟到所有组件就绪后重新恢复连接和 schema（此时元数据缓存应已同步完成）
-        javax.swing.SwingUtilities.invokeLater(this::deferredRestoreTabConnections);
+        SwingUtilities.invokeLater(this::deferredRestoreTabConnections);
     }
 
     /** 在启动后期延迟恢复各 tab 的连接和 schema（等待元数据同步完成）。 */
@@ -316,21 +320,21 @@ public class MainFrame extends JFrame {
         toolbar.add(execBtn);
 
         engineCombo = new JComboBox<>();
-        for (var e : com.kylin.plsql.core.format.EngineManager.getEngines()) {
+        for (var e : EngineManager.getEngines()) {
             engineCombo.addItem(e);
         }
-        engineCombo.setSelectedItem(com.kylin.plsql.core.format.EngineManager.getCurrent());
+        engineCombo.setSelectedItem(EngineManager.getCurrent());
         engineCombo.setRenderer(new DefaultListCellRenderer() {
             @Override
             public Component getListCellRendererComponent(JList<?> list, Object value,
                     int index, boolean isSelected, boolean cellHasFocus) {
                 Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                if (value instanceof com.kylin.plsql.core.format.SqlFormatterEngine e) setText(e.getDisplayName());
+                if (value instanceof SqlFormatterEngine e) setText(e.getDisplayName());
                 return c;
             }
         });
         engineCombo.addActionListener(e -> {
-            com.kylin.plsql.core.format.EngineManager.setCurrent(engineCombo.getSelectedIndex());
+            EngineManager.setCurrent(engineCombo.getSelectedIndex());
         });
         engineCombo.setToolTipText("选择格式化引擎");
         engineCombo.setPreferredSize(new java.awt.Dimension(120, engineCombo.getPreferredSize().height));
@@ -399,7 +403,7 @@ public class MainFrame extends JFrame {
             @Override
             public void onSyncComplete(String connName) {
                 statusBar.setMessage(connName + " 加载完成");
-                javax.swing.Timer t = new javax.swing.Timer(4000, ev -> statusBar.hideSyncProgress());
+                Timer t = new Timer(4000, ev -> statusBar.hideSyncProgress());
                 t.setRepeats(false);
                 t.start();
                 if (java.awt.Taskbar.isTaskbarSupported()) {
@@ -749,7 +753,7 @@ public class MainFrame extends JFrame {
 
     private class OutlineSyncListener implements CaretListener {
         @Override
-        public void caretUpdate(javax.swing.event.CaretEvent e) {
+        public void caretUpdate(CaretEvent e) {
             SqlEditorPanel editor = getActiveEditor();
             if (editor != null) {
                 rightPanel.caretUpdated(editor.getCaretLine(), editor.getTextArea().getLineCount());
@@ -765,11 +769,11 @@ public class MainFrame extends JFrame {
         }
     }
 
-    private class SourceViewerCaretSync implements javax.swing.event.CaretListener {
+    private class SourceViewerCaretSync implements CaretListener {
         private final SourceViewerPanel viewer;
         SourceViewerCaretSync(SourceViewerPanel sv) { this.viewer = sv; }
         @Override
-        public void caretUpdate(javax.swing.event.CaretEvent e) {
+        public void caretUpdate(CaretEvent e) {
             try {
                 int line = viewer.getTextArea().getLineOfOffset(e.getDot());
                 rightPanel.caretUpdated(line + 1, viewer.getTextArea().getLineCount());
@@ -1338,7 +1342,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
     }
 
     private void startConnectionMonitor() {
-        new javax.swing.Timer(5000, e -> {
+        new Timer(5000, e -> {
             Component comp = editorTabs.getSelectedComponent();
             if (comp instanceof SqlEditorPanel ae) {
                 String cn = ae.getConnectionName();
@@ -2063,7 +2067,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                         "连接 '" + connName + "' 失败:\n" + msg,
                         "连接失败", JOptionPane.ERROR_MESSAGE);
                 }
-                javax.swing.Timer t = new javax.swing.Timer(4000, ev -> statusBar.hideSyncProgress());
+                Timer t = new Timer(4000, ev -> statusBar.hideSyncProgress());
                 t.setRepeats(false);
                 t.start();
             }
@@ -2084,6 +2088,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             JOptionPane.showMessageDialog(this, "此标签页未绑定数据库连接，请从对象浏览器打开");
             return;
         }
+        String schema = editor.getSchema();
         if (!connectionManager.isConnected(connName)) {
             var connections = configManager.loadConnections();
             for (var ci : connections) {
@@ -2116,7 +2121,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             if (parts.length > 1) {
                 editor.clearExecResults();
                 bottomPanel.setBatchExecuting(true);
-                bottomPanel.appendMessage("━━━ 多语句执行 ━━━━━━━━━━━━━━━━━━━━");
+                bottomPanel.appendMessage("----- 多语句执行 --------------------------");
                 int baseOffset = editor.getTextArea().getSelectionStart();
                 SqlEditorPanel edRef = editor;
                 int execLineFinal = execLine;
@@ -2144,6 +2149,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                     @Override protected List<StmtResult> doInBackground() {
                         List<StmtResult> results = new ArrayList<>();
                         try (Connection conn = connectionManager.getConnection(connName)) {
+                            applySchemaIfNeeded(conn, connName, schema);
                             var executor = new com.kylin.plsql.core.db.SqlExecutor();
                             for (int i = 0; i < parts.length; i++) {
                                 String stmt = parts[i].trim();
@@ -2186,7 +2192,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                             bottomPanel.showError(e.getMessage());
                         } finally {
                             bottomPanel.setBatchExecuting(false);
-                            bottomPanel.appendMessage("━━━━━━━━━━━━━━━━━━━━━━━━━");
+                            bottomPanel.appendMessage("-------------------------------");
                         }
                     }
                 }.execute();
@@ -2194,7 +2200,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             }
             // single statement from selection
             String sql = parts[0].trim();
-            executeSingle(editor, connName, sql, execLine, append, qto);
+            executeSingle(editor, connName, schema, sql, execLine, append, qto);
         } else {
             String sql = editor.getCurrentStatement();
             int execLine = editor.getLastExecLine();
@@ -2202,17 +2208,18 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                 JOptionPane.showMessageDialog(this, "请输入 SQL 语句");
                 return;
             }
-            executeSingle(editor, connName, sql, execLine, append, qto);
+            executeSingle(editor, connName, schema, sql, execLine, append, qto);
         }
     }
 
-    private void executeSingle(SqlEditorPanel editor, String connName, String sql, int execLine, boolean append, int qto) {
+    private void executeSingle(SqlEditorPanel editor, String connName, String schema, String sql, int execLine, boolean append, int qto) {
         editor.clearExecResults();
-        bottomPanel.appendMessage("━━━ SQL 执行 ━━━━━━━━━━━━━━━━━━━━━━━━━");
+        bottomPanel.appendMessage("----- SQL 执行 ----------------------");
         bottomPanel.appendMessage("执行 SQL: " + sql);
         new SwingWorker<SingleResult, Void>() {
             @Override protected SingleResult doInBackground() {
                 try (Connection conn = connectionManager.getConnection(connName)) {
+                    applySchemaIfNeeded(conn, connName, schema);
                     var executor = new com.kylin.plsql.core.db.SqlExecutor();
                     var result = executor.execute(conn, sql, qto);
                     return new SingleResult(result, null);
@@ -2226,7 +2233,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                     if (sr.error != null) {
                         editor.clearExecResults();
                         bottomPanel.appendMessage("执行失败: " + sr.error);
-                        bottomPanel.appendMessage("━━━━━━━━━━━━━━━━━━━━━━━━━");
+                        bottomPanel.appendMessage("-------------------------------");
                         statusBar.setMessage("执行失败: " + sr.error);
                         bottomPanel.showError(sr.error);
                         editor.markExecResult(execLine, false);
@@ -2238,7 +2245,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                     var result = sr.result;
                     bottomPanel.appendMessage("执行耗时: " + result.elapsedMs + "ms");
                     bottomPanel.appendMessage("结果: " + result.getSummary());
-                    bottomPanel.appendMessage("━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    bottomPanel.appendMessage("-------------------------------");
                     bottomPanel.setBatchExecuting(append);
                     bottomPanel.showResult(sql, result, connName);
                     bottomPanel.setBatchExecuting(false);
@@ -2250,7 +2257,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                 } catch (Exception e) {
                     editor.clearExecResults();
                     bottomPanel.appendMessage("执行失败: " + e.getMessage());
-                    bottomPanel.appendMessage("━━━━━━━━━━━━━━━━━━━━━━━━━");
+                    bottomPanel.appendMessage("-------------------------------");
                     statusBar.setMessage("执行失败: " + e.getMessage());
                     bottomPanel.showError(e.getMessage());
                     editor.markExecResult(execLine, false);
@@ -2279,6 +2286,28 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         }
     }
 
+    /** Before executing SQL, set the session schema to match the editor's schema combo. */
+    private void applySchemaIfNeeded(Connection conn, String connName, String schema) {
+        if (schema == null || schema.isEmpty()) return;
+        String dbProduct = MetadataCache.getInstance().getDbProduct(connName);
+        if (dbProduct == null) return;
+        try {
+            if (dbProduct.contains("mysql") || dbProduct.contains("mariadb")) {
+                try (Statement st = conn.createStatement()) {
+                    st.execute("USE " + schema);
+                }
+            } else if (dbProduct.contains("oracle") && !dbProduct.contains("oceanbase")) {
+                try (Statement st = conn.createStatement()) {
+                    st.execute("ALTER SESSION SET CURRENT_SCHEMA = " + schema);
+                }
+            } else {
+                conn.setSchema(schema);
+            }
+        } catch (Exception e) {
+            log.warn("设置 schema '{}' 失败: {}", schema, e.getMessage());
+        }
+    }
+
     private void formatSql() {
         Component comp = editorTabs.getSelectedComponent();
         if (comp == null) return;
@@ -2295,12 +2324,12 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         Component compRef = comp;
         new SwingWorker<String, Void>() {
             @Override protected String doInBackground() throws Exception {
-                return com.kylin.plsql.core.format.EngineManager.format(sql);
+                return EngineManager.format(sql);
             }
             @Override protected void done() {
                 try {
                     String formatted = get();
-                    String engineName = com.kylin.plsql.core.format.EngineManager.getCurrent().getName();
+                    String engineName = EngineManager.getCurrent().getName();
                     if (isSqlEditor) {
                         ((SqlEditorPanel) compRef).replaceSelection(formatted);
                     }
@@ -2501,7 +2530,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         var rp = bottomPanel.getResultPanel();
         if (rp == null) return;
         var model = rp.getCurrentTableModel();
-        if (model == null) model = new javax.swing.table.DefaultTableModel();
+        if (model == null) model = new DefaultTableModel();
         new AdvancedExportDialog(MainFrame.this, model).setVisible(true);
     }
 
@@ -2646,8 +2675,8 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         state.hiddenSchemas = objectBrowser.getHiddenSchemas();
         // 保存 SQL 执行历史
         state.sqlHistory = sqlHistory.snapshot();
-        state.currentEngineIndex = com.kylin.plsql.core.format.EngineManager.getEngines().indexOf(
-            com.kylin.plsql.core.format.EngineManager.getCurrent());
+        state.currentEngineIndex = EngineManager.getEngines().indexOf(
+            EngineManager.getCurrent());
         configManager.saveWorkspace(state);
         bottomPanel.refreshConnTree();
     }
@@ -2687,7 +2716,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             installCaretListener(editor);
             // 延迟到布局完成后恢复光标和滚动位置
             int finalIdx = idx;
-            javax.swing.SwingUtilities.invokeLater(() -> {
+            SwingUtilities.invokeLater(() -> {
                 try {
                     if (caretPos >= 0 && caretPos <= editor.getTextArea().getDocument().getLength()) {
                         editor.getTextArea().setCaretPosition(caretPos);
@@ -2731,8 +2760,8 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         }
         // 恢复格式化引擎选择
         int engineIdx = state.currentEngineIndex;
-        if (engineIdx >= 0 && engineIdx < com.kylin.plsql.core.format.EngineManager.getEngines().size()) {
-            com.kylin.plsql.core.format.EngineManager.setCurrent(engineIdx);
+        if (engineIdx >= 0 && engineIdx < EngineManager.getEngines().size()) {
+            EngineManager.setCurrent(engineIdx);
         }
 
         // 恢复上次活跃标签（作为后备）
@@ -2764,7 +2793,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
     /** 执行外部 SQL 脚本文件（分批提交事务，进度显示在消息面板）。 */
     private void executeSqlScript(String connName, String schema) {
         JFileChooser fc = new JFileChooser();
-        fc.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("SQL 文件 (*.sql)", "sql"));
+        fc.setFileFilter(new FileNameExtensionFilter("SQL 文件 (*.sql)", "sql"));
         fc.setDialogTitle("选择要执行的 SQL 脚本");
         if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
         java.io.File file = fc.getSelectedFile();
@@ -3170,7 +3199,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         // Update tree cell renderer UI to pick up new L&F colors
         if (objectBrowser != null) {
             var r = objectBrowser.getTree().getCellRenderer();
-            if (r instanceof javax.swing.tree.DefaultTreeCellRenderer dtr) dtr.updateUI();
+            if (r instanceof DefaultTreeCellRenderer dtr) dtr.updateUI();
         }
 
         revalidate();
