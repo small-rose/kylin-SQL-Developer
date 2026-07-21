@@ -392,6 +392,7 @@ public class SourceViewerPanel extends JPanel {
         ac.setAutoCompleteEnabled(true);
         int delay = readAutocompleteDelay();
         ac.setAutoActivationDelay(delay);
+        ac.setAutoCompleteSingleChoices(false);
         ac.install(textArea);
         log.info("AutoCompletion installed on SourceViewerPanel, delay={}ms, provider={}, editable={}", delay, provider.getClass().getSimpleName(), textArea.isEditable());
 

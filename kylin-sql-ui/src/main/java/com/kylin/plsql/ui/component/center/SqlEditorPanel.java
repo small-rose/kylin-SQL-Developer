@@ -245,6 +245,7 @@ public class SqlEditorPanel extends JPanel {
         ac.setAutoCompleteEnabled(true);
         int delay = readAutocompleteDelay();
         ac.setAutoActivationDelay(delay);
+        ac.setAutoCompleteSingleChoices(false);
         ac.install(textArea);
         log.info("AutoCompletion installed on SqlEditorPanel, delay={}ms, provider={}, autoActivation={}, autoComplete={}",
             delay, provider.getClass().getSimpleName(), ac.isAutoActivationEnabled(), ac.isAutoCompleteEnabled());
