@@ -4,6 +4,8 @@ import com.kylin.plsql.core.config.ConfigManager;
 import com.kylin.plsql.core.config.ThemeManager;
 import com.kylin.plsql.core.db.ConnectionInfo;
 import com.kylin.plsql.core.db.ConnectionManager;
+import com.kylin.plsql.core.db.type.DbTypeCoordinator;
+import com.kylin.plsql.core.db.type.DbTypeRegistry;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
@@ -18,6 +20,8 @@ import java.awt.Frame;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.awt.Color;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,11 +44,27 @@ public class ConnectionDialog extends JDialog {
     private DefaultTableModel paramsTableModel;
     private JTextField customJarField;
     private JComboBox<String> customDriverCombo;
+    private JCheckBox colorCheck;
+    private JButton colorBtn;
     private ConnectionInfo editing;
     private String savedConnName;
     private boolean parsingUrl;
 
     private static final String REQ = "<font color='red'>*</font>";
+
+    private static final List<String> DB_TYPE_ORDER = List.of(
+        "oceanbase-oracle", "oceanbase-mysql", "mysql", "mariadb", "postgresql", "oracle"
+    );
+    private static final Map<String, String> DISPLAY_TO_KEY = buildDisplayToKey();
+
+    private static Map<String, String> buildDisplayToKey() {
+        Map<String, String> m = new LinkedHashMap<>();
+        for (String key : DB_TYPE_ORDER) {
+            m.put(DbTypeCoordinator.forTypeKey(key).getDisplayName(), key);
+        }
+        m.put("oceanbase", "oceanbase-oracle");
+        return Collections.unmodifiableMap(m);
+    }
 
     public ConnectionDialog(Frame owner, ConfigManager configManager, ConnectionManager connectionManager) {
         this(owner, configManager, connectionManager, null);
@@ -109,11 +129,12 @@ public class ConnectionDialog extends JDialog {
         c.gridx = 0; c.gridy = row; c.weightx = 0;
         formPanel.add(new JLabel("数据库类型:"), c);
         c.gridx = 1;
-        dbTypeCombo = new JComboBox<>(new String[]{"oceanbase (OceanBase 原生驱动)", "postgresql (PG 兼容驱动)", "oracle"});
+        dbTypeCombo = new JComboBox<>(
+            DB_TYPE_ORDER.stream().map(k -> DbTypeCoordinator.forTypeKey(k).getDisplayName()).toArray(String[]::new));
         dbTypeCombo.addActionListener(e -> {
             if (connList.getSelectedValue() == null) {
-                portField.setText(dbTypeCombo.getSelectedIndex() == 2 ? "1521" :
-                    dbTypeCombo.getSelectedIndex() == 1 ? "2883" : "2881");
+                String key = getSelectedDbTypeKey();
+                portField.setText(String.valueOf(DbTypeCoordinator.forTypeKey(key).getDefaultPort()));
             }
         });
         formPanel.add(dbTypeCombo, c);
@@ -136,7 +157,7 @@ public class ConnectionDialog extends JDialog {
         urlField.setWrapStyleWord(true);
         urlField.setFont(UIManager.getFont("TextField.font"));
         urlField.setMargin(new Insets(2, 4, 2, 4));
-        urlField.setToolTipText("例如: jdbc:oracle:thin:@host:1521/service");
+        urlField.setToolTipText("例如: jdbc:oracle:thin:@host:1521/service  |  jdbc:mysql://host:3306/db  |  jdbc:oceanbase:oracle://host:2881/service");
         urlField.getDocument().addDocumentListener(new DocumentListener() {
             @Override public void insertUpdate(DocumentEvent e) { onUrlChange(); }
             @Override public void removeUpdate(DocumentEvent e) { onUrlChange(); }
@@ -220,13 +241,32 @@ public class ConnectionDialog extends JDialog {
         // ── 右侧：名称 + 标签面板 + 按钮 ──
         JPanel rightPanel = new JPanel(new BorderLayout());
 
-        // 顶部：连接名称（始终可见）
+        // 顶部：连接名称 + 颜色（始终可见）
         JPanel namePanel = new JPanel(new BorderLayout(6, 0));
         namePanel.setBorder(BorderFactory.createEmptyBorder(6, 8, 4, 8));
         namePanel.add(new JLabel("<html>连接名称: " + REQ + "</html>"), BorderLayout.WEST);
         nameField = new JTextField(20);
         namePanel.add(nameField, BorderLayout.CENTER);
-        rightPanel.add(namePanel, BorderLayout.NORTH);
+
+        JPanel colorRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
+        colorRow.setBorder(BorderFactory.createEmptyBorder(0, 8, 4, 8));
+        colorCheck = new JCheckBox("启用颜色");
+        colorBtn = new JButton();
+        colorBtn.setPreferredSize(new Dimension(28, 22));
+        colorBtn.setBackground(Color.LIGHT_GRAY);
+        colorBtn.setEnabled(false);
+        colorBtn.addActionListener(e -> {
+            Color selectedColor = JColorChooser.showDialog(this, "选择连接颜色", colorBtn.getBackground());
+            if (selectedColor != null) colorBtn.setBackground(selectedColor);
+        });
+        colorCheck.addActionListener(e -> colorBtn.setEnabled(colorCheck.isSelected()));
+        colorRow.add(colorCheck);
+        colorRow.add(colorBtn);
+
+        JPanel northWrapper = new JPanel(new BorderLayout());
+        northWrapper.add(namePanel, BorderLayout.NORTH);
+        northWrapper.add(colorRow, BorderLayout.SOUTH);
+        rightPanel.add(northWrapper, BorderLayout.NORTH);
 
         // 中间：标签面板
         JTabbedPane rightTabs = new JTabbedPane();
@@ -275,70 +315,31 @@ public class ConnectionDialog extends JDialog {
     }
 
     private void parseJdbcUrl(String url) {
-        String lower = url.toLowerCase();
         try {
-            if (lower.startsWith("jdbc:oracle:thin:@")) {
-                String rest = url.substring("jdbc:oracle:thin:@".length());
-                String[] path = rest.split("/");
-                if (path.length >= 1) {
-                    String[] hp = path[0].split(":");
-                    if (hp.length >= 1 && !hp[0].isEmpty()) hostField.setText(hp[0]);
-                    if (hp.length >= 2 && !hp[1].isEmpty()) portField.setText(hp[1]);
-                }
-                if (path.length >= 2 && !path[1].isEmpty()) {
-                    serviceField.setText(path[1].contains("?") ? path[1].substring(0, path[1].indexOf('?')) : path[1]);
-                }
-                return;
-            }
-            if (lower.startsWith("jdbc:postgresql://")) {
-                parseHostPortDb(url, "jdbc:postgresql://".length());
-                return;
-            }
-            if (lower.startsWith("jdbc:oceanbase:oracle://")) {
-                parseHostPortDb(url, "jdbc:oceanbase:oracle://".length());
-                return;
-            }
-            if (lower.startsWith("jdbc:oceanbase://")) {
-                parseHostPortDb(url, "jdbc:oceanbase://".length());
-                return;
-            }
-            if (lower.startsWith("jdbc:mysql://")) {
-                parseHostPortDb(url, "jdbc:mysql://".length());
-                return;
-            }
-            if (lower.startsWith("jdbc:mariadb://")) {
-                parseHostPortDb(url, "jdbc:mariadb://".length());
-                return;
-            }
-            if (lower.startsWith("jdbc:sqlserver://")) {
-                String rest = url.substring("jdbc:sqlserver://".length());
-                String[] params = rest.split(";");
-                for (String p : params) {
-                    String[] kv = p.split("=", 2);
-                    if (kv.length == 2) {
-                        if ("serverName".equalsIgnoreCase(kv[0])) hostField.setText(kv[1]);
-                        if ("portNumber".equalsIgnoreCase(kv[0])) portField.setText(kv[1]);
-                        if ("databaseName".equalsIgnoreCase(kv[0])) serviceField.setText(kv[1]);
-                    }
-                }
-            }
-        } catch (Exception ignored) {
-            // silent parse failure
-        }
+            DbTypeRegistry.detectFromUrlStatic(url).ifPresent(spec -> {
+                var parsed = DbTypeCoordinator.forTypeKey(spec.getKey()).parseJdbcUrl(url);
+                if (parsed == null) return;
+                hostField.setText(parsed.host);
+                portField.setText(String.valueOf(parsed.port));
+                serviceField.setText(parsed.serviceName);
+                setDbTypeCombo(spec.getKey());
+            });
+        } catch (Exception ignored) { }
     }
 
-    private void parseHostPortDb(String url, int prefixLen) {
-        String rest = url.substring(prefixLen);
-        String[] path = rest.split("/");
-        if (path.length >= 1) {
-            String[] hp = path[0].split(":");
-            if (hp.length >= 1 && !hp[0].isEmpty()) hostField.setText(hp[0]);
-            if (hp.length >= 2 && !hp[1].isEmpty()) portField.setText(hp[1]);
+    /** 根据 dbType key 设置下拉框选中项。 */
+    private void setDbTypeCombo(String dbTypeKey) {
+        dbTypeCombo.setSelectedItem(DbTypeCoordinator.forTypeKey(dbTypeKey).getDisplayName());
+    }
+
+    /** 获取下拉框当前选中项的 dbType key。 */
+    private String getSelectedDbTypeKey() {
+        String display = (String) dbTypeCombo.getSelectedItem();
+        if (display != null) {
+            String key = DISPLAY_TO_KEY.get(display);
+            if (key != null) return key;
         }
-        if (path.length >= 2 && !path[1].isEmpty()) {
-            String db = path[1].contains("?") ? path[1].substring(0, path[1].indexOf('?')) : path[1];
-            serviceField.setText(db);
-        }
+        return "oracle";
     }
 
     private void applyTheme() {
@@ -422,38 +423,10 @@ public class ConnectionDialog extends JDialog {
 
     /** 根据当前数据库类型插入常用 JDBC URL 参数。 */
     private void insertPresetParams() {
-        String dbType;
-        int idx = dbTypeCombo.getSelectedIndex();
-        if (idx == 2) dbType = "oracle";
-        else if (idx == 1) dbType = "postgresql";
-        else dbType = "oceanbase";
-        Map<String, String> presets = new LinkedHashMap<>();
-        switch (dbType) {
-            case "oceanbase" -> {
-                presets.put("compatibleOjdbcVersion", "8");
-                presets.put("useServerPrepStmts", "true");
-                presets.put("characterEncoding", "UTF-8");
-                presets.put("useCompression", "true");
-                presets.put("rewriteBatchedStatements", "true");
-                presets.put("useLocalSessionState", "true");
-                presets.put("maintainTimeStats", "false");
-            }
-            case "postgresql" -> {
-                presets.put("ApplicationName", "KylinSQL");
-                presets.put("stringtype", "unspecified");
-                presets.put("prepareThreshold", "5");
-                presets.put("ssl", "false");
-                presets.put("sslmode", "prefer");
-                presets.put("reWriteBatchedInserts", "true");
-            }
-            default -> { // oracle
-                presets.put("oracle.jdbc.defaultNChar", "true");
-                presets.put("oracle.jdbc.J2EE13Compliant", "true");
-                presets.put("defaultLongFetchSize", "1000");
-                presets.put("oracle.jdbc.ReadTimeout", "30000");
-                presets.put("oracle.net.CONNECT_TIMEOUT", "10000");
-            }
-        }
+        String key = getSelectedDbTypeKey();
+        ConnectionInfo dummy = new ConnectionInfo();
+        dummy.setDbType(key);
+        Map<String, String> presets = DbTypeCoordinator.forTypeKey(key).getDefaultJdbcParams(dummy);
         for (Map.Entry<String, String> e : presets.entrySet()) {
             // 跳过已有同名参数
             boolean exists = false;
@@ -571,16 +544,19 @@ public class ConnectionDialog extends JDialog {
         portField.setText(String.valueOf(ci.getPort()));
         serviceField.setText(ci.getServiceName());
         // set urlField last so parseJdbcUrl fills host/port/service from URL (overriding empty saved values)
-        urlField.setText(ci.getRawJdbcUrl());
+        urlField.setText(ci.getJdbcUrl());
         userField.setText(ci.getUsername());
         passwordField.setText(ci.getPassword());
         schemaField.setText(ci.getSchema());
         timeoutField.setText(String.valueOf(ci.getQueryTimeout()));
-        dbTypeCombo.setSelectedIndex("oracle".equals(ci.getDbType()) ? 2 : "postgresql".equals(ci.getDbType()) ? 1 : 0);
+        setDbTypeCombo(ci.getDbType());
         loadParamsFrom(ci);
         customJarField.setText(ci.getCustomDriverJar());
         customDriverCombo.removeAllItems();
         if (ci.getCustomDriverClass() != null) customDriverCombo.addItem(ci.getCustomDriverClass());
+        colorCheck.setSelected(ci.isColorEnabled());
+        colorBtn.setBackground(ci.getColorTag() != null ? Color.decode(ci.getColorTag()) : Color.LIGHT_GRAY);
+        colorBtn.setEnabled(ci.isColorEnabled());
         toggleUrlMode();
     }
 
@@ -601,6 +577,9 @@ public class ConnectionDialog extends JDialog {
         insertPresetParams();
         customJarField.setText("");
         customDriverCombo.removeAllItems();
+        colorCheck.setSelected(false);
+        colorBtn.setBackground(Color.LIGHT_GRAY);
+        colorBtn.setEnabled(false);
         connList.clearSelection();
         toggleUrlMode();
     }
@@ -632,14 +611,14 @@ public class ConnectionDialog extends JDialog {
         ConnectionInfo ci = editing != null ? editing : new ConnectionInfo();
         ci.setName(name);
         ci.setUseUrl(useUrlCheck.isSelected());
-        ci.setDbType(dbTypeCombo.getSelectedIndex() == 2 ? "oracle" : dbTypeCombo.getSelectedIndex() == 1 ? "postgresql" : "oceanbase");
+        ci.setDbType(getSelectedDbTypeKey());
         if (useUrlCheck.isSelected()) {
-            ci.setRawJdbcUrl(urlField.getText().trim());
+            ci.setJdbcUrl(urlField.getText().trim());
             ci.setHost("");
             ci.setPort(0);
             ci.setServiceName("");
         } else {
-            ci.setRawJdbcUrl(null);
+            ci.setJdbcUrl(null);
             ci.setHost(hostField.getText().trim());
             ci.setPort(Integer.parseInt(portField.getText().trim()));
             ci.setServiceName(serviceField.getText().trim());
@@ -654,6 +633,9 @@ public class ConnectionDialog extends JDialog {
         try {
             ci.setQueryTimeout(Integer.parseInt(timeoutField.getText().trim()));
         } catch (NumberFormatException ignored) {}
+
+        ci.setColorEnabled(colorCheck.isSelected());
+        ci.setColorTag(colorCheck.isSelected() ? colorToHex(colorBtn.getBackground()) : null);
 
         List<ConnectionInfo> all = configManager.loadConnections();
         all.removeIf(c -> c.getName().equalsIgnoreCase(ci.getName()));
@@ -689,9 +671,9 @@ public class ConnectionDialog extends JDialog {
         ConnectionInfo ci = new ConnectionInfo();
         ci.setName("__test__");
         ci.setUseUrl(useUrlCheck.isSelected());
-        ci.setDbType(dbTypeCombo.getSelectedIndex() == 2 ? "oracle" : dbTypeCombo.getSelectedIndex() == 1 ? "postgresql" : "oceanbase");
+        ci.setDbType(getSelectedDbTypeKey());
         if (useUrlCheck.isSelected()) {
-            ci.setRawJdbcUrl(urlField.getText().trim());
+            ci.setJdbcUrl(urlField.getText().trim());
             ci.setHost("");
             ci.setPort(0);
             ci.setServiceName("");
@@ -727,4 +709,8 @@ public class ConnectionDialog extends JDialog {
     }
 
     public String getSavedConnName() { return savedConnName; }
+
+    private static String colorToHex(Color c) {
+        return String.format("#%02x%02x%02x", c.getRed(), c.getGreen(), c.getBlue());
+    }
 }

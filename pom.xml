@@ -30,6 +30,8 @@
         <postgresql.version>42.7.5</postgresql.version>
         <ojdbc.version>21.17.0.0</ojdbc.version>
         <oceanbase.version>2.4.18</oceanbase.version>
+        <mysql.version>9.2.0</mysql.version>
+        <mariadb.version>3.5.1</mariadb.version>
         <rsyntaxtextarea.version>3.6.1</rsyntaxtextarea.version>
         <autocomplete.version>3.3.3</autocomplete.version>
         <antlr4.version>4.13.2</antlr4.version>
@@ -64,6 +66,16 @@
                 <groupId>com.oceanbase</groupId>
                 <artifactId>oceanbase-client</artifactId>
                 <version>${oceanbase.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.mysql</groupId>
+                <artifactId>mysql-connector-j</artifactId>
+                <version>${mysql.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.mariadb.jdbc</groupId>
+                <artifactId>mariadb-java-client</artifactId>
+                <version>${mariadb.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.fifesoft</groupId>

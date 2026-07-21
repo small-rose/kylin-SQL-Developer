@@ -360,7 +360,7 @@ public class SqlEditorPanel extends JPanel {
     }
 
     private static String displayName(ConnectionInfo ci) {
-        if (ci.isUseUrl() && ci.getRawJdbcUrl() != null && !ci.getRawJdbcUrl().isEmpty()) {
+        if (ci.isUseUrl() && ci.getJdbcUrl() != null && !ci.getJdbcUrl().isEmpty()) {
             return ci.getName() + " [URL]";
         }
         String host = ci.getHost() != null && !ci.getHost().isEmpty() ? ci.getHost() : "?";

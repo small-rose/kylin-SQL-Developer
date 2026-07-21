@@ -1,5 +1,6 @@
 package com.kylin.plsql.core.db;
 
+import com.kylin.plsql.core.db.type.DbTypeCoordinator;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.slf4j.Logger;
@@ -9,7 +10,7 @@ import java.sql.*;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** HikariCP-based connection pool manager with transaction support. */
+/** HikariCP 连接池管理器 / HikariCP-based connection pool manager with transaction support. */
 public class ConnectionManager {
     private static final Logger log = LoggerFactory.getLogger(ConnectionManager.class);
     private final Map<String, HikariDataSource> dataSources = new ConcurrentHashMap<>();
@@ -19,8 +20,9 @@ public class ConnectionManager {
 
     public ConnectionManager() {}
 
+    /** 测试连接可用性 / Test connection validity using DriverManager. */
     public boolean testConnection(ConnectionInfo info) {
-        String url = info.getJdbcUrl();
+        String url = DbTypeCoordinator.forConnection(info).buildUrl(info);
         try (Connection conn = DriverManager.getConnection(url, info.getUsername(), info.getPassword())) {
             return conn.isValid(5);
         } catch (SQLException e) {
@@ -29,37 +31,33 @@ public class ConnectionManager {
         }
     }
 
+    /** 建立连接池 / Create HikariCP connection pool. */
     public void connect(ConnectionInfo info) throws SQLException {
         String key = info.getName();
         if (dataSources.containsKey(key)) {
             log.info("连接已存在(将重新连接): {}", key);
             disconnect(key);
         }
+        var coord = DbTypeCoordinator.forConnection(info);
         HikariConfig config = new HikariConfig();
-        config.setJdbcUrl(info.getJdbcUrl());
+        config.setJdbcUrl(coord.buildUrl(info));
         config.setUsername(info.getUsername());
         config.setPassword(info.getPassword());
-        config.setDriverClassName(info.getDriverClass());
+        config.setDriverClassName(coord.resolveDriverClassName(info));
         config.setMaximumPoolSize(5);
         config.setMinimumIdle(1);
         config.setIdleTimeout(300000);
         config.setConnectionTimeout(10000);
         config.setAutoCommit(true);
+        config.setConnectionTestQuery(coord.getConnectionTestQuery());
 
-        // Connection test query: Oracle/OceanBase needs FROM DUAL
-        boolean isOceanBase = "oceanbase".equalsIgnoreCase(info.getDbType()) || info.getJdbcUrl().toLowerCase().contains("oceanbase");
-        boolean isOracle = "oracle".equalsIgnoreCase(info.getDbType()) || info.getJdbcUrl().toLowerCase().contains("oracle");
-        if (isOracle || isOceanBase) {
-            config.setConnectionTestQuery("SELECT 1 FROM DUAL");
-        } else {
-            config.setConnectionTestQuery("SELECT 1");
-        }
-        // OceanBase JDBC 驱动建立连接较慢，设合理初始化超时避免惰性创建导致 total=0 尸池
-        if (isOceanBase) config.setInitializationFailTimeout(15000);
+        // 部分数据库（OceanBase）建连较慢，需要放宽初始化失败超时
+        int failTimeout = coord.getInitFailTimeout();
+        if (failTimeout > 0) config.setInitializationFailTimeout(failTimeout);
 
+        // Schema 设置：支持 setSchema 的原生走 HikariCP API，否则用连接参数
         if (info.getSchema() != null && !info.getSchema().isBlank()) {
-            String db = info.getDbType() != null ? info.getDbType().toLowerCase() : "";
-            if ("postgresql".equals(db) || "oceanbase".equals(db)) {
+            if (coord.supportsSetSchema()) {
                 config.setSchema(info.getSchema());
             } else {
                 config.addDataSourceProperty("currentSchema", info.getSchema());
@@ -80,6 +78,7 @@ public class ConnectionManager {
         }
     }
 
+    /** 断开连接池 / Disconnect and close pool. */
     public void disconnect(String name) {
         closeTransactionConn(name);
         HikariDataSource ds = dataSources.remove(name);
@@ -91,6 +90,7 @@ public class ConnectionManager {
         queryTimeouts.remove(name);
     }
 
+    /** 获取连接（事务模式优先）/ Get connection (transaction-mode优先). */
     public Connection getConnection(String name) throws SQLException {
         Connection tc = transactionConns.get(name);
         if (tc != null && !tc.isClosed()) return tc;
@@ -104,7 +104,7 @@ public class ConnectionManager {
         return ds.getConnection();
     }
 
-    /** 强制重新连接（替换可能已失效的池后获取连接）。 */
+    /** 强制重连 / Force reconnect and get connection. */
     public Connection reconnectAndGet(String name, ConnectionInfo info) throws SQLException {
         disconnect(name);
         connect(info);
@@ -121,6 +121,7 @@ public class ConnectionManager {
         return autoCommitStates.getOrDefault(name, true);
     }
 
+    /** 切换自动提交模式 / Toggle auto-commit (opens/closes transaction connection). */
     public void setAutoCommit(String name, boolean autoCommit) {
         autoCommitStates.put(name, autoCommit);
         if (autoCommit) {

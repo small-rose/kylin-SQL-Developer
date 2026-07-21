@@ -8,6 +8,7 @@ import com.kylin.plsql.core.config.DbMetadataConfig;
 import com.kylin.plsql.core.config.ThemeManager;
 import com.kylin.plsql.core.db.ConnectionInfo;
 import com.kylin.plsql.core.db.ConnectionManager;
+import com.kylin.plsql.core.db.type.DbTypeCoordinator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -235,6 +236,10 @@ public class ObjectBrowser extends JPanel {
         return String.format("#%06x", c.getRGB() & 0xFFFFFF);
     }
 
+    private static boolean isDark(Color c) {
+        return (c.getRed() * 299 + c.getGreen() * 587 + c.getBlue() * 114) / 1000 < 128;
+    }
+
     private static Icon iconForTypeLabel(String label) {
         return switch (label) {
             case "表" -> ICON_TABLE;
@@ -297,12 +302,25 @@ public class ObjectBrowser extends JPanel {
                     int total = all != null ? all.size() : 0;
                     java.util.Set<String> hidden = connHiddenSchemas.getOrDefault(cn, java.util.Collections.emptySet());
                     int shown = total - hidden.size();
-                    Color bg = sel ? getBackgroundSelectionColor() : t.getBackground();
-                    Color fg = sel ? getTextSelectionColor() : getTextNonSelectionColor();
+                    Color bg; Color fg;
+                    if (ch.info.isColorEnabled() && ch.info.getColorTag() != null) {
+                        try {
+                            Color cc = Color.decode(ch.info.getColorTag());
+                            bg = cc;
+                            fg = isDark(cc) ? Color.WHITE : Color.BLACK;
+                        } catch (Exception ignored) {
+                            bg = sel ? getBackgroundSelectionColor() : t.getBackground();
+                            fg = sel ? getTextSelectionColor() : getTextNonSelectionColor();
+                        }
+                    } else {
+                        bg = sel ? getBackgroundSelectionColor() : t.getBackground();
+                        fg = sel ? getTextSelectionColor() : getTextNonSelectionColor();
+                    }
                     JPanel p = new JPanel(new BorderLayout(10, 0));
                     p.setOpaque(true); p.setBackground(bg);
                     JLabel nl = new JLabel(cn);
                     nl.setFont(FontManager.getInstance().resolve("font.left")); nl.setForeground(fg);
+                    if (sel) nl.setFont(nl.getFont().deriveFont(java.awt.Font.BOLD));
                     p.add(nl, BorderLayout.CENTER);
                     JLabel bl = new JLabel(shown + "  of  " + total);
                     bl.setFont(FontManager.getInstance().resolve("font.left"));
@@ -488,7 +506,7 @@ public class ObjectBrowser extends JPanel {
         if (cached != null) return cached;
         String fromInfo = h.info.getDbType();
         if (fromInfo != null && !fromInfo.isBlank()) return fromInfo.toLowerCase();
-        String url = h.info.getJdbcUrl();
+        String url = DbTypeCoordinator.forConnection(h.info).buildUrl(h.info);
         if (url != null) {
             String u = url.toLowerCase();
             if (u.startsWith("jdbc:oceanbase:")) return "oceanbase";

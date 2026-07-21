@@ -1,14 +1,21 @@
 package com.kylin.plsql.core.db;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Objects;
 
-import java.util.*;
-
-/** Database connection information model with JDBC URL and driver auto-detection. */
+/**
+ * 数据库连接信息纯 POJO / Pure POJO for database connection metadata.
+ * <p>
+ * 仅含字段和 getter/setter，所有业务逻辑在 {@code com.kylin.plsql.core.db.type.DbTypeCoordinator} 中。
+ * Contains only fields and accessors. All behavior is in DbTypeCoordinator.
+ * <p>
+ * 与 connections.json 的 Gson 序列化兼容 / Gson-serialization compatible.
+ */
 public class ConnectionInfo {
     private String name;
-    private String dbType;       // "oracle" | "postgresql" | "oceanbase"
+    private String dbType;
+    private String dbVersion;
     private String host;
     private int port;
     private String serviceName;
@@ -20,12 +27,14 @@ public class ConnectionInfo {
     private long createdAt;
     private long updatedAt;
 
-    private boolean useUrl;      // true = 使用直接 JDBC URL 模式
-    private String jdbcUrl;      // 直接 JDBC URL（useUrl=true 时生效）
-    private int queryTimeout;    // SQL/存过执行超时秒数（0=不限）
-    private Map<String, String> jdbcParams = new LinkedHashMap<>();  // 自定义 JDBC URL 参数
-    private String customDriverClass;                                // 自定义驱动类名
-    private String customDriverJar;                                  // 自定义驱动包路径
+    private boolean useUrl;
+    private String jdbcUrl;
+    private int queryTimeout;
+    private Map<String, String> jdbcParams = new LinkedHashMap<>();
+    private String customDriverClass;
+    private String customDriverJar;
+    private String colorTag;
+    private boolean colorEnabled;
 
     public ConnectionInfo() {
         this.createdAt = System.currentTimeMillis();
@@ -43,80 +52,12 @@ public class ConnectionInfo {
         this.dbType = dbType;
     }
 
-    // ── JDBC URL 生成 ──
-
-    public String getJdbcUrl() {
-        String url;
-        if (useUrl && jdbcUrl != null && !jdbcUrl.isBlank()) {
-            url = jdbcUrl;
-        } else if ("oceanbase".equalsIgnoreCase(dbType)) {
-            url = String.format("jdbc:oceanbase:oracle://%s:%d/%s", host, port, serviceName);
-        } else if ("postgresql".equalsIgnoreCase(dbType)) {
-            url = String.format("jdbc:postgresql://%s:%d/%s", host, port, serviceName);
-        } else {
-            url = String.format("jdbc:oracle:thin:@%s:%d/%s", host, port, serviceName);
-        }
-        // OceanBase Oracle 模式 JDBC 驱动未实现 conn.getSchema() 等 JDBC 4.2 方法，
-        // 追加 compatibleOjdbcVersion=8 让驱动启用 JDK8 兼容 API。
-        if ("oceanbase".equalsIgnoreCase(dbType) && !url.toLowerCase().contains("compatibleojdbcversion")) {
-            url += url.contains("?") ? "&compatibleOjdbcVersion=8" : "?compatibleOjdbcVersion=8";
-        }
-        // 追加用户自定义参数
-        if (jdbcParams != null && !jdbcParams.isEmpty()) {
-            StringBuilder sb = new StringBuilder(url);
-            for (Map.Entry<String, String> e : jdbcParams.entrySet()) {
-                if (e.getKey() != null && !e.getKey().isBlank()) {
-                    sb.append(sb.indexOf("?") >= 0 ? '&' : '?');
-                    sb.append(e.getKey()).append('=').append(e.getValue() != null ? e.getValue() : "");
-                }
-            }
-            url = sb.toString();
-        }
-        return url;
-    }
-
-    public String getDriverClass() {
-        if (customDriverClass != null && !customDriverClass.isBlank()) {
-            return customDriverClass;
-        }
-        if (useUrl && jdbcUrl != null && !jdbcUrl.isBlank()) {
-            String fromUrl = detectDriverFromUrl(jdbcUrl);
-            if (!fromUrl.isEmpty()) return fromUrl;
-            // URL 检测失败时降级到 dbType 字段
-        }
-        if ("oceanbase".equalsIgnoreCase(dbType)) {
-            return "com.oceanbase.jdbc.Driver";
-        }
-        if ("postgresql".equalsIgnoreCase(dbType)) {
-            return "org.postgresql.Driver";
-        }
-        return "oracle.jdbc.OracleDriver";
-    }
-
-    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ConnectionInfo.class);
-
-    private static String detectDriverFromUrl(String url) {
-        if (url == null) return "oracle.jdbc.OracleDriver";
-        String lower = url.toLowerCase();
-        if (lower.startsWith("jdbc:oceanbase:")) return "com.oceanbase.jdbc.Driver";
-        if (lower.startsWith("jdbc:postgresql:")) return "org.postgresql.Driver";
-        if (lower.startsWith("jdbc:oracle:")) return "oracle.jdbc.OracleDriver";
-        if (lower.startsWith("jdbc:mysql:")) return "com.mysql.cj.jdbc.Driver";
-        if (lower.startsWith("jdbc:mariadb:")) return "org.mariadb.jdbc.Driver";
-        if (lower.startsWith("jdbc:sqlserver:")) return "com.microsoft.sqlserver.jdbc.SQLServerDriver";
-        if (lower.startsWith("jdbc:db2:")) return "com.ibm.db2.jcc.DB2Driver";
-        if (lower.startsWith("jdbc:h2:")) return "org.h2.Driver";
-        if (lower.startsWith("jdbc:sqlite:")) return "org.sqlite.JDBC";
-        log.warn("未知 JDBC URL 前缀，使用通用驱动类: {}", url);
-        return "";
-    }
-
-    // ── Getter / Setter ──
-
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
     public String getDbType() { return dbType; }
     public void setDbType(String dbType) { this.dbType = dbType; }
+    public String getDbVersion() { return dbVersion; }
+    public void setDbVersion(String dbVersion) { this.dbVersion = dbVersion; }
     public String getHost() { return host; }
     public void setHost(String host) { this.host = host; }
     public int getPort() { return port; }
@@ -133,10 +74,14 @@ public class ConnectionInfo {
     public void setCharset(String charset) { this.charset = charset; }
     public boolean isAutoCommit() { return autoCommit; }
     public void setAutoCommit(boolean autoCommit) { this.autoCommit = autoCommit; }
+    public long getCreatedAt() { return createdAt; }
+    public void setCreatedAt(long createdAt) { this.createdAt = createdAt; }
+    public long getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(long updatedAt) { this.updatedAt = updatedAt; }
     public boolean isUseUrl() { return useUrl; }
     public void setUseUrl(boolean useUrl) { this.useUrl = useUrl; }
-    public String getRawJdbcUrl() { return jdbcUrl; }
-    public void setRawJdbcUrl(String jdbcUrl) { this.jdbcUrl = jdbcUrl; }
+    public String getJdbcUrl() { return jdbcUrl; }
+    public void setJdbcUrl(String jdbcUrl) { this.jdbcUrl = jdbcUrl; }
     public int getQueryTimeout() { return queryTimeout; }
     public void setQueryTimeout(int queryTimeout) { this.queryTimeout = queryTimeout; }
     public Map<String, String> getJdbcParams() { return jdbcParams; }
@@ -145,6 +90,10 @@ public class ConnectionInfo {
     public void setCustomDriverClass(String customDriverClass) { this.customDriverClass = customDriverClass; }
     public String getCustomDriverJar() { return customDriverJar; }
     public void setCustomDriverJar(String customDriverJar) { this.customDriverJar = customDriverJar; }
+    public String getColorTag() { return colorTag; }
+    public void setColorTag(String colorTag) { this.colorTag = colorTag; }
+    public boolean isColorEnabled() { return colorEnabled; }
+    public void setColorEnabled(boolean colorEnabled) { this.colorEnabled = colorEnabled; }
 
     @Override
     public String toString() {
@@ -159,7 +108,9 @@ public class ConnectionInfo {
         if (this == o) return true;
         if (!(o instanceof ConnectionInfo)) return false;
         ConnectionInfo that = (ConnectionInfo) o;
-        return port == that.port && name.equals(that.name) && host.equals(that.host) && serviceName.equals(that.serviceName) && username.equals(that.username) && Objects.equals(jdbcUrl, that.jdbcUrl);
+        return port == that.port && name.equals(that.name) && host.equals(that.host)
+            && serviceName.equals(that.serviceName) && username.equals(that.username)
+            && Objects.equals(jdbcUrl, that.jdbcUrl);
     }
 
     @Override
