@@ -429,4 +429,43 @@ public class ConfigManager {
         saveMetadataConfigs(defaults);
         return defaults;
     }
+
+    // ── 导出历史 ──
+
+    private static final String EXPORT_HISTORY_FILE = "export_history.json";
+
+    public static class ExportHistoryItem {
+        public String name;
+        public String format;
+        public String status;
+        public long startTime;
+        public long endTime;
+        public int totalRows;
+        public String filePath;
+        public String errorMessage;
+
+        public ExportHistoryItem() {}
+    }
+
+    public void saveExportHistory(List<ExportHistoryItem> items) {
+        File file = configPath.resolve(EXPORT_HISTORY_FILE).toFile();
+        try (Writer w = new OutputStreamWriter(new FileOutputStream(file), StandardCharsets.UTF_8)) {
+            gson.toJson(items, w);
+        } catch (IOException e) {
+            log.warn("保存导出历史失败", e);
+        }
+    }
+
+    public List<ExportHistoryItem> loadExportHistory() {
+        File file = configPath.resolve(EXPORT_HISTORY_FILE).toFile();
+        if (!file.exists()) return new ArrayList<>();
+        try (Reader r = new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8)) {
+            Type type = new TypeToken<List<ExportHistoryItem>>() {}.getType();
+            List<ExportHistoryItem> list = gson.fromJson(r, type);
+            return list != null ? list : new ArrayList<>();
+        } catch (IOException e) {
+            log.warn("加载导出历史失败", e);
+            return new ArrayList<>();
+        }
+    }
 }

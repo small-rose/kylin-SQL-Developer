@@ -1,5 +1,7 @@
 package com.kylin.plsql.ui.dialog.tools;
 
+import com.kylin.plsql.core.config.ConfigManager;
+import com.kylin.plsql.ui.component.common.IconUtil;
 import com.kylin.plsql.ui.dialog.common.BaseToolDialog;
 
 import com.kylin.plsql.ui.component.common.ToastManager;
@@ -7,6 +9,7 @@ import com.kylin.plsql.ui.component.common.ToastManager;
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
+import javax.swing.table.TableCellEditor;
 import javax.swing.table.TableModel;
 import java.awt.*;
 import java.io.*;
@@ -98,6 +101,21 @@ public class ExportTaskListDialog extends BaseToolDialog {
         tasks = new ArrayList<>();
         taskModel = new TaskTableModel(tasks);
 
+        // 从存储加载上次的任务
+        var cm = ConfigManager.getInstance();
+        for (var h : cm.loadExportHistory()) {
+            ExportTask t = new ExportTask();
+            t.name = h.name; t.format = h.format; t.status = h.status;
+            t.startTime = h.startTime; t.endTime = h.endTime;
+            t.totalRows = h.totalRows; t.filePath = h.filePath;
+            t.errorMessage = h.errorMessage;
+            tasks.add(t);
+        }
+
+        addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override public void windowClosing(java.awt.event.WindowEvent e) { saveHistory(); }
+        });
+
         taskTable = new JTable(taskModel);
         taskTable.setRowHeight(28);
         taskTable.getColumnModel().getColumn(0).setPreferredWidth(200);
@@ -139,10 +157,25 @@ public class ExportTaskListDialog extends BaseToolDialog {
         return instance;
     }
 
+    /** 将已完成/失败的任务持久化到存储。 */
+    public void saveHistory() {
+        var items = new java.util.ArrayList<ConfigManager.ExportHistoryItem>();
+        for (ExportTask t : tasks) {
+            if (!"已完成".equals(t.status) && !"失败".equals(t.status)) continue;
+            var h = new ConfigManager.ExportHistoryItem();
+            h.name = t.name; h.format = t.format; h.status = t.status;
+            h.startTime = t.startTime; h.endTime = t.endTime;
+            h.totalRows = t.totalRows; h.filePath = t.filePath;
+            h.errorMessage = t.errorMessage;
+            items.add(h);
+        }
+        ConfigManager.getInstance().saveExportHistory(items);
+    }
+
     public void submitTask(javax.swing.table.TableModel model, String format,
                            List<Integer> columns, String tableName, boolean header,
                            Charset charset, String dateFormat, String nullPlaceholder,
-                           int maxBlobSize) {
+                           int maxBlobSize, String filePath) {
         ExportTask task = new ExportTask();
         task.id = java.util.UUID.randomUUID().toString().substring(0, 8);
         task.name = "导出 " + (tableName.isEmpty() ? "表" : tableName)
@@ -223,11 +256,12 @@ public class ExportTaskListDialog extends BaseToolDialog {
                         }
                     }
 
-                    File tempFile = File.createTempFile("export_", ".tmp");
-                    try (Writer w = new OutputStreamWriter(new FileOutputStream(tempFile), charset)) {
+                    File outFile = filePath != null && !filePath.isEmpty()
+                        ? new File(filePath) : File.createTempFile("export_", ".tmp");
+                    task.filePath = outFile.getAbsolutePath();
+                    try (Writer w = new OutputStreamWriter(new FileOutputStream(outFile), charset)) {
                         w.write(sb.toString());
                     }
-                    task.filePath = tempFile.getAbsolutePath();
                     task.endTime = System.currentTimeMillis();
                 } catch (Exception e) {
                     task.errorMessage = e.getMessage();
@@ -299,7 +333,7 @@ public class ExportTaskListDialog extends BaseToolDialog {
                 failed.retryTableName, failed.retryHeader,
                 Charset.forName(failed.retryCharsetName),
                 failed.retryDateFormat, failed.retryNullPlaceholder,
-                failed.retryMaxBlobSize);
+                failed.retryMaxBlobSize, null);
     }
 
     private void openFile(int row) {
@@ -313,66 +347,92 @@ public class ExportTaskListDialog extends BaseToolDialog {
         }
     }
 
+    private void openFileLocation(int row) {
+        ExportTask t = tasks.get(row);
+        if (t.filePath != null) {
+            try {
+                File file = new File(t.filePath);
+                if (file.exists()) Desktop.getDesktop().open(file.getParentFile());
+            } catch (Exception e) {
+                ToastManager.showError(this, "打开位置失败: " + e.getMessage());
+            }
+        }
+    }
+
     private void clearCompleted() {
         tasks.removeIf(t -> "已完成".equals(t.status) || "失败".equals(t.status));
         taskModel.fireTableDataChanged();
     }
 
+    private void deleteTask(int row) {
+        tasks.remove(row);
+        taskModel.fireTableRowsDeleted(row, row);
+    }
+
     private class ButtonRenderer extends DefaultTableCellRenderer {
         @Override public Component getTableCellRendererComponent(JTable table, Object value,
                 boolean isSelected, boolean hasFocus, int row, int col) {
-            if (value instanceof ExportTask) {
-                ExportTask t = (ExportTask) value;
-                JButton btn = new JButton();
-                if ("已完成".equals(t.status)) btn.setText("打开文件");
-                else if ("失败".equals(t.status)) btn.setText("重试");
-                else if ("排队中".equals(t.status) || "执行中".equals(t.status))
-                    btn.setText("取消");
-                else btn.setText("--");
-                return btn;
+            if (value instanceof ExportTask t) {
+                return makeActionPanel(row, t, () -> {});
             }
             return this;
         }
     }
 
-    private class ButtonEditor extends DefaultCellEditor {
-        ButtonEditor() {
-            super(new JTextField());
-            setClickCountToStart(1);
-        }
+    private class ButtonEditor extends AbstractCellEditor implements TableCellEditor {
+        private JPanel currentPanel;
+        ButtonEditor() {}
 
         @Override public Component getTableCellEditorComponent(JTable table, Object value,
                 boolean isSelected, int row, int col) {
-            if (value instanceof ExportTask) {
-                ExportTask t = (ExportTask) value;
-                JButton btn = new JButton();
-                String text;
-                Runnable action;
-                if ("已完成".equals(t.status)) {
-                    text = "打开文件";
-                    action = () -> openFile(row);
-                } else if ("失败".equals(t.status)) {
-                    text = "重试";
-                    action = () -> retryTask(row);
-                } else if ("排队中".equals(t.status) || "执行中".equals(t.status)) {
-                    text = "取消";
-                    action = () -> cancelTask(row);
-                } else {
-                    text = "--";
-                    action = () -> {};
-                }
-                btn.setText(text);
-                btn.addActionListener(e -> {
-                    action.run();
-                    fireEditingStopped();
-                });
-                return btn;
+            if (value instanceof ExportTask t) {
+                currentPanel = makeActionPanel(row, t, () -> stopCellEditing());
+            } else {
+                currentPanel = new JPanel();
             }
-            return new JLabel("错误");
+            return currentPanel;
         }
 
         @Override public Object getCellEditorValue() {
             return "";
         }
+    }
+
+    /** 根据任务状态返回操作面板，onAction 在按钮点击后执行（如结束编辑）。 */
+    private JPanel makeActionPanel(int row, ExportTask t, Runnable onAction) {
+        JPanel p = new JPanel(new FlowLayout(FlowLayout.CENTER, 2, 0));
+        p.setOpaque(false);
+        if ("已完成".equals(t.status)) {
+            p.add(iconBtn("file-play", "打开文件", () -> { openFile(row); onAction.run(); }));
+            p.add(iconBtn("folder-open-dot", "打开文件所在位置", () -> { openFileLocation(row); onAction.run(); }));
+            p.add(iconBtn("trash-2", "删除", () -> { deleteTask(row); onAction.run(); }));
+        } else if ("失败".equals(t.status)) {
+            p.add(iconBtn("retry", "重试", () -> { retryTask(row); onAction.run(); }));
+            p.add(iconBtn("trash-2", "删除", () -> { deleteTask(row); onAction.run(); }));
+        } else if ("排队中".equals(t.status) || "执行中".equals(t.status)) {
+            p.add(iconBtn("undo-2", "取消", () -> { cancelTask(row); onAction.run(); }));
+        } else {
+            p.add(textBtn("--", () -> {}));
+        }
+        return p;
+    }
+
+    private JButton iconBtn(String icon, String tip, Runnable action) {
+        JButton b = new JButton();
+        b.setToolTipText(tip);
+        b.setIcon(IconUtil.loadButtonIcon(icon, null));
+        b.setFocusable(false);
+        b.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
+        b.setContentAreaFilled(false);
+        b.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        b.addActionListener(e -> action.run());
+        return b;
+    }
+
+    private JButton textBtn(String text, Runnable action) {
+        JButton b = new JButton(text);
+        b.setFocusable(false);
+        b.addActionListener(e -> action.run());
+        return b;
     }
 }

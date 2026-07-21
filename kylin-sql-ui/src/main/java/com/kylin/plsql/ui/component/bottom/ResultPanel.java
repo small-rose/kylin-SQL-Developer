@@ -4,6 +4,7 @@ import com.kylin.plsql.ui.component.common.IconUtil;
 import com.kylin.plsql.core.config.ThemeManager;
 import com.kylin.plsql.core.config.FontManager;
 import com.kylin.plsql.core.db.SqlExecutor;
+import com.kylin.plsql.ui.dialog.tools.ExportDialog;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,6 +31,7 @@ import javax.swing.event.ListSelectionListener;
 public class ResultPanel extends JPanel {
     private static final Logger log = LoggerFactory.getLogger(ResultPanel.class);
     private final ThemeManager theme = ThemeManager.getInstance();
+    private Color hoverBg;
 
     private final JTabbedPane resultTabs;
     private final JTextArea messageArea;
@@ -123,6 +125,8 @@ public class ResultPanel extends JPanel {
 
     public void applyTheme() {
         setBackground(theme.resolve("bg.main"));
+        Color fg = theme.resolve("fg.main");
+        hoverBg = new Color(fg.getRed(), fg.getGreen(), fg.getBlue(), 60);
         applyTabTheme();
         applyMessageColors();
         for (Component c : getComponents()) {
@@ -263,34 +267,74 @@ public class ResultPanel extends JPanel {
         tb.setFloatable(false);
         tb.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, theme.resolve("border.light")));
 
-        JButton prevBtn = makeTbBtn("◀", "上一页");
+        JButton prevBtn = makeTbBtn("arrow-left", "上一页", "上一页");
         prevBtn.addActionListener(e -> { if (d.currentPage > 0) { d.currentPage--; d.expandedCells.clear(); d.model.fireTableDataChanged(); updatePageInfo(d); }});
 
-        JComboBox<String> psc = new JComboBox<>(new String[]{"25", "50", "100", "500", "全部"});
+        JComboBox<String> psc = new JComboBox<>(new String[]{"10", "100", "250", "500", "1000", "全部", "自定义"});
         psc.setSelectedItem("100");
         psc.setFont(FontManager.getInstance().resolve("font.bottom"));
-        psc.setPreferredSize(new Dimension(55, 22));
-        psc.setMaximumSize(new Dimension(55, 22));
+        psc.setPreferredSize(new Dimension(90, 22));
+        psc.setMaximumSize(new Dimension(90, 22));
         psc.addActionListener(e -> {
             if (psc.getSelectedItem() == null) return;
             String v = (String) psc.getSelectedItem();
-            d.pageSize = "全部".equals(v) ? Integer.MAX_VALUE : Integer.parseInt(v);
+            if ("自定义".equals(v)) {
+                String input = JOptionPane.showInputDialog(this, "每页条数大小为：", "自定义分页大小", JOptionPane.PLAIN_MESSAGE);
+                if (input != null) {
+                    try {
+                        int n = Integer.parseInt(input.trim());
+                        if (n <= 0) throw new NumberFormatException();
+                        d.pageSize = n;
+                    } catch (NumberFormatException ex) {
+                        JOptionPane.showMessageDialog(this, "请输入正整数");
+                    }
+                }
+                psc.setSelectedItem(String.valueOf(d.pageSize));
+                // 不 return，继续到公共刷新代码（值不在 combo 列表中时 setSelectedItem 无效果）
+            }
+            if ("全部".equals(v)) {
+                int totalRows = d.model.getRowCount();
+                if (totalRows > 100000) {
+                    int r = JOptionPane.showConfirmDialog(this,
+                        "当前数据量 " + totalRows + " 行，超过 10 万行。\n加载全部数据可能导致内存溢出或界面卡顿。\n是否继续？",
+                        "数据量较大", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                    if (r != JOptionPane.YES_OPTION) {
+                        psc.setSelectedItem(String.valueOf(d.pageSize));
+                        return;
+                    }
+                }
+                d.pageSize = Integer.MAX_VALUE;
+            } else if (!"自定义".equals(v)) {
+                d.pageSize = Integer.parseInt(v);
+            }
             d.currentPage = 0;
             d.expandedCells.clear();
             d.model.fireTableDataChanged();
             updatePageInfo(d);
         });
 
-        JButton nextBtn = makeTbBtn("▶", "下一页");
+        JButton nextBtn = makeTbBtn("arrow-right", "下一页", "下一页");
         nextBtn.addActionListener(e -> { if (d.currentPage < d.getTotalPages() - 1) { d.currentPage++; d.expandedCells.clear(); d.model.fireTableDataChanged(); updatePageInfo(d); }});
 
-        JButton refreshBtn = makeTbBtn("↻", "刷新结果集");
+        JButton exportBtn = makeTbBtn("arrow-down-to-line", "导出", "导出当前结果集");
+        exportBtn.addActionListener(e -> {
+            Frame owner = (Frame) SwingUtilities.getWindowAncestor(this);
+            new ExportDialog(owner, d.model, d.sql).setVisible(true);
+        });
+
+        JButton importBtn = makeTbBtn("arrow-up-to-line", "导入", "导入数据");
+        importBtn.addActionListener(e -> {
+            // TODO: 导入功能
+            appendMessage("导入功能待实现");
+        });
+
+        JButton refreshBtn = makeTbBtn("refresh", "刷新", "刷新结果集");
         refreshBtn.addActionListener(e -> { d.currentPage = 0; d.expandedCells.clear(); d.model.fireTableDataChanged(); updatePageInfo(d); });
 
-        JButton stopBtn = makeTbBtn("■", "停止查询");
+        JButton stopBtn = makeTbBtn("stop", "停止", "停止查询");
         stopBtn.addActionListener(e -> appendMessage("查询已取消"));
 
-        JButton pinBtn = makeTbBtn("📌", "固定标签不被替换");
+        JButton pinBtn = makeTbBtn("pin", "固定", "固定标签不被替换");
         pinBtn.addActionListener(e -> {
             d.pinned = !d.pinned;
             pinBtn.setForeground(d.pinned ? theme.resolve("accent.green") : theme.resolve("fg.main"));
@@ -311,6 +355,8 @@ public class ResultPanel extends JPanel {
         tb.add(refreshBtn);
         tb.add(stopBtn);
         tb.add(pinBtn);
+        tb.add(exportBtn);
+        tb.add(importBtn);
         tb.add(Box.createHorizontalGlue());
         tb.add(infoLbl);
 
@@ -414,15 +460,39 @@ public class ResultPanel extends JPanel {
         if (d.table != null) d.table.repaint();
     }
 
-    private JButton makeTbBtn(String text, String tip) {
-        JButton btn = new JButton(text);
+    private JButton makeTbBtn(String iconName, String fallback, String tip) {
+        JButton btn = new JButton();
         btn.setToolTipText(tip);
-        btn.setFont(FontManager.getInstance().resolve("font.bottom"));
+        ImageIcon svgIcon = IconUtil.loadButtonIcon(iconName, null);
+        if (svgIcon != null) {
+            btn.setIcon(svgIcon);
+        } else {
+            java.net.URL url = getClass().getResource("/icons/" + iconName + ".png");
+            if (url != null) {
+                btn.setIcon(new ImageIcon(url));
+            } else {
+                btn.setText(fallback);
+                btn.setFont(FontManager.getInstance().resolve("font.bottom"));
+            }
+        }
         btn.setFocusable(false);
         btn.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
         btn.setContentAreaFilled(false);
         btn.setForeground(theme.resolve("fg.main"));
         btn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        btn.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override public void mouseEntered(java.awt.event.MouseEvent e) {
+                btn.setContentAreaFilled(true);
+                btn.setOpaque(true);
+                btn.setBackground(hoverBg);
+                btn.repaint();
+            }
+            @Override public void mouseExited(java.awt.event.MouseEvent e) {
+                btn.setContentAreaFilled(false);
+                btn.setOpaque(false);
+                btn.repaint();
+            }
+        });
         return btn;
     }
 

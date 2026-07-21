@@ -2499,9 +2499,9 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
 
     private void showAdvancedExportDialog() {
         var rp = bottomPanel.getResultPanel();
-        if (rp == null) { ToastManager.show(this, "没有结果集"); return; }
+        if (rp == null) return;
         var model = rp.getCurrentTableModel();
-        if (model == null || model.getRowCount() == 0) { ToastManager.show(this, "结果集为空"); return; }
+        if (model == null) model = new javax.swing.table.DefaultTableModel();
         new AdvancedExportDialog(MainFrame.this, model).setVisible(true);
     }
 

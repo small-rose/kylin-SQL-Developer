@@ -1,8 +1,8 @@
 package com.kylin.plsql.ui.dialog.tools;
 
 import com.kylin.plsql.ui.dialog.common.BaseToolDialog;
-
 import com.kylin.plsql.core.config.FontManager;
+import com.kylin.plsql.core.parser.SqlTableExtractor;
 import com.kylin.plsql.ui.component.common.ToastManager;
 
 import javax.swing.*;
@@ -15,8 +15,8 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.List;
 
-/** Advanced result set export dialog supporting INSERT, JSON, XML, Markdown formats */
-public class AdvancedExportDialog extends BaseToolDialog {
+/** 结果集导出对话框，支持 INSERT / CSV / JSON / XML / Markdown 格式。 */
+public class ExportDialog extends BaseToolDialog {
     private final TableModel sourceModel;
     private final JTextArea outputArea;
     private final JComboBox<String> formatCombo;
@@ -29,9 +29,10 @@ public class AdvancedExportDialog extends BaseToolDialog {
     private final JTextField nullPlaceholder;
     private final JSpinner maxBlobSize;
     private final JPanel colCheckPanel;
+    private final JTextField filePathField;
 
-    public AdvancedExportDialog(Frame owner, TableModel sourceModel) {
-        super(owner, "高级导出");
+    public ExportDialog(Frame owner, TableModel sourceModel, String sql) {
+        super(owner, "导出结果集");
         this.sourceModel = sourceModel;
         setSizeRatio(0.7);
         centerOnOwner();
@@ -45,7 +46,8 @@ public class AdvancedExportDialog extends BaseToolDialog {
                 new String[]{"Oracle", "MySQL", "PostgreSQL", "ANSI SQL"});
         dialectCombo.addActionListener(e -> doExport());
 
-        tableNameField = new JTextField("", 15);
+        String defaultTable = SqlTableExtractor.guessTableName(sql);
+        tableNameField = new JTextField(defaultTable, 15);
 
         formatCombo = new JComboBox<>(
                 new String[]{"INSERT", "CSV", "JSON", "XML", "Markdown"});
@@ -53,6 +55,7 @@ public class AdvancedExportDialog extends BaseToolDialog {
             boolean insert = "INSERT".equals(formatCombo.getSelectedItem());
             tableNameField.setEnabled(insert);
             dialectCombo.setEnabled(insert);
+            updateFilePathExt();
             doExport();
         });
 
@@ -99,10 +102,8 @@ public class AdvancedExportDialog extends BaseToolDialog {
         c.gridx = 3; c.weightx = 0.5;
         configPanel.add(tableNameField, c);
         c.gridx = 4; c.weightx = 0;
-        configPanel.add(headerCb, c);
-        c.gridx = 5; c.weightx = 0;
         configPanel.add(new JLabel("编码:"), c);
-        c.gridx = 6; c.weightx = 0.3;
+        c.gridx = 5; c.weightx = 0.3;
         configPanel.add(charsetCombo, c);
 
         c.gridy = 1; c.gridx = 0; c.weightx = 0;
@@ -122,6 +123,8 @@ public class AdvancedExportDialog extends BaseToolDialog {
         configPanel.add(new JLabel("BLOB上限:"), c);
         c.gridx = 1; c.weightx = 0.3;
         configPanel.add(maxBlobSize, c);
+        c.gridx = 2; c.weightx = 0;
+        configPanel.add(headerCb, c);
 
         JLabel hintLabel = new JLabel(
                 "选择要导出的列，切换格式自动预览 | INSERT 格式需填写表名 | 大数据量建议使用异步导出");
@@ -143,17 +146,9 @@ public class AdvancedExportDialog extends BaseToolDialog {
         splitPane.setResizeWeight(0.25);
         splitPane.setContinuousLayout(true);
 
-        JButton syncBtn = new JButton("同步导出");
-        syncBtn.addActionListener(e -> {
-            if (sourceModel.getRowCount() > 1000) {
-                int opt = JOptionPane.showOptionDialog(this,
-                        "数据量较大（" + sourceModel.getRowCount() + " 行），是否改为异步导出？",
-                        "确认", JOptionPane.YES_NO_CANCEL_OPTION,
-                        JOptionPane.QUESTION_MESSAGE, null,
-                        new String[]{"异步", "同步", "取消"}, "异步");
-                if (opt == 0) { doExportAsync(); return; }
-                if (opt == 2) return;
-            }
+        JButton copyBtn = new JButton("复制");
+        copyBtn.setToolTipText("复制预览内容到剪贴板");
+        copyBtn.addActionListener(e -> {
             String content = outputArea.getText();
             if (!content.isEmpty()) {
                 Toolkit.getDefaultToolkit().getSystemClipboard()
@@ -162,16 +157,43 @@ public class AdvancedExportDialog extends BaseToolDialog {
             }
         });
 
+        final JButton syncBtn = new JButton("同步导出");
+        syncBtn.setToolTipText("写入文件路径指定的文件");
         JButton asyncBtn = new JButton("异步导出");
         asyncBtn.addActionListener(e -> doExportAsync());
 
-        JButton saveBtn = new JButton("保存文件...");
-        saveBtn.addActionListener(e -> saveToFile());
+        filePathField = new JTextField(35);
+        filePathField.setFont(FontManager.getInstance().resolve("font.dialog"));
+        filePathField.setText(defaultFilePath((String) formatCombo.getSelectedItem()));
+        JButton browseBtn = new JButton("浏览...");
+        browseBtn.addActionListener(e -> {
+            JFileChooser fc = new JFileChooser();
+            String format = (String) formatCombo.getSelectedItem();
+            String ext = "." + (format != null ? format.toLowerCase() : "txt");
+            fc.setSelectedFile(new File("export" + ext));
+            if (fc.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
+                filePathField.setText(fc.getSelectedFile().getAbsolutePath());
+            }
+        });
+        syncBtn.addActionListener(e -> {
+            String path = filePathField.getText().trim();
+            if (!path.isEmpty()) {
+                saveToFile(path);
+                revealInFileManager(path);
+            }
+        });
 
-        JPanel southPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 4));
-        southPanel.add(syncBtn);
-        southPanel.add(asyncBtn);
-        southPanel.add(saveBtn);
+        JPanel southPanel = new JPanel(new BorderLayout(4, 0));
+        JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        leftPanel.add(new JLabel("文件路径:"));
+        leftPanel.add(filePathField);
+        leftPanel.add(browseBtn);
+        JPanel rightPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 4));
+        rightPanel.add(copyBtn);
+        rightPanel.add(syncBtn);
+        rightPanel.add(asyncBtn);
+        southPanel.add(leftPanel, BorderLayout.WEST);
+        southPanel.add(rightPanel, BorderLayout.EAST);
 
         JPanel northWrapper = new JPanel(new BorderLayout());
         northWrapper.add(configPanel, BorderLayout.NORTH);
@@ -436,24 +458,72 @@ public class AdvancedExportDialog extends BaseToolDialog {
         String nullVal = nullPlaceholder.getText();
         int maxBlob = (Integer) maxBlobSize.getValue();
         taskList.submitTask(sourceModel, format, new ArrayList<>(selectedColumns),
-                table, headerCb.isSelected(), charset, dateFmt, nullVal, maxBlob, null);
+                table, headerCb.isSelected(), charset, dateFmt, nullVal, maxBlob,
+                filePathField.getText().trim());
         taskList.setVisible(true);
     }
 
-    private void saveToFile() {
-        JFileChooser chooser = new JFileChooser();
+    private void saveToFile(String path) {
+        File file = new File(path);
+        String charset = (String) charsetCombo.getSelectedItem();
+        try (Writer w = new OutputStreamWriter(new FileOutputStream(file), charset)) {
+            w.write(outputArea.getText());
+            ToastManager.show(this, "已保存到: " + file.getName());
+        } catch (Exception e) {
+            ToastManager.showError(this, "保存失败: " + e.getMessage());
+        }
+    }
+
+    /** 根据导出格式生成默认文件路径：Export_yyyyMMdd_HHmmss.ext。优先桌面，桌面不存在则用户目录。 */
+    private static String defaultFilePath(String format) {
+        String ext = switch (format != null ? format : "SQL") {
+            case "CSV" -> "csv";
+            case "JSON" -> "json";
+            case "XML" -> "xml";
+            case "Markdown" -> "md";
+            default -> "sql";
+        };
+        String ts = new java.text.SimpleDateFormat("yyyyMMdd_HHmmss").format(new java.util.Date());
+        String desktop = System.getProperty("user.home") + File.separator + "Desktop";
+        if (!new java.io.File(desktop).exists()) desktop = System.getProperty("user.home");
+        return desktop + File.separator + "Export_" + ts + "." + ext;
+    }
+
+    /** 切换导出格式时，更新文件路径的扩展名，保留目录和文件名前缀。 */
+    private void updateFilePathExt() {
+        String path = filePathField.getText().trim();
+        if (path.isEmpty()) {
+            filePathField.setText(defaultFilePath((String) formatCombo.getSelectedItem()));
+            return;
+        }
         String format = (String) formatCombo.getSelectedItem();
-        String ext = "." + (format != null ? format.toLowerCase() : "txt");
-        chooser.setSelectedFile(new File("export" + ext));
-        if (chooser.showSaveDialog(this) == JFileChooser.APPROVE_OPTION) {
-            File file = chooser.getSelectedFile();
-            String charset = (String) charsetCombo.getSelectedItem();
-            try (Writer w = new OutputStreamWriter(new FileOutputStream(file), charset)) {
-                w.write(outputArea.getText());
-                ToastManager.show(this, "已保存到: " + file.getName());
-            } catch (Exception e) {
-                ToastManager.showError(this, "保存失败: " + e.getMessage());
+        String newExt = switch (format != null ? format : "SQL") {
+            case "CSV" -> "csv";
+            case "JSON" -> "json";
+            case "XML" -> "xml";
+            case "Markdown" -> "md";
+            default -> "sql";
+        };
+        int dot = path.lastIndexOf('.');
+        if (dot >= 0) path = path.substring(0, dot + 1) + newExt;
+        else path = path + "." + newExt;
+        filePathField.setText(path);
+    }
+
+    /** 在文件管理器中定位并选中文件（Windows / macOS / Linux）。 */
+    private static void revealInFileManager(String filePath) {
+        String os = System.getProperty("os.name").toLowerCase();
+        try {
+            if (os.contains("win")) {
+                Runtime.getRuntime().exec(new String[]{"explorer", "/select,", filePath});
+            } else if (os.contains("mac")) {
+                Runtime.getRuntime().exec(new String[]{"open", "-R", filePath});
+            } else {
+                File f = new File(filePath);
+                if (f.getParentFile() != null) Desktop.getDesktop().open(f.getParentFile());
             }
+        } catch (Exception e) {
+            try { Desktop.getDesktop().open(new File(filePath).getParentFile()); } catch (Exception ignored) {}
         }
     }
 
