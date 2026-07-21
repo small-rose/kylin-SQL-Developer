@@ -34,7 +34,7 @@ public class MySqlDialect implements SqlDialect {
             "GRANT", "REVOKE",
             "TRUNCATE", "REPLACE",
             "LIMIT", "OFFSET",
-            "ON", "DUPLICATE", "KEY",
+            "ON", "DUPLICATE",
             "BETWEEN", "LIKE", "ANY", "SOME",
             "TRUE", "FALSE",
             "CURRENT_TIMESTAMP", "NOW",
@@ -42,7 +42,7 @@ public class MySqlDialect implements SqlDialect {
             "VARCHAR", "CHAR", "TEXT", "BLOB",
             "FLOAT", "DOUBLE", "DECIMAL",
             "DATE", "DATETIME", "TIMESTAMP", "TIME", "YEAR",
-            "AUTO_INCREMENT", "ENGINE", "DEFAULT", "CHARSET", "COLLATE"
+            "AUTO_INCREMENT", "ENGINE", "CHARSET", "COLLATE"
         );
     }
 

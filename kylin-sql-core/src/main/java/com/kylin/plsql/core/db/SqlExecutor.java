@@ -3,6 +3,8 @@ package com.kylin.plsql.core.db;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.kylin.plsql.core.format.dialect.DialectManager;
+
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -128,7 +130,7 @@ public class SqlExecutor {
 
     // ── Database type detection ──
 
-    private String getDbType(Connection conn) {
+    public static String getDbType(Connection conn) {
         try {
             String p = conn.getMetaData().getDatabaseProductName().toLowerCase();
             if (p.contains("oracle") || p.contains("oceanbase")) return "oracle";
@@ -141,6 +143,7 @@ public class SqlExecutor {
         }
     }
 
+    // ── Always-quote version (kept for backward compatibility) ──
     private static String qi(String id, String dbType) {
         if (id == null || id.isEmpty()) return id;
         if ("mysql".equals(dbType)) {
@@ -153,11 +156,33 @@ public class SqlExecutor {
 
     private static String qi(String id) { return qi(id, "oracle"); }
 
+    /** 智能加引号：仅在必要时才加（保留字、含特殊字符、数字开头等），否则返回原标识符。 */
+    private static String maybeQuote(String id, String dbType) {
+        if (id == null || id.isEmpty()) return id;
+        if (id.startsWith("\"") || id.startsWith("`")) return id;
+        if (needsQuoting(id, dbType)) {
+            String q = "mysql".equals(dbType) ? "`" : "\"";
+            return q + id + q;
+        }
+        return id;
+    }
+
+    /** 判断标识符是否需要加引号。 */
+    private static boolean needsQuoting(String id, String dbType) {
+        if (Character.isDigit(id.charAt(0))) return true;
+        for (int i = 0; i < id.length(); i++) {
+            char c = id.charAt(i);
+            if (!Character.isLetterOrDigit(c) && c != '_') return true;
+        }
+        var dialect = DialectManager.forName(dbType);
+        return dialect != null && dialect.getKeywords().contains(id.toUpperCase());
+    }
+
     // ── Preview SQL (100 rows, database-aware) ──
 
     public String generatePreviewSQL(Connection conn, String schema, String table) {
         String dbType = getDbType(conn);
-        String fn = qi(schema, dbType) + "." + qi(table, dbType);
+        String fn = maybeQuote(schema, dbType) + "." + maybeQuote(table, dbType);
         return switch (dbType) {
             case "mysql", "postgresql", "sqlite" -> "SELECT * FROM " + fn + " LIMIT 100";
             default -> "SELECT * FROM " + fn + " FETCH FIRST 100 ROWS ONLY";
@@ -173,31 +198,27 @@ public class SqlExecutor {
             return getOracleDdl(conn, schema, name, type);
         }
         if ("SEQUENCE".equalsIgnoreCase(type) && "oracle".equals(dbType)) {
-            String ddl = getOracleDdl(conn, schema, name, type);
-            if (ddl != null && !ddl.startsWith("-- ")) return ddl;
             return buildSequenceDDL(conn, schema, name);
         }
         if ("INDEX".equalsIgnoreCase(type) && "oracle".equals(dbType)) {
-            String ddl = getOracleDdl(conn, schema, name, type);
-            if (ddl != null && !ddl.startsWith("-- ")) return ddl;
             return buildIndexDDL(conn, schema, name);
         }
-        if (!"TABLE".equalsIgnoreCase(type)) {
-            return "-- \u65E0\u6CD5\u83B7\u53D6 " + type + " " + schema + "." + name + " \u7684 DDL";
+        if ("TABLE".equalsIgnoreCase(type)) {
+            // Oracle: build from metadata（替代 DBMS_METADATA，避免啰嗦的 storage/tablespace 子句）
+            if ("oracle".equals(dbType)) {
+                return buildDDLFromMeta(conn, schema, name, dbType);
+            }
+            return buildDDLFromMeta(conn, schema, name, dbType);
         }
-
-        // Oracle: try DBMS_METADATA
-        if ("oracle".equals(dbType)) {
-            String oracleDDL = tryOracleDdl(conn, schema, name);
-            if (oracleDDL != null) return oracleDDL;
+        if ("VIEW".equalsIgnoreCase(type)) {
+            return buildViewDDL(conn, schema, name, dbType);
         }
-
-        // Fallback: build from metadata
-        return buildDDLFromMeta(conn, schema, name, dbType);
+        return "-- 无法获取 " + type + " " + schema + "." + name + " 的 DDL";
     }
 
     private String tryOracleDdl(Connection conn, String schema, String table) {
         try {
+            String dbType = getDbType(conn);
             StringBuilder sb = new StringBuilder();
 
             // Table DDL
@@ -219,7 +240,7 @@ public class SqlExecutor {
                 if (rs.next()) {
                     String c = rs.getString("comments");
                     if (c != null && !c.isEmpty())
-                        sb.append("COMMENT ON TABLE ").append(qi(schema)).append(".").append(qi(table)).append(" IS '").append(c.replace("'", "''")).append("';\n");
+                        sb.append("COMMENT ON TABLE ").append(maybeQuote(schema, dbType)).append(".").append(maybeQuote(table, dbType)).append(" IS '").append(c.replace("'", "''")).append("';\n");
                 }
             }
 
@@ -229,7 +250,7 @@ public class SqlExecutor {
                 while (rs.next()) {
                     String col = rs.getString("column_name");
                     String c = rs.getString("comments");
-                    sb.append("COMMENT ON COLUMN ").append(qi(schema)).append(".").append(qi(table)).append(".").append(qi(col))
+                    sb.append("COMMENT ON COLUMN ").append(maybeQuote(schema, dbType)).append(".").append(maybeQuote(table, dbType)).append(".").append(maybeQuote(col, dbType))
                       .append(" IS '").append(c.replace("'", "''")).append("';\n");
                 }
             }
@@ -245,14 +266,14 @@ public class SqlExecutor {
                         String colsSql = "SELECT column_name, descend FROM all_ind_columns WHERE index_owner='" + schema.replace("'", "''") + "' AND index_name='" + idxName.replace("'", "''") + "' ORDER BY column_position";
                         List<String> idxCols = new ArrayList<>();
                         try (Statement st2 = conn.createStatement(); ResultSet rs2 = st2.executeQuery(colsSql)) {
-                            while (rs2.next()) idxCols.add(qi(rs2.getString("column_name")));
+                            while (rs2.next()) idxCols.add(maybeQuote(rs2.getString("column_name"), dbType));
                         }
                         if (!idxCols.isEmpty()) {
                             sb.append("CREATE ");
                             if ("UNIQUE".equals(unique)) sb.append("UNIQUE ");
                             if ("BITMAP".equals(idxType)) sb.append("BITMAP ");
-                            sb.append("INDEX ").append(qi(schema)).append(".").append(qi(idxName))
-                              .append(" ON ").append(qi(schema)).append(".").append(qi(table))
+                            sb.append("INDEX ").append(maybeQuote(schema, dbType)).append(".").append(maybeQuote(idxName, dbType))
+                              .append(" ON ").append(maybeQuote(schema, dbType)).append(".").append(maybeQuote(table, dbType))
                               .append(" (").append(String.join(", ", idxCols)).append(");\n");
                         }
                     }
@@ -261,7 +282,7 @@ public class SqlExecutor {
 
             return sb.toString();
         } catch (SQLException e) {
-            log.debug("Oracle DDL \u751F\u6210\u5931\u8D25: {}", e.getMessage());
+            log.debug("Oracle DDL 生成失败: {}", e.getMessage());
             return null;
         }
     }
@@ -300,6 +321,7 @@ public class SqlExecutor {
 
     /** DBMS_METADATA 不支持时，从 ALL_SEQUENCES 手动构建 SEQUENCE DDL。 */
     private String buildSequenceDDL(Connection conn, String schema, String name) {
+        String dbType = getDbType(conn);
         String sql = "SELECT sequence_name, min_value, max_value, increment_by, cycle_flag, order_flag, cache_size, last_number FROM all_sequences WHERE sequence_owner = ? AND sequence_name = ?";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, schema);
@@ -307,14 +329,15 @@ public class SqlExecutor {
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
                     StringBuilder sb = new StringBuilder();
-                    sb.append("CREATE SEQUENCE ").append(schema).append(".").append(name).append("\n");
-                    sb.append("  INCREMENT BY ").append(rs.getLong("increment_by")).append("\n");
-                    sb.append("  START WITH ").append(rs.getLong("last_number")).append("\n");
-                    sb.append("  MINVALUE ").append(rs.getLong("min_value")).append("\n");
-                    sb.append("  MAXVALUE ").append(rs.getLong("max_value")).append("\n");
-                    sb.append("  CACHE ").append(rs.getLong("cache_size")).append("\n");
+                    sb.append("CREATE SEQUENCE ").append(maybeQuote(schema, dbType)).append(".").append(maybeQuote(name, dbType)).append("\n");
+                    sb.append("  INCREMENT BY ").append(rs.getString("increment_by")).append("\n");
+                    sb.append("  START WITH ").append(rs.getString("last_number")).append("\n");
+                    sb.append("  MINVALUE ").append(rs.getString("min_value")).append("\n");
+                    sb.append("  MAXVALUE ").append(rs.getString("max_value")).append("\n");
+                    sb.append("  CACHE ").append(rs.getString("cache_size")).append("\n");
                     sb.append("  ").append("Y".equals(rs.getString("cycle_flag")) ? "CYCLE" : "NOCYCLE").append("\n");
                     sb.append("  ").append("Y".equals(rs.getString("order_flag")) ? "ORDER" : "NOORDER");
+                    sb.append(";\n");
                     return sb.toString();
                 }
             }
@@ -326,6 +349,7 @@ public class SqlExecutor {
 
     /** DBMS_METADATA 不支持时，从 ALL_INDEXES + ALL_IND_COLUMNS 手动构建 INDEX DDL。 */
     private String buildIndexDDL(Connection conn, String schema, String name) {
+        String dbType = getDbType(conn);
         String idxSql = "SELECT table_name, uniqueness FROM all_indexes WHERE owner = ? AND index_name = ?";
         try (PreparedStatement ps = conn.prepareStatement(idxSql)) {
             ps.setString(1, schema);
@@ -336,8 +360,8 @@ public class SqlExecutor {
                     StringBuilder sb = new StringBuilder();
                     sb.append("CREATE ");
                     if ("UNIQUE".equalsIgnoreCase(rs.getString("uniqueness"))) sb.append("UNIQUE ");
-                    sb.append("INDEX ").append(schema).append(".").append(name);
-                    sb.append(" ON ").append(schema).append(".").append(tableName).append(" (");
+                    sb.append("INDEX ").append(maybeQuote(schema, dbType)).append(".").append(maybeQuote(name, dbType));
+                    sb.append(" ON ").append(maybeQuote(schema, dbType)).append(".").append(maybeQuote(tableName, dbType)).append(" (");
 
                     String colSql = "SELECT column_name, column_position, descend FROM all_ind_columns WHERE index_owner = ? AND index_name = ? ORDER BY column_position";
                     try (PreparedStatement ps2 = conn.prepareStatement(colSql)) {
@@ -347,26 +371,58 @@ public class SqlExecutor {
                             boolean first = true;
                             while (rs2.next()) {
                                 if (!first) sb.append(", ");
-                                sb.append(rs2.getString("column_name"));
+                                sb.append(maybeQuote(rs2.getString("column_name"), dbType));
                                 if ("DESC".equalsIgnoreCase(rs2.getString("descend"))) sb.append(" DESC");
                                 first = false;
                             }
                         }
                     }
-                    sb.append(")");
+                    sb.append(");\n");
                     return sb.toString();
+                    }
                 }
-            }
         } catch (SQLException e) {
             log.error("\u624B\u52A8\u6784\u5EFA INDEX DDL \u5931\u8D25", e);
         }
         return "-- \u65E0\u6CD5\u83B7\u53D6 " + name + " \u7684 DDL (ALL_INDEXES)";
     }
 
+    /** 构建 VIEW DDL。 */
+    private String buildViewDDL(Connection conn, String schema, String view, String dbType) {
+        try {
+            String sql;
+            if ("oracle".equals(dbType)) {
+                sql = "SELECT text FROM all_views WHERE owner=? AND view_name=?";
+            } else if ("mysql".equals(dbType)) {
+                sql = "SELECT view_definition FROM information_schema.views WHERE table_schema=? AND table_name=?";
+            } else if ("postgresql".equals(dbType)) {
+                sql = "SELECT definition FROM pg_views WHERE schemaname=? AND viewname=?";
+            } else {
+                return "-- \u65E0\u6CD5\u83B7\u53D6 " + view + " \u7684 DDL";
+            }
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, schema);
+                ps.setString(2, view);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        String def = rs.getString(1);
+                        if (def != null && !def.isEmpty()) {
+                            return "CREATE OR REPLACE VIEW " + maybeQuote(schema, dbType) + "." + maybeQuote(view, dbType)
+                                + " AS\n" + def.trim() + "\n/";
+                        }
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            log.error("\u83B7\u53D6 VIEW DDL \u5931\u8D25", e);
+        }
+        return "-- \u65E0\u6CD5\u83B7\u53D6 " + view + " \u7684 DDL";
+    }
+
     private String buildDDLFromMeta(Connection conn, String schema, String table, String dbType) {
         try {
             StringBuilder sb = new StringBuilder();
-            java.util.function.BiFunction<String, String, String> qn = (s, t) -> qi(s, dbType) + "." + qi(t, dbType);
+            java.util.function.BiFunction<String, String, String> qn = (s, t) -> maybeQuote(s, dbType) + "." + maybeQuote(t, dbType);
 
             // Columns
             List<ColumnMeta> cols = getColumns(conn, schema, table);
@@ -385,7 +441,7 @@ public class SqlExecutor {
             sb.append("CREATE TABLE ").append(qn.apply(schema, table)).append(" (\n");
             for (int i = 0; i < cols.size(); i++) {
                 if (i > 0) sb.append(",\n");
-                sb.append("    ").append(qi(cols.get(i).name, dbType)).append(" ").append(cols.get(i).type);
+                sb.append("    ").append(maybeQuote(cols.get(i).name, dbType)).append(" ").append(cols.get(i).type);
                 if (!cols.get(i).nullable) sb.append(" NOT NULL");
             }
             if (!pks.isEmpty()) {
@@ -393,7 +449,7 @@ public class SqlExecutor {
                 pks.sort((a, b) -> Integer.compare(pkSeq.getOrDefault(a, 0), pkSeq.getOrDefault(b, 0)));
                 for (int i = 0; i < pks.size(); i++) {
                     if (i > 0) sb.append(", ");
-                    sb.append(qi(pks.get(i), dbType));
+                    sb.append(maybeQuote(pks.get(i), dbType));
                 }
                 sb.append(")");
             }
@@ -403,6 +459,8 @@ public class SqlExecutor {
             String commentSql;
             if ("mysql".equals(dbType)) {
                 commentSql = "SELECT table_comment FROM information_schema.tables WHERE table_schema=? AND table_name=?";
+            } else if ("oracle".equals(dbType)) {
+                commentSql = "SELECT comments FROM all_tab_comments WHERE owner=? AND table_name=?";
             } else if ("postgresql".equals(dbType)) {
                 commentSql = "SELECT obj_description((quote_ident(?)||'.'||quote_ident(?))::regclass)";
                 commentSql = ""; // skip for simplicity
@@ -425,10 +483,12 @@ public class SqlExecutor {
                 }
             }
 
-            // Column comments (MySQL/PostgreSQL)
+            // Column comments
             String colCommentSql;
             if ("mysql".equals(dbType)) {
                 colCommentSql = "SELECT column_name, column_comment FROM information_schema.columns WHERE table_schema=? AND table_name=? AND column_comment != ''";
+            } else if ("oracle".equals(dbType)) {
+                colCommentSql = "SELECT column_name, comments FROM all_col_comments WHERE owner=? AND table_name=? AND comments IS NOT NULL";
             } else if ("postgresql".equals(dbType)) {
                 colCommentSql = "";
             } else {
@@ -443,7 +503,7 @@ public class SqlExecutor {
                             String cn = rs.getString(1);
                             String cc = rs.getString(2);
                             if (cc != null && !cc.isEmpty()) {
-                                sb.append("COMMENT ON COLUMN ").append(qn.apply(schema, table)).append(".").append(qi(cn, dbType))
+                                sb.append("COMMENT ON COLUMN ").append(qn.apply(schema, table)).append(".").append(maybeQuote(cn, dbType))
                                   .append(" IS '").append(cc.replace("'", "''")).append("';\n");
                             }
                         }
@@ -467,7 +527,7 @@ public class SqlExecutor {
                                 if (lastIdx != null && !"PRIMARY".equals(lastIdx) && !idxCols.isEmpty()) {
                                     sb.append("CREATE ");
                                     if (!nonUnique) sb.append("UNIQUE ");
-                                    sb.append("INDEX ").append(qi(lastIdx, dbType))
+                                    sb.append("INDEX ").append(maybeQuote(lastIdx, dbType))
                                       .append(" ON ").append(qn.apply(schema, table))
                                       .append(" (").append(String.join(", ", idxCols)).append(");\n");
                                 }
@@ -476,12 +536,50 @@ public class SqlExecutor {
                                 nonUnique = rs.getInt("NON_UNIQUE") == 1;
                             }
                             String cn = rs.getString("COLUMN_NAME");
-                            if (cn != null) idxCols.add(qi(cn, dbType));
+                            if (cn != null) idxCols.add(maybeQuote(cn, dbType));
                         }
                         if (lastIdx != null && !"PRIMARY".equals(lastIdx) && !idxCols.isEmpty()) {
                             sb.append("CREATE ");
                             if (!nonUnique) sb.append("UNIQUE ");
-                            sb.append("INDEX ").append(qi(lastIdx, dbType))
+                            sb.append("INDEX ").append(maybeQuote(lastIdx, dbType))
+                              .append(" ON ").append(qn.apply(schema, table))
+                              .append(" (").append(String.join(", ", idxCols)).append(");\n");
+                        }
+                    }
+                }
+            } else if ("oracle".equals(dbType)) {
+                // Oracle 索引：从 ALL_INDEXES + ALL_IND_COLUMNS 构建
+                String idxSql = "SELECT i.index_name, i.index_type, i.uniqueness, c.column_name, c.column_position "
+                    + "FROM all_indexes i JOIN all_ind_columns c ON i.owner=c.index_owner AND i.index_name=c.index_name "
+                    + "WHERE i.owner=? AND i.table_name=? ORDER BY i.index_name, c.column_position";
+                String lastIdx = null;
+                List<String> idxCols = new ArrayList<>();
+                String idxUnique = null;
+                try (PreparedStatement ps = conn.prepareStatement(idxSql)) {
+                    ps.setString(1, schema);
+                    ps.setString(2, table);
+                    try (ResultSet rs = ps.executeQuery()) {
+                        while (rs.next()) {
+                            String idxName = rs.getString("index_name");
+                            if (!idxName.equals(lastIdx)) {
+                                if (lastIdx != null && !idxCols.isEmpty()) {
+                                    sb.append("CREATE ");
+                                    if ("UNIQUE".equalsIgnoreCase(idxUnique)) sb.append("UNIQUE ");
+                                    sb.append("INDEX ").append(maybeQuote(lastIdx, dbType))
+                                      .append(" ON ").append(qn.apply(schema, table))
+                                      .append(" (").append(String.join(", ", idxCols)).append(");\n");
+                                }
+                                lastIdx = idxName;
+                                idxCols.clear();
+                                idxUnique = rs.getString("uniqueness");
+                            }
+                            String cn = rs.getString("column_name");
+                            if (cn != null) idxCols.add(maybeQuote(cn, dbType));
+                        }
+                        if (lastIdx != null && !idxCols.isEmpty()) {
+                            sb.append("CREATE ");
+                            if ("UNIQUE".equalsIgnoreCase(idxUnique)) sb.append("UNIQUE ");
+                            sb.append("INDEX ").append(maybeQuote(lastIdx, dbType))
                               .append(" ON ").append(qn.apply(schema, table))
                               .append(" (").append(String.join(", ", idxCols)).append(");\n");
                         }
@@ -518,27 +616,28 @@ public class SqlExecutor {
 
     // ── DML generation ──
 
-    public String generateDML(String schema, String table, String dmlType, List<ColumnMeta> columns) {
-        String fullName = qi(schema) + "." + qi(table);
+    public String generateDML(Connection conn, String schema, String table, String dmlType, List<ColumnMeta> columns) {
+        String dbType = getDbType(conn);
+        String fullName = maybeQuote(schema, dbType) + "." + maybeQuote(table, dbType);
         if ("SELECT".equalsIgnoreCase(dmlType)) {
             return "SELECT *\nFROM " + fullName + "\nWHERE 1=1\nFETCH FIRST 100 ROWS ONLY;";
         }
         if ("INSERT".equalsIgnoreCase(dmlType)) {
-            return generateInsert(schema, table, columns);
+            return generateInsert(conn, schema, table, columns);
         }
         if ("UPDATE".equalsIgnoreCase(dmlType)) {
             StringBuilder sb = new StringBuilder("UPDATE ").append(fullName).append("\nSET\n");
             for (int i = 0; i < columns.size(); i++) {
-                sb.append("    ").append(qi(columns.get(i).name)).append(" = ?");
+                sb.append("    ").append(maybeQuote(columns.get(i).name, dbType)).append(" = ?");
                 if (i < columns.size() - 1) sb.append(",");
                 sb.append("\n");
             }
-            sb.append("WHERE 1=1\n    -- AND ").append(qi(columns.get(0).name)).append(" = ?");
+            sb.append("WHERE 1=1\n    -- AND ").append(maybeQuote(columns.get(0).name, dbType)).append(" = ?");
             sb.append(";\n-- \u66FF\u6362 ? \u4E3A\u5B9E\u9645\u503C\u540E\u6267\u884C");
             return sb.toString();
         }
         if ("DELETE".equalsIgnoreCase(dmlType)) {
-            return "DELETE FROM " + fullName + "\nWHERE 1=1\n    -- AND " + qi(columns.get(0).name) + " = ?\n;";
+            return "DELETE FROM " + fullName + "\nWHERE 1=1\n    -- AND " + maybeQuote(columns.get(0).name, dbType) + " = ?\n;";
         }
         return "-- \u4E0D\u652F\u6301\u7684\u64CD\u4F5C: " + dmlType;
     }
@@ -558,16 +657,17 @@ public class SqlExecutor {
         return sb.toString();
     }
 
-    public String generateInsert(String schema, String table, List<ColumnMeta> columns) {
-        String fullName = qi(schema) + "." + qi(table);
+    public String generateInsert(Connection conn, String schema, String table, List<ColumnMeta> columns) {
+        String dbType = getDbType(conn);
+        String fullName = maybeQuote(schema, dbType) + "." + maybeQuote(table, dbType);
         StringBuilder cols = new StringBuilder();
         StringBuilder vals = new StringBuilder();
         for (int i = 0; i < columns.size(); i++) {
             if (i > 0) { cols.append(", "); vals.append(", "); }
-            cols.append(qi(columns.get(i).name));
+            cols.append(maybeQuote(columns.get(i).name, dbType));
             vals.append("?");
         }
-        return "INSERT INTO " + fullName + " (\n    " + cols + "\n) VALUES (\n    " + vals + "\n);\n-- 替换 ? 为实际值后执行";
+        return "INSERT INTO " + fullName + " (\n    " + cols + "\n) VALUES (\n    " + vals + "\n);\n-- \u66FF\u6362 ? \u4E3A\u5B9E\u9645\u503C\u540E\u6267\u884C";
     }
 
     // ── Source code retrieval for procedures/functions/packages ──
@@ -598,7 +698,7 @@ public class SqlExecutor {
                         sb.append(rs.getString("text"));
                     }
                     String src = sb.toString().replaceAll("\r\n?", "\n").trim();
-                    if (!src.isEmpty()) return "CREATE OR REPLACE\n" + src;
+                    if (!src.isEmpty()) return "CREATE OR REPLACE " + src;
                 }
             }
 

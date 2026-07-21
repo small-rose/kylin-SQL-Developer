@@ -44,6 +44,9 @@ import com.kylin.plsql.ui.dialog.tools.TextDiffDialog;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
+import javax.swing.text.BadLocationException;
+
 import javax.swing.*;
 import javax.swing.event.CaretListener;
 import javax.swing.filechooser.FileNameExtensionFilter;
@@ -252,12 +255,22 @@ public class MainFrame extends JFrame {
     /** 在启动后期延迟恢复各 tab 的连接和 schema（等待元数据同步完成）。 */
     private void deferredRestoreTabConnections() {
         if (pendingTabStates == null) return;
-        for (int i = 0; i < pendingTabStates.size() && i < editorTabs.getTabCount(); i++) {
-            ConfigManager.TabState ts = pendingTabStates.get(i);
-            Component c = editorTabs.getComponentAt(i);
-            if (c instanceof SqlEditorPanel ep) {
-                if (ts.connName != null) ep.setConnectionName(ts.connName);
-                if (ts.schema != null) ep.setSchema(ts.schema);
+        for (ConfigManager.TabState ts : pendingTabStates) {
+            for (int i = 0; i < editorTabs.getTabCount(); i++) {
+                Component c = editorTabs.getComponentAt(i);
+                if (c instanceof SqlEditorPanel ep && ts.tabName != null
+                        && ts.tabName.equals(editorTabs.getTitleAt(i))) {
+                    if (ts.connName != null) ep.setConnectionName(ts.connName);
+                    if (ts.schema != null) ep.setSchema(ts.schema);
+                    break;
+                }
+                if (c instanceof SourceViewerPanel sv && ts.tabName != null
+                        && ts.tabName.equals(editorTabs.getTitleAt(i))) {
+                    if (ts.showingBody && "PACKAGE".equals(ts.objectType)) {
+                        sv.showBody();
+                    }
+                    break;
+                }
             }
         }
         pendingTabStates = null;
@@ -403,6 +416,10 @@ public class MainFrame extends JFrame {
                 JOptionPane.showMessageDialog(MainFrame.this,
                     "连接 '" + connName + "' 失败:\n" + message,
                     "连接失败", JOptionPane.ERROR_MESSAGE);
+            }
+            @Override
+            public void onExecuteScript(String connName, String schema) {
+                executeSqlScript(connName, schema);
             }
         });
         objectBrowser.setConfigManager(configManager);
@@ -2514,7 +2531,13 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                     switch (action) {
                         case "SELECT", "INSERT", "UPDATE", "DELETE" -> {
                             var columns = executor.getColumns(conn, schema, objectName);
-                            var sql = executor.generateDML(schema, objectName, action, columns);
+                            var sql = executor.generateDML(conn, schema, objectName, action, columns);
+                            SwingUtilities.invokeLater(() -> insertToEditor(sql));
+                        }
+                        case "SELECT_NEWTAB", "INSERT_NEWTAB", "UPDATE_NEWTAB", "DELETE_NEWTAB" -> {
+                            var columns = executor.getColumns(conn, schema, objectName);
+                            String dmlType = action.replace("_NEWTAB", "");
+                            var sql = executor.generateDML(conn, schema, objectName, dmlType, columns);
                             SwingUtilities.invokeLater(() -> openInNewEditor(sql, connName, schema));
                         }
                         case "PREVIEW" -> {
@@ -2736,6 +2759,118 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         hint.setAlwaysOnTop(true);
         hint.setVisible(true);
         new Timer(2000, ev -> hint.dispose()).start();
+    }
+
+    /** 执行外部 SQL 脚本文件（分批提交事务，进度显示在消息面板）。 */
+    private void executeSqlScript(String connName, String schema) {
+        JFileChooser fc = new JFileChooser();
+        fc.setFileFilter(new javax.swing.filechooser.FileNameExtensionFilter("SQL 文件 (*.sql)", "sql"));
+        fc.setDialogTitle("选择要执行的 SQL 脚本");
+        if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        java.io.File file = fc.getSelectedFile();
+        String content;
+        try {
+            content = new String(java.nio.file.Files.readAllBytes(file.toPath()), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this, "读取文件失败: " + e.getMessage());
+            return;
+        }
+
+        String[] raw = content.split(";");
+        java.util.List<String> stmts = new java.util.ArrayList<>();
+        for (String s : raw) {
+            String t = s.trim();
+            if (t.isEmpty() || t.startsWith("--") || t.startsWith("/*")) continue;
+            if (t.endsWith("/")) t = t.substring(0, t.length() - 1).trim();
+            if (!t.isEmpty()) stmts.add(t);
+        }
+        if (stmts.isEmpty()) { JOptionPane.showMessageDialog(this, "未找到有效的 SQL 语句"); return; }
+
+        int bs = 500;
+        try {
+            var sizes = configManager.getBatchSizes();
+            try (java.sql.Connection conn = connectionManager.getConnection(connName)) {
+                bs = sizes.getOrDefault(SqlExecutor.getDbType(conn), 500);
+            }
+        } catch (Exception ignored) {}
+        final int batchSize = bs;
+
+        final String fileName = file.getName();
+        bottomPanel.getResultPanel().selectMessageTab();
+        bottomPanel.appendMessage("━━━ 执行脚本: " + fileName + " ━━━");
+        bottomPanel.appendMessage("共 " + stmts.size() + " 条语句，批量大小: " + batchSize);
+
+        new SwingWorker<Void, String>() {
+            int success = 0, failed = 0;
+            @Override protected Void doInBackground() {
+                boolean closeConn = connectionManager.isAutoCommit(connName);
+                java.sql.Connection conn = null;
+                try {
+                    conn = connectionManager.getConnection(connName);
+                    conn.setAutoCommit(false);
+                    var executor = new SqlExecutor();
+                    int qto = connectionManager.getQueryTimeout(connName);
+                    java.util.List<String> batch = new java.util.ArrayList<>();
+                    int idx = 0;
+                    for (String stmt : stmts) { idx++;
+                        String upper = stmt.toUpperCase().trim();
+                        boolean isDML = upper.startsWith("INSERT") || upper.startsWith("UPDATE") || upper.startsWith("DELETE") || upper.startsWith("MERGE");
+                        if (isDML) {
+                            batch.add(stmt);
+                            if (batch.size() >= batchSize) {
+                                flushBatch(conn, executor, batch, qto, idx);
+                            }
+                        } else {
+                            if (!batch.isEmpty()) flushBatch(conn, executor, batch, qto, idx);
+                            var r = executor.execute(conn, stmt, qto);
+                            conn.commit();
+                            if (r.isSuccess()) { success++; publish("第 " + idx + "/" + stmts.size() + ": OK  " + label(stmt)); }
+                            else { failed++; publish("第 " + idx + "/" + stmts.size() + ": 失败 " + label(stmt) + " → " + r.error); }
+                        }
+                    }
+                    if (!batch.isEmpty()) flushBatch(conn, executor, batch, qto, stmts.size());
+                } catch (Exception e) { publish("异常: " + e.getMessage()); }
+                finally { if (closeConn && conn != null) try { conn.setAutoCommit(true); } catch (Exception ignored) {} }
+                return null;
+            }
+            void flushBatch(java.sql.Connection conn, SqlExecutor executor, java.util.List<String> batch, int qto, int idx) {
+                int n = batch.size();
+                try {
+                    for (String s : batch) { var r = executor.execute(conn, s, qto); if (!r.isSuccess()) throw new Exception(r.error); }
+                    conn.commit();
+                    success += n;
+                    publish("第 " + (idx - n + 1) + "-" + idx + " 批 (" + n + " 条) 提交 → OK");
+                } catch (Exception e) {
+                    failed += n;
+                    try { conn.rollback(); } catch (Exception ignored) {}
+                    publish("第 " + (idx - n + 1) + "-" + idx + " 批 (" + n + " 条) 失败 → " + e.getMessage());
+                }
+                batch.clear();
+            }
+            String label(String s) { return s.length() > 60 ? s.substring(0, 60) + "..." : s; }
+            @Override protected void process(java.util.List<String> msgs) { for (String m : msgs) bottomPanel.appendMessage(m); }
+            @Override protected void done() { bottomPanel.appendMessage("━━━ 完毕: " + success + " 成功, " + failed + " 失败 ━━━"); }
+        }.execute();
+    }
+    private void insertToEditor(String sql) {
+        SqlEditorPanel editor = getActiveEditor();
+        if (editor == null) { openInNewEditor(sql, null); return; }
+        RSyntaxTextArea ta = editor.getTextArea();
+        int caret = ta.getCaretPosition();
+        try {
+            int line = ta.getLineOfOffset(caret);
+            int lineStart = ta.getLineStartOffset(line);
+            int lineEnd = ta.getLineEndOffset(line);
+            if (ta.getText(lineStart, lineEnd - lineStart).trim().length() > 0) {
+                ta.getDocument().insertString(caret, "\n", null);
+                caret = ta.getCaretPosition();
+            }
+            ta.getDocument().insertString(caret, sql, null);
+            ta.setCaretPosition(caret + sql.length());
+        } catch (BadLocationException e) {
+            ta.append("\n" + sql);
+        }
+        editor.requestFocusInWindow();
     }
 
     private void openInNewEditor(String content, String connName) {

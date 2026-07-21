@@ -107,7 +107,7 @@ public class ResultPanel extends JPanel {
 
         messageArea = new JTextArea();
         messageArea.setEditable(false);
-        messageArea.setFont(FontManager.getInstance().resolve("font.bottom.result"));
+        messageArea.setFont(FontManager.getInstance().resolve("font.bottom.message"));
         applyMessageColors();
         JScrollPane msgScroll = new JScrollPane(messageArea);
         msgScroll.setBorder(null);
@@ -824,6 +824,11 @@ public class ResultPanel extends JPanel {
         String existing = messageArea.getText();
         messageArea.setText(existing.isEmpty() ? message : existing + "\n" + message);
         messageArea.setCaretPosition(messageArea.getDocument().getLength());
+    }
+
+    /** 切换到消息标签页。 */
+    public void selectMessageTab() {
+        resultTabs.setSelectedIndex(0);
     }
 
     public void clearAll() {

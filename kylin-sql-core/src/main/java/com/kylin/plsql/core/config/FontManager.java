@@ -25,6 +25,7 @@ public class FontManager {
         putDefault("font.bottom",            null);  // → font.default
         putDefault("font.bottom.title",      null);  // → font.default
         putDefault("font.bottom.result",     "Monospaced,12");
+        putDefault("font.bottom.message",    "Monospaced,12");
         putDefault("font.bottom.result.header", null); // → font.default
         putDefault("font.status",            null);  // → font.default
         putDefault("font.dialog",            null);  // → font.default
@@ -47,6 +48,7 @@ public class FontManager {
         KEY_LABELS.put("font.bottom",            "底部面板");
         KEY_LABELS.put("font.bottom.title",      "底部面板标题");
         KEY_LABELS.put("font.bottom.result",     "结果表（等宽）");
+        KEY_LABELS.put("font.bottom.message",    "消息面板");
         KEY_LABELS.put("font.bottom.result.header", "结果表表头");
         KEY_LABELS.put("font.status",            "状态栏");
         KEY_LABELS.put("font.dialog",            "对话框");
@@ -67,6 +69,7 @@ public class FontManager {
         PREVIEW_TEXTS.put("font.bottom",            "SQL检查 / Services 标签");
         PREVIEW_TEXTS.put("font.bottom.title",      "输入 SQL：");
         PREVIEW_TEXTS.put("font.bottom.result",     "12345 张三 ACTIVE");
+        PREVIEW_TEXTS.put("font.bottom.message",    "━━━ 执行脚本: init.sql\n第 1-50 批 (50 条) 提交 → OK\n完毕: 150 成功, 0 失败");
         PREVIEW_TEXTS.put("font.bottom.result.header", "ID  姓名  状态");
         PREVIEW_TEXTS.put("font.status",            "就绪 | 连接: localhost | UTF-8");
         PREVIEW_TEXTS.put("font.dialog",            "设置对话框内容");

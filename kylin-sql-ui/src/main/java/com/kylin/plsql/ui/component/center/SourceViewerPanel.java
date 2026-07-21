@@ -505,6 +505,11 @@ public class SourceViewerPanel extends JPanel {
         if (methodListModel != null) methodList.clearSelection();
     }
 
+    /** 切换到 Body（包体）显示。（供恢复工作空间时使用） */
+    public void showBody() {
+        if (bodyBtn != null) bodyBtn.doClick();
+    }
+
     private void updateTabStyle() {
         Color active = theme.resolve("accent.tab");
         Color inactive = theme.resolve("fg.muted");

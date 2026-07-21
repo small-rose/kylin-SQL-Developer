@@ -332,6 +332,38 @@ public class ConfigManager {
         setPreference("openFolders", gson.toJson(paths));
     }
 
+    // ── 批量执行配置 ──
+
+    private static final java.util.Map<String, Integer> DEFAULT_BATCH_SIZES = new java.util.LinkedHashMap<>();
+    static {
+        DEFAULT_BATCH_SIZES.put("oracle", 500);
+        DEFAULT_BATCH_SIZES.put("oceanbase", 500);
+        DEFAULT_BATCH_SIZES.put("mysql", 1000);
+        DEFAULT_BATCH_SIZES.put("postgresql", 1000);
+    }
+
+    public java.util.Map<String, Integer> getBatchSizes() {
+        String json = getPreference("batchSizes", "");
+        if (!json.isEmpty()) {
+            try {
+                Type type = new TypeToken<java.util.Map<String, Integer>>() {}.getType();
+                java.util.Map<String, Integer> loaded = gson.fromJson(json, type);
+                if (loaded != null) {
+                    // 补齐缺失的数据库类型
+                    for (var e : DEFAULT_BATCH_SIZES.entrySet()) {
+                        loaded.putIfAbsent(e.getKey(), e.getValue());
+                    }
+                    return loaded;
+                }
+            } catch (Exception ignored) {}
+        }
+        return new java.util.LinkedHashMap<>(DEFAULT_BATCH_SIZES);
+    }
+
+    public void setBatchSizes(java.util.Map<String, Integer> sizes) {
+        setPreference("batchSizes", gson.toJson(sizes));
+    }
+
     // ── 元数据配置 ──
 
     private List<DbMetadataConfig> metadataConfigs;

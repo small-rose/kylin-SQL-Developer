@@ -41,6 +41,7 @@ public class ObjectBrowser extends JPanel {
         void onSyncProgress(String connName, int percent);
         void onSyncComplete(String connName);
         void onSyncError(String connName, String message);
+        void onExecuteScript(String connName, String schema);
     }
 
     // ── Fields ──
@@ -1418,6 +1419,7 @@ public class ObjectBrowser extends JPanel {
             String connName = getConnName(node);
             String schema = node.getUserObject().toString();
             menu.add(menuItem("新建 SQL 编辑器", "new", () -> callback.onNewSqlEditor(connName, schema)));
+            menu.add(menuItem("执行SQL脚本", "execute", () -> callback.onExecuteScript(connName, schema)));
             menu.add(menuItem("刷新", "refresh", () -> refreshAll()));
             menu.addSeparator();
             menu.add(menuItem("复制 Schema 名", "copy", () -> copyToClipboard(schema)));
@@ -1432,12 +1434,15 @@ public class ObjectBrowser extends JPanel {
 
             if ("TABLE".equals(typeCode) || "VIEW".equals(typeCode)) {
                 menu.add(menuItem("生成 SELECT", null, () -> callback.onObjectAction(connName, schema, typeCode, objName, "SELECT")));
+                menu.add(menuItem("生成 SELECT（新标签页）", null, () -> callback.onObjectAction(connName, schema, typeCode, objName, "SELECT_NEWTAB")));
                 menu.add(menuItem("生成 INSERT", null, () -> callback.onObjectAction(connName, schema, typeCode, objName, "INSERT")));
+                menu.add(menuItem("生成 INSERT（新标签页）", null, () -> callback.onObjectAction(connName, schema, typeCode, objName, "INSERT_NEWTAB")));
                 menu.add(menuItem("生成 UPDATE", null, () -> callback.onObjectAction(connName, schema, typeCode, objName, "UPDATE")));
+                menu.add(menuItem("生成 UPDATE（新标签页）", null, () -> callback.onObjectAction(connName, schema, typeCode, objName, "UPDATE_NEWTAB")));
                 menu.add(menuItem("生成 DELETE", null, () -> callback.onObjectAction(connName, schema, typeCode, objName, "DELETE")));
+                menu.add(menuItem("生成 DELETE（新标签页）", null, () -> callback.onObjectAction(connName, schema, typeCode, objName, "DELETE_NEWTAB")));
                 menu.addSeparator();
                 menu.add(menuItem("数据预览 (前100行)", "search", () -> callback.onObjectAction(connName, schema, typeCode, objName, "PREVIEW")));
-                menu.addSeparator();
             }
             menu.add(menuItem("查看 DDL", "database-search", () -> callback.onObjectAction(connName, schema, typeCode, objName, "DDL")));
             menu.addSeparator();

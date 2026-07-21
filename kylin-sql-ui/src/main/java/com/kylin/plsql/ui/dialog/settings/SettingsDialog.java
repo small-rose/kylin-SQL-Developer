@@ -170,6 +170,10 @@ public class SettingsDialog extends JDialog {
     private JPanel cardPanel;
     private CardLayout cardLayout;
     private JTextField autocompleteDelayField;
+    private JSpinner oracleBatchSpinner;
+    private JSpinner obBatchSpinner;
+    private JSpinner mysqlBatchSpinner;
+    private JSpinner pgBatchSpinner;
     private JSpinner autoIntervalSpinner;
     private JComboBox<String> autoUnitCombo;
     private JTextField autoPathField;
@@ -1288,6 +1292,40 @@ public class SettingsDialog extends JDialog {
         autocompleteDelayField.setToolTipText("输入后等待多少毫秒触发自动补全");
         grid.add(autocompleteDelayField, c);
 
+        // ── Section 4: 批量执行 ──
+        row += 2;
+        hc.gridy = row;
+        hc.insets = new Insets(12, 0, 8, 0);
+        JLabel batchHeader = new JLabel("批量执行");
+        batchHeader.setFont(batchHeader.getFont().deriveFont(Font.BOLD, 14f));
+        grid.add(batchHeader, hc);
+
+        var batchSizes = configManager.getBatchSizes();
+        record DbRow(String label, String key, JSpinner[] ref) {}
+        var dbRows = java.util.List.of(
+            new DbRow("Oracle:", "oracle", new JSpinner[]{oracleBatchSpinner}),
+            new DbRow("OceanBase:", "oceanbase", new JSpinner[]{obBatchSpinner}),
+            new DbRow("MySQL:", "mysql", new JSpinner[]{mysqlBatchSpinner}),
+            new DbRow("PostgreSQL:", "postgresql", new JSpinner[]{pgBatchSpinner})
+        );
+        for (var dbr : dbRows) {
+            row++;
+            c.gridy = row; c.gridx = 0; c.weightx = 0;
+            grid.add(new JLabel(dbr.label), c);
+            c.gridx = 1; c.weightx = 1;
+            int val = batchSizes.getOrDefault(dbr.key, 500);
+            var spinner = new JSpinner(new SpinnerNumberModel(val, 1, 50000, 50));
+            spinner.setToolTipText(dbr.key + " 每次事务提交的语句条数");
+            grid.add(spinner, c);
+            // 保存引用（通过字段名访问，但这里用局部变量—在保存时需要通过列表迭代）
+            switch (dbr.key) {
+                case "oracle" -> oracleBatchSpinner = spinner;
+                case "oceanbase" -> obBatchSpinner = spinner;
+                case "mysql" -> mysqlBatchSpinner = spinner;
+                case "postgresql" -> pgBatchSpinner = spinner;
+            }
+        }
+
         applyPanelTheme(grid);
         JPanel wrapper = new JPanel(new BorderLayout());
         wrapper.setOpaque(false);
@@ -1803,7 +1841,7 @@ public class SettingsDialog extends JDialog {
             Color fc = fm.resolveColor(key);
             table.setForeground(fc != null ? fc : mainFg);
             fontPreviewPanel.add(new JScrollPane(table), BorderLayout.CENTER);
-        } else if ("font.editor".equals(key) || "font.editor.comment".equals(key) || "font.editor.lineNum".equals(key)) {
+        } else if ("font.editor".equals(key) || "font.editor.comment".equals(key) || "font.editor.lineNum".equals(key) || "font.bottom.message".equals(key)) {
             JTextArea ta = new JTextArea(FontManager.getPreviewText(key));
             ta.setFont(fm.resolve(key));
             ta.setBackground(editorBg);
@@ -1879,6 +1917,15 @@ public class SettingsDialog extends JDialog {
         if (splashMaxField != null) {
             try { configManager.setSplashMaxDuration(Integer.parseInt(splashMaxField.getText())); }
             catch (NumberFormatException ignored) {}
+        }
+        // 常用配置 - 批量执行
+        if (oracleBatchSpinner != null || obBatchSpinner != null || mysqlBatchSpinner != null || pgBatchSpinner != null) {
+            var sizes = new java.util.LinkedHashMap<String, Integer>();
+            if (oracleBatchSpinner != null) sizes.put("oracle", (Integer) oracleBatchSpinner.getValue());
+            if (obBatchSpinner != null) sizes.put("oceanbase", (Integer) obBatchSpinner.getValue());
+            if (mysqlBatchSpinner != null) sizes.put("mysql", (Integer) mysqlBatchSpinner.getValue());
+            if (pgBatchSpinner != null) sizes.put("postgresql", (Integer) pgBatchSpinner.getValue());
+            configManager.setBatchSizes(sizes);
         }
         // Apply color overrides immediately
         if (owner instanceof MainFrame) {
