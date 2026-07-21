@@ -686,6 +686,7 @@ public class ObjectBrowser extends JPanel {
             } else {
                 connNode.add(new DefaultMutableTreeNode("加载中..."));
                 log.warn("[DEBUG] loadAll: 添加了 加载中... 到 {}", info.getName());
+                loadConnectionAsync(connNode);
             }
         }
         treeModel.reload();

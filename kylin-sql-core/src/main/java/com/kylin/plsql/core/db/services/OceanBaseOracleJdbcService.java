@@ -5,6 +5,7 @@ import com.kylin.plsql.core.db.type.DbTypeSpec;
 import com.kylin.plsql.core.db.type.OceanBaseOracleSpec;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -54,5 +55,21 @@ public class OceanBaseOracleJdbcService extends JdbcService {
         m.put("useLocalSessionState", "true");
         m.put("maintainTimeStats", "false");
         return m;
+    }
+
+    @Override public Map<String, List<String>> getSystemViewNames() {
+        return Map.of("", List.of(
+            "ALL_TABLES", "ALL_OBJECTS", "ALL_TAB_COLUMNS", "ALL_VIEWS",
+            "ALL_CONSTRAINTS", "ALL_INDEXES", "ALL_SEQUENCES", "ALL_SYNONYMS",
+            "ALL_SOURCE", "ALL_PROCEDURES", "ALL_ARGUMENTS", "ALL_TRIGGERS",
+            "ALL_TAB_COMMENTS", "ALL_COL_COMMENTS",
+            "USER_TABLES", "USER_OBJECTS", "USER_TAB_COLUMNS", "USER_VIEWS",
+            "USER_CONSTRAINTS", "USER_INDEXES", "USER_SEQUENCES", "USER_SYNONYMS",
+            "USER_SOURCE", "USER_PROCEDURES", "USER_ARGUMENTS", "USER_TRIGGERS",
+            "USER_TAB_COMMENTS", "USER_COL_COMMENTS",
+            "DBA_TABLES", "DBA_OBJECTS", "DBA_TAB_COLUMNS", "DBA_VIEWS",
+            "V$SESSION", "V$SQL", "V$SQLAREA",
+            "DICTIONARY", "DICT_COLUMNS"
+        ));
     }
 }

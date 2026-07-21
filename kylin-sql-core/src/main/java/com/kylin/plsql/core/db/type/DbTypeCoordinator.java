@@ -4,6 +4,7 @@ import com.kylin.plsql.core.db.ConnectionInfo;
 import com.kylin.plsql.core.db.services.JdbcService;
 import com.kylin.plsql.core.db.services.JdbcServiceRegistry;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -80,4 +81,6 @@ public class DbTypeCoordinator {
     public Optional<String> getCompatibleOjdbcVersion()                    { return service.getCompatibleOjdbcVersion(); }
     /** 当前类型的默认 JDBC 参数预设 / Default JDBC connection parameters for this type. */
     public Map<String, String> getDefaultJdbcParams(ConnectionInfo info)   { return service.getDefaultJdbcParams(info); }
+    /** 系统元数据视图名（用于自动补全）/ System metadata views for auto-completion. */
+    public Map<String, List<String>> getSystemViewNames()                  { return service.getSystemViewNames(); }
 }

@@ -2,6 +2,7 @@ package com.kylin.plsql.ui.component.common;
 
 import com.kylin.plsql.core.cache.MetadataCache;
 import com.kylin.plsql.core.config.FontManager;
+import com.kylin.plsql.core.db.type.DbTypeCoordinator;
 import org.fife.ui.autocomplete.BasicCompletion;
 import org.fife.ui.autocomplete.Completion;
 import org.fife.ui.autocomplete.CompletionCellRenderer;
@@ -17,9 +18,14 @@ import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
@@ -32,6 +38,7 @@ public class PlSqlCompletionProvider extends DefaultCompletionProvider {
     private final Supplier<String> schemaSupplier;
     private final MetadataCache cache = MetadataCache.getInstance();
     private BiConsumer<String, String> columnLoader; // (schema, table) → lazy-load columns
+    private String dbTypeKey;
 
     public PlSqlCompletionProvider(Supplier<String> connNameSupplier, Supplier<String> schemaSupplier) {
         super(PlSqlTokenMaker.KEYWORDS.toArray(new String[0]));
@@ -44,6 +51,14 @@ public class PlSqlCompletionProvider extends DefaultCompletionProvider {
 
     public void setColumnLoader(BiConsumer<String, String> loader) {
         this.columnLoader = loader;
+    }
+
+    public void setDbTypeKey(String dbTypeKey) {
+        if (!Objects.equals(this.dbTypeKey, dbTypeKey)) {
+            this.dbTypeKey = dbTypeKey;
+            this.systemViews = null;
+            this.systemSchemas = null;
+        }
     }
 
     @Override
@@ -60,9 +75,12 @@ public class PlSqlCompletionProvider extends DefaultCompletionProvider {
         String tableName = (connName != null && !connName.isEmpty()) ? getTableBeforeDot(comp) : null;
 
         if (tableName != null) {
-            // alias dot: only show columns, no keywords / other tables
             List<Completion> result = new ArrayList<>();
-            addColumnCompletions(result, connName, tableName, entered);
+            if (isSystemSchema(tableName)) {
+                addSystemViewCompletionsForSchema(result, tableName, entered);
+            } else {
+                addColumnCompletions(result, connName, tableName, entered);
+            }
             log.info("getCompletionsImpl entered='{}', dot=table={}, total={}", entered, tableName, result.size());
             return result;
         }
@@ -71,6 +89,9 @@ public class PlSqlCompletionProvider extends DefaultCompletionProvider {
         if (result == null) result = new ArrayList<>();
         if (connName != null && !connName.isEmpty() && entered != null && !entered.isEmpty()) {
             addObjectCompletions(result, connName, entered);
+        }
+        if (entered != null && !entered.isEmpty()) {
+            addSystemViewCompletions(result, entered);
         }
 
         log.info("getCompletionsImpl entered='{}', conn={}, total={}", entered, connName, result.size());
@@ -225,7 +246,10 @@ public class PlSqlCompletionProvider extends DefaultCompletionProvider {
             if (isKnownTable(upper)) return upper;
 
             String fullText = doc.getText(0, doc.getLength());
-            return resolveAlias(fullText, upper);
+            String alias = resolveAlias(fullText, upper);
+            if (alias != null) return alias;
+
+            if (isSystemSchema(upper)) return upper;
         } catch (BadLocationException ignored) {}
         return null;
     }
@@ -315,6 +339,73 @@ public class PlSqlCompletionProvider extends DefaultCompletionProvider {
                 for (var col : cols) {
                     if (col.name.startsWith(upper)) {
                         result.add(new ColumnCompletion(this, col.name, col.type, col.comment));
+                    }
+                }
+                return;
+            }
+        }
+    }
+
+    private Map<String, List<String>> systemViews = Collections.emptyMap();
+    private Set<String> systemSchemas = Collections.emptySet();
+
+    private void ensureSystemViews() {
+        if (!systemViews.isEmpty()) return;
+        if (dbTypeKey == null || dbTypeKey.isEmpty()) return;
+        try {
+            DbTypeCoordinator coord = DbTypeCoordinator.forTypeKey(dbTypeKey);
+            systemViews = coord.getSystemViewNames();
+            Set<String> schemas = new HashSet<>();
+            for (String k : systemViews.keySet()) {
+                if (!k.isEmpty()) schemas.add(k.toUpperCase());
+            }
+            systemSchemas = schemas;
+        } catch (Exception e) {
+            systemViews = Collections.emptyMap();
+            systemSchemas = Collections.emptySet();
+        }
+    }
+
+    private boolean isSystemSchema(String name) {
+        if (name == null) return false;
+        ensureSystemViews();
+        return systemSchemas.contains(name.toUpperCase());
+    }
+
+    /** Path 1+2: Flat match (info → information_schema.tables) + schema self-match (inf → information_schema). */
+    private void addSystemViewCompletions(List<Completion> result, String entered) {
+        if (entered == null || entered.isEmpty()) return;
+        ensureSystemViews();
+        String upper = entered.toUpperCase();
+
+        for (var entry : systemViews.entrySet()) {
+            String schema = entry.getKey();
+            for (String name : entry.getValue()) {
+                String fullName = schema.isEmpty() ? name : schema + "." + name;
+                if (fullName.toUpperCase().startsWith(upper)) {
+                    result.add(new TableCompletion(this, fullName, schema, "VIEW", null));
+                }
+            }
+        }
+
+        for (String schema : systemSchemas) {
+            if (schema.toUpperCase().startsWith(upper)) {
+                List<String> children = systemViews.getOrDefault(schema.toLowerCase(), List.of());
+                String comment = !children.isEmpty() ? children.size() + " children" : null;
+                result.add(new TableCompletion(this, schema, "", "SCHEMA", comment));
+            }
+        }
+    }
+
+    /** Path 3: Dot-notation child items (information_schema. → tables, columns). */
+    private void addSystemViewCompletionsForSchema(List<Completion> result, String schema, String entered) {
+        ensureSystemViews();
+        String upper = entered != null ? entered.toUpperCase() : "";
+        for (var entry : systemViews.entrySet()) {
+            if (entry.getKey().equalsIgnoreCase(schema)) {
+                for (String name : entry.getValue()) {
+                    if (name.toUpperCase().startsWith(upper)) {
+                        result.add(new TableCompletion(this, name, schema, "VIEW", null));
                     }
                 }
                 return;

@@ -64,6 +64,7 @@ public class SqlEditorPanel extends JPanel {
     private final JPanel toolBar;
     private final JPanel topWrapper;
     private final List<Object> execTags = new ArrayList<>();
+    private PlSqlCompletionProvider completionProvider;
     private int lastExecLine = -1;
     private boolean lastExecSuccess;
     private List<int[]> cachedSegments = java.util.Collections.emptyList();
@@ -240,6 +241,7 @@ public class SqlEditorPanel extends JPanel {
 
         PlSqlCompletionProvider provider = new PlSqlCompletionProvider(this::getConnectionName, this::getSchema);
         provider.setColumnLoader((schema, table) -> loadColumns(schema, table));
+        this.completionProvider = provider;
         final AutoCompletion ac = new AutoCompletion(provider);
         ac.setAutoActivationEnabled(true);
         ac.setAutoCompleteEnabled(true);
@@ -311,6 +313,7 @@ public class SqlEditorPanel extends JPanel {
                 connectionName = ci.getName();
                 updateTxButtons();
                 loadSchemasFromCache();
+                completionProvider.setDbTypeKey(ci.getDbType());
                 if (onConnectionChange != null) onConnectionChange.run();
                 return;
             }
@@ -395,6 +398,7 @@ public class SqlEditorPanel extends JPanel {
         for (Map.Entry<String, ConnectionInfo> e : connDisplayMap.entrySet()) {
             if (name.equals(e.getValue().getName())) {
                 connCombo.setSelectedItem(e.getKey());
+                completionProvider.setDbTypeKey(e.getValue().getDbType());
                 break;
             }
         }

@@ -44,6 +44,7 @@ public class SourceViewerPanel extends JPanel {
     private String specSource;
     private String bodySource;
     private boolean showingBody;
+    private PlSqlCompletionProvider completionProvider;
 
     private List<MethodInfo> specMethods = new ArrayList<>();
     private List<MethodInfo> bodyMethods = new ArrayList<>();
@@ -387,6 +388,9 @@ public class SourceViewerPanel extends JPanel {
 
         PlSqlCompletionProvider provider = new PlSqlCompletionProvider(this::getConnName, this::getSchema);
         provider.setColumnLoader((schemaName, table) -> loadColumns(schemaName, table));
+        this.completionProvider = provider;
+        String inferredKey = inferDbTypeKey(connName);
+        if (inferredKey != null) provider.setDbTypeKey(inferredKey);
         AutoCompletion ac = new AutoCompletion(provider);
         ac.setAutoActivationEnabled(true);
         ac.setAutoCompleteEnabled(true);
@@ -447,6 +451,23 @@ public class SourceViewerPanel extends JPanel {
     private static int readAutocompleteDelay() {
         try { return Integer.parseInt(ConfigManager.getInstance().getPreference("autocomplete.delay", "300"));
         } catch (Exception e) { return 300; }
+    }
+
+    private static String inferDbTypeKey(String connName) {
+        if (connName == null) return null;
+        try {
+            String dbProduct = MetadataCache.getInstance().getDbProduct(connName);
+            if (dbProduct == null) return null;
+            String p = dbProduct.toLowerCase();
+            if (p.contains("oceanbase")) return "oceanbase-oracle";
+            if (p.contains("oracle")) return "oracle";
+            if (p.contains("mysql")) return "mysql";
+            if (p.contains("mariadb")) return "mariadb";
+            if (p.contains("postgresql") || p.contains("edb")) return "postgresql";
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     public void applyTheme() {

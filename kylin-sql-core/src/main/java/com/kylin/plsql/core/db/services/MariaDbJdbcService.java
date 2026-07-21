@@ -5,6 +5,7 @@ import com.kylin.plsql.core.db.type.DbTypeSpec;
 import com.kylin.plsql.core.db.type.MariaDbSpec;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /** MariaDB JDBC 行为实现 / MariaDB JDBC connection behavior. */
@@ -30,6 +31,21 @@ public class MariaDbJdbcService extends JdbcService {
         m.put("serverTimezone", "Asia/Shanghai");
         m.put("characterEncoding", "UTF-8");
         m.put("rewriteBatchedStatements", "true");
+        return m;
+    }
+
+    @Override public Map<String, List<String>> getSystemViewNames() {
+        Map<String, List<String>> m = new LinkedHashMap<>();
+        m.put("information_schema", List.of(
+            "tables", "columns", "views", "routines", "parameters",
+            "key_column_usage", "table_constraints", "statistics",
+            "triggers", "character_sets", "collations", "partitions",
+            "check_constraints", "referential_constraints"
+        ));
+        m.put("mysql", List.of(
+            "user", "db", "tables_priv", "columns_priv",
+            "procs_priv", "proxies_priv", "role_edges", "default_roles"
+        ));
         return m;
     }
 }

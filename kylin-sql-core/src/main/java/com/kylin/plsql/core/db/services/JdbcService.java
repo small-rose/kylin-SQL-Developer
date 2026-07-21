@@ -129,6 +129,14 @@ public abstract class JdbcService {
     public Map<String, String> getDefaultJdbcParams(ConnectionInfo info) { return Collections.emptyMap(); }
 
     /**
+     * 返回此方言的常用系统元数据视图名 / System metadata views for this dialect.
+     * <p>
+     * key="" 为 plain name（Oracle 风格），key="information_schema" 等为 schema 限定名。
+     * Flat (key="") for Oracle-style, schema-qualified (key="information_schema") for MySQL/PG.
+     */
+    public Map<String, List<String>> getSystemViewNames() { return Collections.emptyMap(); }
+
+    /**
      * 驱动类名解析 / Resolve driver class name.
      * <p>
      * 优先级 / Priority：customDriverClass > URL 检测 > spec.getDriverClassName()
