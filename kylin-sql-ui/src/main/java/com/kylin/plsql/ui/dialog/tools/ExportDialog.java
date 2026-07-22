@@ -1,18 +1,25 @@
 package com.kylin.plsql.ui.dialog.tools;
 
-import com.kylin.plsql.ui.dialog.common.BaseToolDialog;
 import com.kylin.plsql.core.config.FontManager;
+import com.kylin.plsql.core.export.ExportEngine;
+import com.kylin.plsql.core.export.ExportOptions;
 import com.kylin.plsql.core.parser.SqlTableExtractor;
 import com.kylin.plsql.ui.component.common.ToastManager;
+import com.kylin.plsql.ui.dialog.common.BaseToolDialog;
 
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.table.TableModel;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
-import java.io.*;
-import java.nio.charset.Charset;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
 import java.text.SimpleDateFormat;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /** 结果集导出对话框，支持 INSERT / CSV / JSON / XML / Markdown 格式。 */
@@ -67,17 +74,17 @@ public class ExportDialog extends BaseToolDialog {
                 new String[]{"UTF-8", "GBK", "ISO-8859-1", "UTF-16"});
 
         dateFormatField = new JTextField("yyyy-MM-dd HH:mm:ss", 15);
-        dateFormatField.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-            @Override public void insertUpdate(javax.swing.event.DocumentEvent e) { doExport(); }
-            @Override public void removeUpdate(javax.swing.event.DocumentEvent e) { doExport(); }
-            @Override public void changedUpdate(javax.swing.event.DocumentEvent e) { doExport(); }
+        dateFormatField.getDocument().addDocumentListener(new DocumentListener() {
+            @Override public void insertUpdate(DocumentEvent e) { doExport(); }
+            @Override public void removeUpdate(DocumentEvent e) { doExport(); }
+            @Override public void changedUpdate(DocumentEvent e) { doExport(); }
         });
 
         nullPlaceholder = new JTextField("NULL", 10);
-        nullPlaceholder.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
-            @Override public void insertUpdate(javax.swing.event.DocumentEvent e) { doExport(); }
-            @Override public void removeUpdate(javax.swing.event.DocumentEvent e) { doExport(); }
-            @Override public void changedUpdate(javax.swing.event.DocumentEvent e) { doExport(); }
+        nullPlaceholder.getDocument().addDocumentListener(new DocumentListener() {
+            @Override public void insertUpdate(DocumentEvent e) { doExport(); }
+            @Override public void removeUpdate(DocumentEvent e) { doExport(); }
+            @Override public void changedUpdate(DocumentEvent e) { doExport(); }
         });
 
         maxBlobSize = new JSpinner(new SpinnerNumberModel(64, 1, 10240, 8));
@@ -232,13 +239,14 @@ public class ExportDialog extends BaseToolDialog {
         String format = (String) formatCombo.getSelectedItem();
         if (format == null) return;
         try {
-            switch (format) {
-                case "INSERT": outputArea.setText(exportInsert()); break;
-                case "CSV":    outputArea.setText(exportCsv()); break;
-                case "JSON":   outputArea.setText(exportJson()); break;
-                case "XML":    outputArea.setText(exportXml()); break;
-                case "Markdown": outputArea.setText(exportMarkdown()); break;
-            }
+            var opts = new ExportOptions()
+                .setTableName(tableNameField.getText().trim())
+                .setHeader(headerCb.isSelected())
+                .setDateFormat(dateFormatField.getText().trim())
+                .setNullPlaceholder(nullPlaceholder.getText())
+                .setMaxBlobSize((Integer) maxBlobSize.getValue())
+                .setDialect((String) dialectCombo.getSelectedItem());
+            outputArea.setText(ExportEngine.export(sourceModel, new java.util.ArrayList<>(selectedColumns), format, opts));
         } catch (Exception e) {
             outputArea.setText("导出错误: " + e.getMessage());
         }
@@ -450,16 +458,26 @@ public class ExportDialog extends BaseToolDialog {
     }
 
     private void doExportAsync() {
-        ExportTaskListDialog taskList = ExportTaskListDialog.getInstance(owner);
+        var taskList = ExportTaskListDialog.getInstance(owner);
         String table = tableNameField.getText().trim();
         String format = (String) formatCombo.getSelectedItem();
-        Charset charset = Charset.forName((String) charsetCombo.getSelectedItem());
-        String dateFmt = dateFormatField.getText().trim();
-        String nullVal = nullPlaceholder.getText();
-        int maxBlob = (Integer) maxBlobSize.getValue();
-        taskList.submitTask(sourceModel, format, new ArrayList<>(selectedColumns),
-                table, headerCb.isSelected(), charset, dateFmt, nullVal, maxBlob,
-                filePathField.getText().trim());
+        var opts = new ExportOptions()
+            .setTableName(table)
+            .setHeader(headerCb.isSelected())
+            .setDateFormat(dateFormatField.getText().trim())
+            .setNullPlaceholder(nullPlaceholder.getText())
+            .setMaxBlobSize((Integer) maxBlobSize.getValue())
+            .setDialect((String) dialectCombo.getSelectedItem())
+            .setCharset((String) charsetCombo.getSelectedItem());
+        String filePath = filePathField.getText().trim();
+        var task = new com.kylin.plsql.core.export.ExportTask();
+        task.setName("导出 " + (table.isEmpty() ? "表" : table) + " (" + format + ", " + sourceModel.getRowCount() + "行)");
+        task.setFormat(format);
+        task.setTotalRows(sourceModel.getRowCount());
+        task.setStartTime(System.currentTimeMillis());
+        var worker = new ExportWorker(sourceModel, new java.util.ArrayList<>(selectedColumns), format,
+            opts, filePath, task, null, t -> taskList.saveHistory());
+        worker.execute();
         taskList.setVisible(true);
     }
 

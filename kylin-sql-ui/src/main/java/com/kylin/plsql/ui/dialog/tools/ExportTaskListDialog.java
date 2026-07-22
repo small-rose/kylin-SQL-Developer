@@ -2,20 +2,21 @@ package com.kylin.plsql.ui.dialog.tools;
 
 import com.kylin.plsql.core.config.ConfigManager;
 import com.kylin.plsql.ui.component.common.IconUtil;
-import com.kylin.plsql.ui.dialog.common.BaseToolDialog;
-
 import com.kylin.plsql.ui.component.common.ToastManager;
+import com.kylin.plsql.ui.dialog.common.BaseToolDialog;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
-import javax.swing.table.DefaultTableCellRenderer;
-import javax.swing.table.TableCellEditor;
 import javax.swing.table.TableModel;
 import java.awt.*;
-import java.io.*;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
 import java.nio.charset.Charset;
 import java.text.SimpleDateFormat;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 
 /** Export task list dialog with retry support for failed exports */
@@ -60,7 +61,7 @@ public class ExportTaskListDialog extends BaseToolDialog {
         TaskTableModel(List<ExportTask> data) { this.data = data; }
 
         @Override public int getRowCount() { return data.size(); }
-        @Override public int getColumnCount() { return 7; }
+        @Override public int getColumnCount() { return 6; }
 
         @Override public String getColumnName(int col) {
             switch (col) {
@@ -70,7 +71,6 @@ public class ExportTaskListDialog extends BaseToolDialog {
                 case 3: return "开始时间";
                 case 4: return "耗时";
                 case 5: return "进度";
-                case 6: return "操作";
                 default: return "";
             }
         }
@@ -90,7 +90,6 @@ public class ExportTaskListDialog extends BaseToolDialog {
                 case 5: return t.totalRows > 0
                         ? t.exportedRows + "/" + t.totalRows
                         : "--";
-                case 6: return t;
                 default: return "";
             }
         }
@@ -124,12 +123,41 @@ public class ExportTaskListDialog extends BaseToolDialog {
         taskTable.getColumnModel().getColumn(3).setPreferredWidth(140);
         taskTable.getColumnModel().getColumn(4).setPreferredWidth(60);
         taskTable.getColumnModel().getColumn(5).setPreferredWidth(80);
-        taskTable.getColumnModel().getColumn(6).setPreferredWidth(100);
-
-        taskTable.getColumnModel().getColumn(6).setCellRenderer(new ButtonRenderer());
-        taskTable.getColumnModel().getColumn(6).setCellEditor(new ButtonEditor());
 
         taskTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+
+        JButton openFileBtn = new JButton("打开文件");
+        openFileBtn.setIcon(IconUtil.loadButtonIcon("file-play", null));
+        JButton openLocationBtn = new JButton("打开位置");
+        openLocationBtn.setIcon(IconUtil.loadButtonIcon("folder-open-dot", null));
+        JButton retryBtn = new JButton("重试");
+        retryBtn.setIcon(IconUtil.loadButtonIcon("retry", null));
+        JButton delBtn = new JButton("删除");
+        delBtn.setIcon(IconUtil.loadButtonIcon("trash-2", null));
+        openFileBtn.setEnabled(false);
+        openLocationBtn.setEnabled(false);
+        retryBtn.setEnabled(false);
+        delBtn.setEnabled(false);
+        openFileBtn.addActionListener(e -> actionOnSelected(0));
+        openLocationBtn.addActionListener(e -> actionOnSelected(1));
+        retryBtn.addActionListener(e -> actionOnSelected(2));
+        delBtn.addActionListener(e -> actionOnSelected(3));
+
+        taskTable.getSelectionModel().addListSelectionListener(e -> {
+            int row = taskTable.getSelectedRow();
+            if (row < 0 || row >= tasks.size()) {
+                openFileBtn.setEnabled(false); openLocationBtn.setEnabled(false);
+                retryBtn.setEnabled(false); delBtn.setEnabled(false);
+                return;
+            }
+            ExportTask t = tasks.get(row);
+            boolean done = "已完成".equals(t.status);
+            boolean fail = "失败".equals(t.status);
+            openFileBtn.setEnabled(done);
+            openLocationBtn.setEnabled(done);
+            retryBtn.setEnabled(fail);
+            delBtn.setEnabled(done || fail);
+        });
 
         setSize(750, 380);
         centerOnOwner();
@@ -142,9 +170,14 @@ public class ExportTaskListDialog extends BaseToolDialog {
         JButton closeBtn = new JButton("关闭");
         closeBtn.addActionListener(e -> setVisible(false));
 
-        JPanel southPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 4));
-        southPanel.add(clearBtn);
-        southPanel.add(closeBtn);
+        JPanel southPanel = new JPanel(new BorderLayout(8, 0));
+        JPanel leftBar = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 2));
+        leftBar.add(openFileBtn); leftBar.add(openLocationBtn);
+        leftBar.add(retryBtn); leftBar.add(delBtn);
+        southPanel.add(leftBar, BorderLayout.WEST);
+        JPanel rightBar = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 4));
+        rightBar.add(clearBtn); rightBar.add(closeBtn);
+        southPanel.add(rightBar, BorderLayout.EAST);
 
         setLayout(new BorderLayout());
         add(scrollPane, BorderLayout.CENTER);
@@ -170,6 +203,12 @@ public class ExportTaskListDialog extends BaseToolDialog {
             items.add(h);
         }
         ConfigManager.getInstance().saveExportHistory(items);
+    }
+
+    /** 外部添加一个已配置好的任务（由 ExportWorker 使用）。 */
+    public void addTask(ExportTask task) {
+        tasks.add(task);
+        taskModel.fireTableRowsInserted(tasks.size() - 1, tasks.size() - 1);
     }
 
     public void submitTask(javax.swing.table.TableModel model, String format,
@@ -245,7 +284,42 @@ public class ExportTaskListDialog extends BaseToolDialog {
                             }
                             for (int i = 0; i < columns.size(); i++) {
                                 if (i > 0) sb.append(",");
-                                sb.append("\"").append(model.getValueAt(r, columns.get(i))).append("\"");
+                                sb.append(formatValue(model.getValueAt(r, columns.get(i)), "CSV"));
+                            }
+                            sb.append("\n");
+                        } else if ("JSON".equals(format)) {
+                            if (r == 0) sb.append("[\n");
+                            if (r > 0) sb.append(",\n");
+                            sb.append("  {");
+                            for (int i = 0; i < columns.size(); i++) {
+                                if (i > 0) sb.append(", ");
+                                sb.append("\"").append(model.getColumnName(columns.get(i))).append("\": ")
+                                  .append(formatValue(model.getValueAt(r, columns.get(i)), "JSON"));
+                            }
+                            sb.append("}");
+                            if (r == model.getRowCount() - 1) sb.append("\n]");
+                        } else if ("XML".equals(format)) {
+                            if (r == 0) sb.append("<rows>\n");
+                            sb.append("  <row>\n");
+                            for (int i = 0; i < columns.size(); i++) {
+                                String colName = model.getColumnName(columns.get(i));
+                                sb.append("    <").append(colName).append(">")
+                                  .append(formatValue(model.getValueAt(r, columns.get(i)), "XML"))
+                                  .append("</").append(colName).append(">\n");
+                            }
+                            sb.append("  </row>\n");
+                            if (r == model.getRowCount() - 1) sb.append("</rows>");
+                        } else if ("Markdown".equals(format)) {
+                            if (r == 0 && header) {
+                                sb.append("|");
+                                for (int i = 0; i < columns.size(); i++) sb.append(" ").append(model.getColumnName(columns.get(i))).append(" |");
+                                sb.append("\n|");
+                                for (int i = 0; i < columns.size(); i++) sb.append(" --- |");
+                                sb.append("\n");
+                            }
+                            sb.append("|");
+                            for (int i = 0; i < columns.size(); i++) {
+                                sb.append(" ").append(formatValue(model.getValueAt(r, columns.get(i)), "Markdown")).append(" |");
                             }
                             sb.append("\n");
                         }
@@ -270,9 +344,18 @@ public class ExportTaskListDialog extends BaseToolDialog {
             }
 
             private String formatValue(Object value, String format) {
-                if (value == null) return nullPlaceholder;
+                if (value == null) return "JSON".equals(format) ? "null" : nullPlaceholder;
                 if (value instanceof Number) return value.toString();
-                return "'" + value.toString().replace("'", "''") + "'";
+                String str = value.toString();
+                return switch (format) {
+                    case "CSV" -> "\"" + str.replace("\"", "\"\"") + "\"";
+                    case "JSON" -> "\"" + str.replace("\\", "\\\\").replace("\"", "\\\"")
+                            .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t") + "\"";
+                    case "XML" -> str.replace("&", "&amp;").replace("<", "&lt;")
+                            .replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&apos;");
+                    case "Markdown" -> str.replace("|", "\\|");
+                    default -> "'" + str.replace("'", "''") + "'";
+                };
             }
 
             @Override
@@ -364,75 +447,20 @@ public class ExportTaskListDialog extends BaseToolDialog {
         taskModel.fireTableDataChanged();
     }
 
+    /** 根据底部操作按钮类型，对选中行执行对应操作。idx: 0=打开文件,1=打开位置,2=重试,3=删除 */
+    private void actionOnSelected(int idx) {
+        int row = taskTable.getSelectedRow();
+        if (row < 0 || row >= tasks.size()) return;
+        switch (idx) {
+            case 0 -> openFile(row);
+            case 1 -> openFileLocation(row);
+            case 2 -> retryTask(row);
+            case 3 -> deleteTask(row);
+        }
+    }
+
     private void deleteTask(int row) {
         tasks.remove(row);
         taskModel.fireTableRowsDeleted(row, row);
-    }
-
-    private class ButtonRenderer extends DefaultTableCellRenderer {
-        @Override public Component getTableCellRendererComponent(JTable table, Object value,
-                boolean isSelected, boolean hasFocus, int row, int col) {
-            if (value instanceof ExportTask t) {
-                return makeActionPanel(row, t, () -> {});
-            }
-            return this;
-        }
-    }
-
-    private class ButtonEditor extends AbstractCellEditor implements TableCellEditor {
-        private JPanel currentPanel;
-        ButtonEditor() {}
-
-        @Override public Component getTableCellEditorComponent(JTable table, Object value,
-                boolean isSelected, int row, int col) {
-            if (value instanceof ExportTask t) {
-                currentPanel = makeActionPanel(row, t, () -> stopCellEditing());
-            } else {
-                currentPanel = new JPanel();
-            }
-            return currentPanel;
-        }
-
-        @Override public Object getCellEditorValue() {
-            return "";
-        }
-    }
-
-    /** 根据任务状态返回操作面板，onAction 在按钮点击后执行（如结束编辑）。 */
-    private JPanel makeActionPanel(int row, ExportTask t, Runnable onAction) {
-        JPanel p = new JPanel(new FlowLayout(FlowLayout.CENTER, 2, 0));
-        p.setOpaque(false);
-        if ("已完成".equals(t.status)) {
-            p.add(iconBtn("file-play", "打开文件", () -> { openFile(row); onAction.run(); }));
-            p.add(iconBtn("folder-open-dot", "打开文件所在位置", () -> { openFileLocation(row); onAction.run(); }));
-            p.add(iconBtn("trash-2", "删除", () -> { deleteTask(row); onAction.run(); }));
-        } else if ("失败".equals(t.status)) {
-            p.add(iconBtn("retry", "重试", () -> { retryTask(row); onAction.run(); }));
-            p.add(iconBtn("trash-2", "删除", () -> { deleteTask(row); onAction.run(); }));
-        } else if ("排队中".equals(t.status) || "执行中".equals(t.status)) {
-            p.add(iconBtn("undo-2", "取消", () -> { cancelTask(row); onAction.run(); }));
-        } else {
-            p.add(textBtn("--", () -> {}));
-        }
-        return p;
-    }
-
-    private JButton iconBtn(String icon, String tip, Runnable action) {
-        JButton b = new JButton();
-        b.setToolTipText(tip);
-        b.setIcon(IconUtil.loadButtonIcon(icon, null));
-        b.setFocusable(false);
-        b.setBorder(BorderFactory.createEmptyBorder(2, 4, 2, 4));
-        b.setContentAreaFilled(false);
-        b.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        b.addActionListener(e -> action.run());
-        return b;
-    }
-
-    private JButton textBtn(String text, Runnable action) {
-        JButton b = new JButton(text);
-        b.setFocusable(false);
-        b.addActionListener(e -> action.run());
-        return b;
     }
 }

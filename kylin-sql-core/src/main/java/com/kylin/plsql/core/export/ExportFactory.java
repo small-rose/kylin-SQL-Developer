@@ -4,7 +4,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-public class ExportFormats {
+public class ExportFactory {
     private static final List<ExportFormat> FORMATS = new CopyOnWriteArrayList<>();
     private static final Map<String, ExportFormat> BY_NAME = new ConcurrentHashMap<>();
     static {

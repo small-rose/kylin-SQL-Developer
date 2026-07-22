@@ -4,13 +4,12 @@ import com.kylin.plsql.core.export.ExportEngine;
 import com.kylin.plsql.core.export.ExportOptions;
 import com.kylin.plsql.core.export.ExportTask;
 
-import javax.swing.*;
+import javax.swing.SwingWorker;
 import javax.swing.table.TableModel;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
-import java.nio.charset.Charset;
 import java.util.List;
 import java.util.function.Consumer;
 

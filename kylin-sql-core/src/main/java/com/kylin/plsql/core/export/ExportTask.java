@@ -1,5 +1,4 @@
 package com.kylin.plsql.core.export;
-import javax.swing.*;
 import java.util.List;
 import java.util.UUID;
 
@@ -8,7 +7,6 @@ public class ExportTask {
     private String name; private String format; private volatile String status = "排队中";
     private long startTime; private long endTime; private int totalRows; private int exportedRows;
     private String filePath; private String errorMessage;
-    private transient SwingWorker<Void, Void> worker;
     private List<Object[]> modelSnapshot; private int columnCount; private String[] columnNames;
     private Class<?>[] columnClasses; private String retryFormat;
     private List<Integer> retryColumns; private String retryTableName; private boolean retryHeader;
@@ -24,7 +22,6 @@ public class ExportTask {
     public int getExportedRows() { return exportedRows; } public void setExportedRows(int v) { exportedRows = v; }
     public String getFilePath() { return filePath; } public void setFilePath(String v) { filePath = v; }
     public String getErrorMessage() { return errorMessage; } public void setErrorMessage(String v) { errorMessage = v; }
-    public SwingWorker<Void, Void> getWorker() { return worker; } public void setWorker(SwingWorker<Void, Void> v) { worker = v; }
     public List<Object[]> getModelSnapshot() { return modelSnapshot; } public void setModelSnapshot(List<Object[]> v) { modelSnapshot = v; }
     public int getColumnCount() { return columnCount; } public void setColumnCount(int v) { columnCount = v; }
     public String[] getColumnNames() { return columnNames; } public void setColumnNames(String[] v) { columnNames = v; }

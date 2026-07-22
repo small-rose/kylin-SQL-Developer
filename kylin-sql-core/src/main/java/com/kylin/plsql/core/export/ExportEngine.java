@@ -7,12 +7,12 @@ import java.util.List;
 public class ExportEngine {
     public static String export(TableModel model, List<Integer> columns,
                                  String formatName, ExportOptions opts) {
-        return ExportFormats.get(formatName).export(model, columns, opts);
+        return ExportFactory.get(formatName).export(model, columns, opts);
     }
     public static String formatValue(Object value, String formatName, String nullPlaceholder) {
-        return ExportFormats.get(formatName).formatValue(value, nullPlaceholder);
+        return ExportFactory.get(formatName).formatValue(value, nullPlaceholder);
     }
     public static List<String> getSupportedFormats() {
-        return ExportFormats.getNames();
+        return ExportFactory.getNames();
     }
 }
