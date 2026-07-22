@@ -1,10 +1,12 @@
 package com.kylin.plsql.core.config;
 
-import java.awt.Color;
+
+import java.awt.*;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import javax.swing.*;
 
 /** Singleton theme manager with color override support and listener notification. */
 public class ThemeManager {
@@ -65,7 +67,7 @@ public class ThemeManager {
         if (theme == currentTheme) return;
         this.currentTheme = theme;
         SwingHelper.runOnEDT(() -> {
-            for (Runnable r : listeners) r.run();
+            for (Runnable r : listeners){ r.run(); }
         });
     }
 
@@ -115,8 +117,11 @@ public class ThemeManager {
 
     private static class SwingHelper {
         static void runOnEDT(Runnable r) {
-            if (javax.swing.SwingUtilities.isEventDispatchThread()) { r.run(); }
-            else { javax.swing.SwingUtilities.invokeLater(r); }
+            if (SwingUtilities.isEventDispatchThread()) {
+                r.run();
+            }else {
+                SwingUtilities.invokeLater(r);
+            }
         }
     }
 }

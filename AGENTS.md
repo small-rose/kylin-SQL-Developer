@@ -16,8 +16,8 @@
 | **6** | 集成路由 + 方言选择持久化 + assembly | ⏳ 待开始 | MainFrame.java, ConfigManager.java |
 
 ### 编译状态
-- kylin-sql-core: BUILD SUCCESS（30源文件）
-- kylin-sql-ui: 需验证（Phase 5 UI 重构前编译正常）
+- kylin-sql-core: BUILD SUCCESS（40源文件，含 service 层 11 个新文件）
+- kylin-sql-ui: BUILD SUCCESS（39源文件，含自动补全 + schema 执行修复 + 导出对话框服务化）
 - assembly dist/ 清理仍偶发 ANTLR JAR 文件锁
 
 ### 架构变更
@@ -45,9 +45,9 @@ SqlFormatter.format(source, options, dialect)
 - SQL 类型分类的方言特定关键字路由
 
 ### 对话记录参考
-- 当前会话：格式化引擎完整重写，Phase 1-3 完成
-- 前一阶段：SqlToolsDialog 改进（IN 子句/转义/复制按钮/Toast）
-- 前一阶段：MainFrame menu bar WindowFocusListener 修复
+- **当前会话（2026-07-22）**：自动补全 3 项修复 + Service 层（SchemaService/DataQueryService/ExportService/ServiceFactory 4服务12文件）+ 导出对话框"表"模式级联 + 编译 BUILD SUCCESS（core 40文件 / ui 39文件）
+- **前一会话（2026-07-13）**：自动补全元数据体系 + 系统视图 + MetadataCache 预热
+- **前一阶段**：格式化引擎完整重写，Phase 1-3 完成
 
 ## 操作规范
 
@@ -73,3 +73,11 @@ SqlFormatter.format(source, options, dialect)
   - `MetadataCache` 新增 `getObjectNamesByType(connName, schema)` 返回 `Map<String, List<String>>`
   - 点后缀列补全（`tablename.` → 列列表）：`getTableBeforeDot()` 提取点前最后一个词 → `isKnownTable()` 直查 / `resolveAlias()` 通过正则`\b(?:FROM|JOIN|INTO)\s+table(?:\s+AS)?\s+alias` 解析别名
   - 单匹配自动补全保持默认（不调用 `setAutoCompleteSingleChoices`）
+
+- **Session 2026-07-22 修复合集：**
+  - NPE: `setDbTypeKey()` 将 `systemViews` 设为 `null` → `ensureSystemViews()` 抛 NPE → AutoCompletion 静默吞异常不弹窗。修复: `null` → `Collections.emptyMap()`
+  - MySQL 大小写: 缓存表名全小写（`employee`）vs `upper`（`EMP`），`name.startsWith(upper)` 永远 false。修复 3 处：`name.toUpperCase().startsWith(upper)`、`col.name.toUpperCase().startsWith(upper)`、`isKnownTable` 改为 `equalsIgnoreCase`
+  - Schema 不切换: SQL 执行始终跑连接池默认 schema。修复: `executeSql()` 读 `editor.getSchema()`，新增 `applySchemaIfNeeded(conn, connName, schema)` 方法，按 dbProduct 分支执行 `USE / ALTER SESSION / conn.setSchema`
+  - 诊断日志: 日志从 DEBUG 改为 INFO `[DIAG]` 前缀（root logger 为 INFO），完成诊断后建议清理
+  - Service 层: SchemaService（抽象+3方言）+ DataQueryService（抽象+3方言）+ ExportService + ServiceFactory + DataPreview model，共 12 文件，kylin-sql-core 40 源文件
+  - AdvancedExportDialog 重构: ServiceFactory 注入，3 模式切换（结果集/表/自定义SQL），"表"模式 conn→schema→table 级联，加载列+预览 10 行，自动填充 tableNameField

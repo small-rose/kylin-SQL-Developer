@@ -11,6 +11,7 @@ import com.kylin.plsql.core.db.ConnectionInfo;
 import com.kylin.plsql.core.db.ConnectionManager;
 import com.kylin.plsql.core.db.SqlExecutor;
 import com.kylin.plsql.core.db.SqlHistory;
+import com.kylin.plsql.core.service.ServiceFactory;
 import com.kylin.plsql.core.format.EngineManager;
 import com.kylin.plsql.core.format.FormatOptions;
 import com.kylin.plsql.core.format.SqlFormatterEngine;
@@ -78,6 +79,7 @@ public class MainFrame extends JFrame {
 
     private final ConfigManager configManager;
     private final ConnectionManager connectionManager;
+    private ServiceFactory serviceFactory;
 
     private LeftPanel leftPanel;
     private ObjectBrowser objectBrowser;
@@ -129,6 +131,7 @@ public class MainFrame extends JFrame {
     public MainFrame(ConfigManager configManager) {
         this.configManager = configManager;
         this.connectionManager = new ConnectionManager();
+        this.serviceFactory = new ServiceFactory(connectionManager);
         consoleCounter = 1;
         EngineManager.initEngines(formatOptions);
         initComponents();
@@ -2532,7 +2535,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         var model = rp.getCurrentTableModel();
         if (model == null) model = new javax.swing.table.DefaultTableModel();
         String connName = rp.getCurrentConnName();
-        new AdvancedExportDialog(MainFrame.this, model, connName).setVisible(true);
+        new AdvancedExportDialog(MainFrame.this, model, connName, serviceFactory, connectionManager).setVisible(true);
     }
 
     private void onObjectAction(String connName, String schema, String objectType, String objectName, String action) {
