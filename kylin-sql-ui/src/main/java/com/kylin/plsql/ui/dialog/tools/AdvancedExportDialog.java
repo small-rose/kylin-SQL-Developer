@@ -3,6 +3,8 @@ package com.kylin.plsql.ui.dialog.tools;
 import com.kylin.plsql.ui.dialog.common.BaseToolDialog;
 
 import com.kylin.plsql.core.config.FontManager;
+import com.kylin.plsql.core.export.ExportEngine;
+import com.kylin.plsql.core.export.ExportOptions;
 import com.kylin.plsql.ui.component.common.ToastManager;
 
 import javax.swing.*;
@@ -11,7 +13,6 @@ import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.io.*;
 import java.nio.charset.Charset;
-import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.List;
 
@@ -29,9 +30,22 @@ public class AdvancedExportDialog extends BaseToolDialog {
     private final JTextField nullPlaceholder;
     private final JSpinner maxBlobSize;
     private final JPanel colCheckPanel;
+    private final String connName;
+    private JComboBox<String> sourceCombo;
+    private JComboBox<String> schemaCombo;
+    private JComboBox<String> tableCombo;
+    private JTextArea sqlTextArea;
+    private JScrollPane sqlScroll;
+    private JSpinner maxRowsSpinner;
+    private JPanel configPanel; 
 
     public AdvancedExportDialog(Frame owner, TableModel sourceModel) {
+        this(owner, sourceModel, null);
+    }
+
+    public AdvancedExportDialog(Frame owner, TableModel sourceModel, String connName) {
         super(owner, "高级导出");
+        this.connName = connName;
         this.sourceModel = sourceModel;
         setSizeRatio(0.7);
         centerOnOwner();
@@ -90,7 +104,44 @@ public class AdvancedExportDialog extends BaseToolDialog {
         c.fill = GridBagConstraints.HORIZONTAL;
         c.insets = new Insets(3, 5, 3, 5);
 
+        // ── Row 0: 数据来源 + schema + 表 + 最大行 ──
+        sourceCombo = new JComboBox<>(new String[]{"当前结果集", "表", "自定义SQL"});
+        sourceCombo.addActionListener(e -> toggleSourceMode());
         c.gridy = 0; c.gridx = 0; c.weightx = 0;
+        configPanel.add(new JLabel("数据来源:"), c);
+        c.gridx = 1; c.weightx = 0.25;
+        configPanel.add(sourceCombo, c);
+
+        schemaCombo = new JComboBox<>();
+        schemaCombo.setEditable(true);
+        c.gridx = 2; c.weightx = 0;
+        configPanel.add(new JLabel("模式:"), c);
+        c.gridx = 3; c.weightx = 0.3;
+        configPanel.add(schemaCombo, c);
+
+        tableCombo = new JComboBox<>();
+        tableCombo.setEditable(true);
+        c.gridx = 4; c.weightx = 0;
+        configPanel.add(new JLabel("表:"), c);
+        c.gridx = 5; c.weightx = 0.5;
+        configPanel.add(tableCombo, c);
+
+        c.gridx = 6; c.weightx = 0;
+        configPanel.add(new JLabel("最大行:"), c);
+        c.gridx = 7; c.weightx = 0.25;
+        maxRowsSpinner = new JSpinner(new SpinnerNumberModel(10000, 0, 10000000, 1000));
+        configPanel.add(maxRowsSpinner, c);
+
+        // ── Row 1: SQL 文本域（仅在自定义SQL时可见）──
+        sqlTextArea = new JTextArea(3, 30);
+        sqlTextArea.setFont(monoFont());
+        sqlScroll = new JScrollPane(sqlTextArea);
+        c.gridy = 1; c.gridx = 0; c.gridwidth = 8; c.weightx = 1;
+        configPanel.add(sqlScroll, c);
+        sqlScroll.setVisible(false);
+
+        // ── Row 2: 导出格式 + 表名 + 编码 ──
+        c.gridy = 2; c.gridx = 0; c.gridwidth = 1; c.weightx = 0;
         configPanel.add(new JLabel("导出格式:"), c);
         c.gridx = 1; c.weightx = 0.3;
         configPanel.add(formatCombo, c);
@@ -99,13 +150,12 @@ public class AdvancedExportDialog extends BaseToolDialog {
         c.gridx = 3; c.weightx = 0.5;
         configPanel.add(tableNameField, c);
         c.gridx = 4; c.weightx = 0;
-        configPanel.add(headerCb, c);
-        c.gridx = 5; c.weightx = 0;
         configPanel.add(new JLabel("编码:"), c);
-        c.gridx = 6; c.weightx = 0.3;
+        c.gridx = 5; c.weightx = 0.3;
         configPanel.add(charsetCombo, c);
 
-        c.gridy = 1; c.gridx = 0; c.weightx = 0;
+        // ── Row 3: 方言 + 日期格式 + NULL值 ──
+        c.gridy = 3; c.gridx = 0; c.weightx = 0;
         configPanel.add(new JLabel("方言:"), c);
         c.gridx = 1; c.weightx = 0.3;
         configPanel.add(dialectCombo, c);
@@ -118,10 +168,13 @@ public class AdvancedExportDialog extends BaseToolDialog {
         c.gridx = 5; c.weightx = 0.3;
         configPanel.add(nullPlaceholder, c);
 
-        c.gridy = 2; c.gridx = 0; c.weightx = 0;
+        // ── Row 4: BLOB上限 + 最大行 + 包含列头 ──
+        c.gridy = 4; c.gridx = 0; c.weightx = 0;
         configPanel.add(new JLabel("BLOB上限:"), c);
         c.gridx = 1; c.weightx = 0.3;
         configPanel.add(maxBlobSize, c);
+        c.gridx = 2; c.weightx = 0;
+        configPanel.add(headerCb, c);
 
         JLabel hintLabel = new JLabel(
                 "选择要导出的列，切换格式自动预览 | INSERT 格式需填写表名 | 大数据量建议使用异步导出");
@@ -185,6 +238,24 @@ public class AdvancedExportDialog extends BaseToolDialog {
         javax.swing.SwingUtilities.invokeLater(this::doExport);
     }
 
+    /** 切换数据来源模式。 */
+    private void toggleSourceMode() {
+        String src = (String) sourceCombo.getSelectedItem();
+        boolean isTable = "表".equals(src);
+        boolean isSql = "自定义SQL".equals(src);
+        schemaCombo.setVisible(isTable);
+        tableCombo.setVisible(isTable);
+        for (Component c : configPanel.getComponents()) {
+            if (c instanceof JLabel l && ("模式:".equals(l.getText()) || "表:".equals(l.getText()))) {
+                l.setVisible(isTable);
+            }
+        }
+        sqlScroll.setVisible(isSql);
+        if (isSql && sqlTextArea.getText().isEmpty()) {
+            sqlTextArea.setText("SELECT * FROM " + schemaCombo.getSelectedItem() + "." + tableCombo.getSelectedItem());
+        }
+    }
+
     private void rebuildColumnCheckboxes() {
         colCheckPanel.removeAll();
         for (int i = 0; i < sourceModel.getColumnCount(); i++) {
@@ -210,233 +281,34 @@ public class AdvancedExportDialog extends BaseToolDialog {
         String format = (String) formatCombo.getSelectedItem();
         if (format == null) return;
         try {
-            switch (format) {
-                case "INSERT": outputArea.setText(exportInsert()); break;
-                case "CSV":    outputArea.setText(exportCsv()); break;
-                case "JSON":   outputArea.setText(exportJson()); break;
-                case "XML":    outputArea.setText(exportXml()); break;
-                case "Markdown": outputArea.setText(exportMarkdown()); break;
-            }
+            outputArea.setText(ExportEngine.export(sourceModel, selectedColumns, format, buildOptions()));
         } catch (Exception e) {
             outputArea.setText("导出错误: " + e.getMessage());
         }
     }
 
-    private String exportInsert() {
-        String table = tableNameField.getText().trim();
-        String dialect = (String) dialectCombo.getSelectedItem();
-        if (table.isEmpty()) table = "EXPORT_TABLE";
-        StringBuilder sb = new StringBuilder();
-        for (int row = 0; row < sourceModel.getRowCount(); row++) {
-            sb.append("INSERT INTO ").append(table).append(" (");
-            for (int i = 0; i < selectedColumns.size(); i++) {
-                if (i > 0) sb.append(", ");
-                sb.append(sourceModel.getColumnName(selectedColumns.get(i)));
-            }
-            sb.append(") VALUES (");
-            for (int i = 0; i < selectedColumns.size(); i++) {
-                if (i > 0) sb.append(", ");
-                sb.append(formatCellValue(sourceModel.getValueAt(row, selectedColumns.get(i)),
-                        selectedColumns.get(i), "INSERT", dialect));
-            }
-            sb.append(");\n");
-        }
-        return sb.toString();
+    private ExportOptions buildOptions() {
+        return new ExportOptions()
+            .setTableName(tableNameField.getText().trim())
+            .setHeader(headerCb.isSelected())
+            .setDateFormat(dateFormatField.getText().trim())
+            .setNullPlaceholder(nullPlaceholder.getText())
+            .setMaxBlobSize((Integer) maxBlobSize.getValue())
+            .setCharset((String) charsetCombo.getSelectedItem())
+            .setDialect((String) dialectCombo.getSelectedItem());
     }
 
-    private String exportCsv() {
-        StringBuilder sb = new StringBuilder();
-        if (headerCb.isSelected()) {
-            for (int i = 0; i < selectedColumns.size(); i++) {
-                if (i > 0) sb.append(",");
-                sb.append(escapeCsv(sourceModel.getColumnName(selectedColumns.get(i))));
-            }
-            sb.append("\n");
-        }
-        for (int row = 0; row < sourceModel.getRowCount(); row++) {
-            for (int i = 0; i < selectedColumns.size(); i++) {
-                if (i > 0) sb.append(",");
-                sb.append(escapeCsv(formatCellValue(sourceModel.getValueAt(row, selectedColumns.get(i)),
-                        selectedColumns.get(i), "CSV", null)));
-            }
-            sb.append("\n");
-        }
-        return sb.toString();
-    }
 
-    private String exportJson() {
-        StringBuilder sb = new StringBuilder("[\n");
-        for (int row = 0; row < sourceModel.getRowCount(); row++) {
-            if (row > 0) sb.append(",\n");
-            sb.append("  {");
-            for (int i = 0; i < selectedColumns.size(); i++) {
-                if (i > 0) sb.append(", ");
-                String colName = sourceModel.getColumnName(selectedColumns.get(i));
-                String val = formatCellValue(sourceModel.getValueAt(row, selectedColumns.get(i)),
-                        selectedColumns.get(i), "JSON", null);
-                sb.append("\"").append(escapeJson(colName)).append("\": ").append(val);
-            }
-            sb.append("}");
-        }
-        sb.append("\n]");
-        return sb.toString();
-    }
-
-    private String exportXml() {
-        StringBuilder sb = new StringBuilder("<rows>\n");
-        for (int row = 0; row < sourceModel.getRowCount(); row++) {
-            sb.append("  <row>\n");
-            for (int i = 0; i < selectedColumns.size(); i++) {
-                String colName = sourceModel.getColumnName(selectedColumns.get(i));
-                String val = formatCellValue(sourceModel.getValueAt(row, selectedColumns.get(i)),
-                        selectedColumns.get(i), "XML", null);
-                sb.append("    <").append(escapeXml(colName)).append(">")
-                        .append(val).append("</").append(escapeXml(colName)).append(">\n");
-            }
-            sb.append("  </row>\n");
-        }
-        sb.append("</rows>");
-        return sb.toString();
-    }
-
-    private String exportMarkdown() {
-        StringBuilder sb = new StringBuilder();
-        if (headerCb.isSelected()) {
-            sb.append("|");
-            for (int i = 0; i < selectedColumns.size(); i++) {
-                sb.append(" ").append(sourceModel.getColumnName(selectedColumns.get(i))).append(" |");
-            }
-            sb.append("\n|");
-            for (int i = 0; i < selectedColumns.size(); i++) {
-                sb.append(" --- |");
-            }
-            sb.append("\n");
-        }
-        for (int row = 0; row < sourceModel.getRowCount(); row++) {
-            sb.append("|");
-            for (int i = 0; i < selectedColumns.size(); i++) {
-                String val = formatCellValue(sourceModel.getValueAt(row, selectedColumns.get(i)),
-                        selectedColumns.get(i), "Markdown", null);
-                sb.append(" ").append(val).append(" |");
-            }
-            sb.append("\n");
-        }
-        return sb.toString();
-    }
-
-    String formatCellValue(Object value, int colIndex, String format, String dialect) {
-        if (value == null) {
-            if ("INSERT".equals(format)) return nullPlaceholder.getText();
-            if ("JSON".equals(format)) return "null";
-            return "";
-        }
-
-        String dateFmt = dateFormatField.getText().trim();
-        if (dateFmt.isEmpty()) dateFmt = "yyyy-MM-dd HH:mm:ss";
-        int maxBlob = (Integer) maxBlobSize.getValue();
-
-        String typeName = "OTHER";
-        try {
-            Class<?> clazz = sourceModel.getColumnClass(colIndex);
-            if (clazz != null) typeName = clazz.getSimpleName().toUpperCase();
-        } catch (Exception ignored) {}
-
-        boolean isNumber = value instanceof Number;
-        boolean isDate = value instanceof java.util.Date || typeName.contains("DATE")
-                || typeName.contains("TIME") || typeName.contains("TIMESTAMP");
-        boolean isBlob = value instanceof byte[] || typeName.contains("BLOB")
-                || typeName.contains("BINARY") || typeName.contains("RAW");
-
-        if (isNumber) {
-            return value.toString();
-        }
-
-        if (isDate) {
-            String dateStr;
-            if (value instanceof java.util.Date) {
-                dateStr = new SimpleDateFormat(dateFmt).format((java.util.Date) value);
-            } else {
-                dateStr = value.toString();
-            }
-            if ("INSERT".equals(format) && dialect != null) {
-                switch (dialect) {
-                    case "Oracle":
-                        if (dateFmt.contains("HH") || dateFmt.contains("mm") || dateFmt.contains("ss")) {
-                            String oracleFmt = java.util.regex.Pattern.compile("\\w+").matcher(dateFmt)
-                                    .replaceAll(m -> {
-                                        String s = m.group();
-                                        switch (s) {
-                                            case "yyyy": return "YYYY";
-                                            case "MM": return "MM";
-                                            case "dd": return "DD";
-                                            case "HH": return "HH24";
-                                            case "mm": return "MI";
-                                            case "ss": return "SS";
-                                            default: return s;
-                                        }
-                                    });
-                            return "TO_TIMESTAMP('" + dateStr + "','" + oracleFmt + "')";
-                        }
-                        return "TO_DATE('" + dateStr + "','YYYY-MM-DD')";
-                    case "MySQL":
-                        return "'" + dateStr + "'";
-                    case "PostgreSQL":
-                    case "ANSI SQL":
-                        return (dateFmt.contains("HH") || dateFmt.contains("mm") || dateFmt.contains("ss"))
-                                ? "TIMESTAMP '" + dateStr + "'"
-                                : "DATE '" + dateStr + "'";
-                }
-            }
-            return dateStr;
-        }
-
-        if (isBlob) {
-            byte[] bytes = value instanceof byte[] ? (byte[]) value : value.toString().getBytes();
-            int len = Math.min(bytes.length, maxBlob * 1024);
-            StringBuilder hex = new StringBuilder(len * 2);
-            for (int i = 0; i < len; i++) hex.append(String.format("%02X", bytes[i]));
-
-            if ("INSERT".equals(format) && dialect != null) {
-                switch (dialect) {
-                    case "Oracle": return "HEXTORAW('" + hex + "')";
-                    case "MySQL": return "X'" + hex + "'";
-                    case "PostgreSQL": return "'\\x" + hex.toString().toLowerCase() + "'::bytea";
-                    case "ANSI SQL": return "NULL /* BLOB 不支持直接 INSERT */";
-                }
-            }
-            if ("CSV".equals(format)) return "\"" + hex + "\"";
-            if ("JSON".equals(format)) return "\"" + hex + "\"";
-            if ("Markdown".equals(format)) return hex.toString();
-            return hex.toString();
-        }
-
-        String str = value.toString();
-        switch (format) {
-            case "INSERT":
-                return "'" + str.replace("'", "''") + "'";
-            case "CSV":
-                return "\"" + str.replace("\"", "\"\"") + "\"";
-            case "JSON":
-                return "\"" + escapeJson(str) + "\"";
-            case "XML":
-                return escapeXml(str);
-            case "Markdown":
-                return str.replace("|", "\\|");
-            default:
-                return str;
-        }
-    }
 
     private void doExportAsync() {
         ExportTaskListDialog taskList = ExportTaskListDialog.getInstance(owner);
-        String table = tableNameField.getText().trim();
-        String format = (String) formatCombo.getSelectedItem();
-        Charset charset = Charset.forName((String) charsetCombo.getSelectedItem());
-        String dateFmt = dateFormatField.getText().trim();
-        String nullVal = nullPlaceholder.getText();
-        int maxBlob = (Integer) maxBlobSize.getValue();
-        taskList.submitTask(sourceModel, format, new ArrayList<>(selectedColumns),
-                table, headerCb.isSelected(), charset, dateFmt, nullVal, maxBlob, null);
+        ExportOptions opts = buildOptions();
+        taskList.submitTask(sourceModel, (String) formatCombo.getSelectedItem(),
+                new ArrayList<>(selectedColumns),
+                opts.getTableName(), opts.isHeader(),
+                Charset.forName(opts.getCharset()),
+                opts.getDateFormat(), opts.getNullPlaceholder(),
+                opts.getMaxBlobSize(), null);
         taskList.setVisible(true);
     }
 
@@ -472,22 +344,5 @@ public class AdvancedExportDialog extends BaseToolDialog {
         nullPlaceholder.setForeground(editorFg);
     }
 
-    static String escapeXml(String s) {
-        return s.replace("&", "&amp;").replace("<", "&lt;")
-                .replace(">", "&gt;").replace("\"", "&quot;")
-                .replace("'", "&apos;");
-    }
 
-    private static String escapeJson(String s) {
-        return s.replace("\\", "\\\\").replace("\"", "\\\"")
-                .replace("\n", "\\n").replace("\r", "\\r")
-                .replace("\t", "\\t");
-    }
-
-    private static String escapeCsv(String s) {
-        if (s.contains(",") || s.contains("\"") || s.contains("\n")) {
-            return "\"" + s.replace("\"", "\"\"") + "\"";
-        }
-        return s;
-    }
 }

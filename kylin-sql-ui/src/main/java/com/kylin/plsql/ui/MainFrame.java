@@ -2530,8 +2530,9 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         var rp = bottomPanel.getResultPanel();
         if (rp == null) return;
         var model = rp.getCurrentTableModel();
-        if (model == null) model = new DefaultTableModel();
-        new AdvancedExportDialog(MainFrame.this, model).setVisible(true);
+        if (model == null) model = new javax.swing.table.DefaultTableModel();
+        String connName = rp.getCurrentConnName();
+        new AdvancedExportDialog(MainFrame.this, model, connName).setVisible(true);
     }
 
     private void onObjectAction(String connName, String schema, String objectType, String objectName, String action) {

@@ -1,6 +1,8 @@
 package com.kylin.plsql.ui.dialog.tools;
 
 import com.kylin.plsql.core.config.ConfigManager;
+import com.kylin.plsql.core.export.ExportEngine;
+import com.kylin.plsql.core.export.ExportOptions;
 import com.kylin.plsql.ui.component.common.IconUtil;
 import com.kylin.plsql.ui.component.common.ToastManager;
 import com.kylin.plsql.ui.dialog.common.BaseToolDialog;
@@ -26,9 +28,9 @@ public class ExportTaskListDialog extends BaseToolDialog {
 
     private final TaskTableModel taskModel;
     private final JTable taskTable;
-    private final List<ExportTask> tasks;
+    private final List<TaskEntry> tasks;
 
-    static class ExportTask {
+    static class TaskEntry {
         String id;
         String name;
         String format;
@@ -57,9 +59,9 @@ public class ExportTaskListDialog extends BaseToolDialog {
     }
 
     static class TaskTableModel extends AbstractTableModel {
-        private final List<ExportTask> data;
+        private final List<TaskEntry> data;
 
-        TaskTableModel(List<ExportTask> data) { this.data = data; }
+        TaskTableModel(List<TaskEntry> data) { this.data = data; }
 
         @Override public int getRowCount() { return data.size(); }
         @Override public int getColumnCount() { return 6; }
@@ -77,7 +79,7 @@ public class ExportTaskListDialog extends BaseToolDialog {
         }
 
         @Override public Object getValueAt(int row, int col) {
-            ExportTask t = data.get(row);
+            TaskEntry t = data.get(row);
             switch (col) {
                 case 0: return t.name;
                 case 1: return t.format;
@@ -104,7 +106,7 @@ public class ExportTaskListDialog extends BaseToolDialog {
         // 从存储加载上次的任务
         var cm = ConfigManager.getInstance();
         for (var h : cm.loadExportHistory()) {
-            ExportTask t = new ExportTask();
+            TaskEntry t = new TaskEntry();
             t.name = h.name; t.format = h.format; t.status = h.status;
             t.startTime = h.startTime; t.endTime = h.endTime;
             t.totalRows = h.totalRows; t.filePath = h.filePath;
@@ -151,7 +153,7 @@ public class ExportTaskListDialog extends BaseToolDialog {
                 retryBtn.setEnabled(false); delBtn.setEnabled(false);
                 return;
             }
-            ExportTask t = tasks.get(row);
+            TaskEntry t = tasks.get(row);
             boolean done = "已完成".equals(t.status);
             boolean fail = "失败".equals(t.status);
             openFileBtn.setEnabled(done);
@@ -194,7 +196,7 @@ public class ExportTaskListDialog extends BaseToolDialog {
     /** 将已完成/失败的任务持久化到存储。 */
     public void saveHistory() {
         var items = new java.util.ArrayList<ConfigManager.ExportHistoryItem>();
-        for (ExportTask t : tasks) {
+        for (TaskEntry t : tasks) {
             if (!"已完成".equals(t.status) && !"失败".equals(t.status)) continue;
             var h = new ConfigManager.ExportHistoryItem();
             h.name = t.name; h.format = t.format; h.status = t.status;
@@ -207,7 +209,7 @@ public class ExportTaskListDialog extends BaseToolDialog {
     }
 
     /** 外部添加一个已配置好的任务（由 ExportWorker 使用）。 */
-    public void addTask(ExportTask task) {
+    public void addTask(TaskEntry task) {
         tasks.add(task);
         taskModel.fireTableRowsInserted(tasks.size() - 1, tasks.size() - 1);
     }
@@ -216,7 +218,7 @@ public class ExportTaskListDialog extends BaseToolDialog {
                            List<Integer> columns, String tableName, boolean header,
                            Charset charset, String dateFormat, String nullPlaceholder,
                            int maxBlobSize, String filePath) {
-        ExportTask task = new ExportTask();
+        TaskEntry task = new TaskEntry();
         task.id = java.util.UUID.randomUUID().toString().substring(0, 8);
         task.name = "导出 " + (tableName.isEmpty() ? "表" : tableName)
                 + " (" + format + ", " + model.getRowCount() + "行)";
@@ -262,74 +264,15 @@ public class ExportTaskListDialog extends BaseToolDialog {
 
                 StringBuilder sb = new StringBuilder();
                 try {
-                    for (int r = 0; r < model.getRowCount() && !isCancelled(); r++) {
-                        if ("INSERT".equals(format)) {
-                            sb.append("INSERT INTO ").append(tableName.isEmpty() ? "EXPORT_TABLE" : tableName).append(" (");
-                            for (int i = 0; i < columns.size(); i++) {
-                                if (i > 0) sb.append(", ");
-                                sb.append(model.getColumnName(columns.get(i)));
-                            }
-                            sb.append(") VALUES (");
-                            for (int i = 0; i < columns.size(); i++) {
-                                if (i > 0) sb.append(", ");
-                                sb.append(formatValue(model.getValueAt(r, columns.get(i)), "INSERT"));
-                            }
-                            sb.append(");\n");
-                        } else if ("CSV".equals(format)) {
-                            if (header && r == 0) {
-                                for (int i = 0; i < columns.size(); i++) {
-                                    if (i > 0) sb.append(",");
-                                    sb.append(model.getColumnName(columns.get(i)));
-                                }
-                                sb.append("\n");
-                            }
-                            for (int i = 0; i < columns.size(); i++) {
-                                if (i > 0) sb.append(",");
-                                sb.append(formatValue(model.getValueAt(r, columns.get(i)), "CSV"));
-                            }
-                            sb.append("\n");
-                        } else if ("JSON".equals(format)) {
-                            if (r == 0) sb.append("[\n");
-                            if (r > 0) sb.append(",\n");
-                            sb.append("  {");
-                            for (int i = 0; i < columns.size(); i++) {
-                                if (i > 0) sb.append(", ");
-                                sb.append("\"").append(model.getColumnName(columns.get(i))).append("\": ")
-                                  .append(formatValue(model.getValueAt(r, columns.get(i)), "JSON"));
-                            }
-                            sb.append("}");
-                            if (r == model.getRowCount() - 1) sb.append("\n]");
-                        } else if ("XML".equals(format)) {
-                            if (r == 0) sb.append("<rows>\n");
-                            sb.append("  <row>\n");
-                            for (int i = 0; i < columns.size(); i++) {
-                                String colName = model.getColumnName(columns.get(i));
-                                sb.append("    <").append(colName).append(">")
-                                  .append(formatValue(model.getValueAt(r, columns.get(i)), "XML"))
-                                  .append("</").append(colName).append(">\n");
-                            }
-                            sb.append("  </row>\n");
-                            if (r == model.getRowCount() - 1) sb.append("</rows>");
-                        } else if ("Markdown".equals(format)) {
-                            if (r == 0 && header) {
-                                sb.append("|");
-                                for (int i = 0; i < columns.size(); i++) sb.append(" ").append(model.getColumnName(columns.get(i))).append(" |");
-                                sb.append("\n|");
-                                for (int i = 0; i < columns.size(); i++) sb.append(" --- |");
-                                sb.append("\n");
-                            }
-                            sb.append("|");
-                            for (int i = 0; i < columns.size(); i++) {
-                                sb.append(" ").append(formatValue(model.getValueAt(r, columns.get(i)), "Markdown")).append(" |");
-                            }
-                            sb.append("\n");
-                        }
-                        task.exportedRows = r + 1;
-                        if (r % 100 == 0) {
-                            int rr = row;
-                            SwingUtilities.invokeLater(() -> taskModel.fireTableRowsUpdated(rr, rr));
-                        }
-                    }
+                    ExportOptions opts = new ExportOptions()
+                        .setTableName(tableName.isEmpty() ? "EXPORT_TABLE" : tableName)
+                        .setHeader(header)
+                        .setDateFormat(dateFormat)
+                        .setNullPlaceholder(nullPlaceholder)
+                        .setMaxBlobSize(maxBlobSize)
+                        .setCharset(charset.name());
+                    sb.append(ExportEngine.export(model, columns, format, opts));
+                    task.exportedRows = model.getRowCount();
 
                     File outFile = filePath != null && !filePath.isEmpty()
                         ? new File(filePath) : File.createTempFile("export_", ".tmp");
@@ -342,21 +285,6 @@ public class ExportTaskListDialog extends BaseToolDialog {
                     task.errorMessage = e.getMessage();
                 }
                 return null;
-            }
-
-            private String formatValue(Object value, String format) {
-                if (value == null) return "JSON".equals(format) ? "null" : nullPlaceholder;
-                if (value instanceof Number) return value.toString();
-                String str = value.toString();
-                return switch (format) {
-                    case "CSV" -> "\"" + str.replace("\"", "\"\"") + "\"";
-                    case "JSON" -> "\"" + str.replace("\\", "\\\\").replace("\"", "\\\"")
-                            .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t") + "\"";
-                    case "XML" -> str.replace("&", "&amp;").replace("<", "&lt;")
-                            .replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&apos;");
-                    case "Markdown" -> str.replace("|", "\\|");
-                    default -> "'" + str.replace("'", "''") + "'";
-                };
             }
 
             @Override
@@ -387,7 +315,7 @@ public class ExportTaskListDialog extends BaseToolDialog {
     }
 
     private void cancelTask(int row) {
-        ExportTask t = tasks.get(row);
+        TaskEntry t = tasks.get(row);
         if (t.worker != null && !t.worker.isDone()) {
             t.worker.cancel(true);
             t.status = "已取消";
@@ -396,7 +324,7 @@ public class ExportTaskListDialog extends BaseToolDialog {
     }
 
     private void retryTask(int row) {
-        ExportTask failed = tasks.get(row);
+        TaskEntry failed = tasks.get(row);
         if (failed.modelSnapshot == null || failed.columnNames == null) {
             ToastManager.showError(this, "无法重试：缺少任务参数");
             return;
@@ -421,7 +349,7 @@ public class ExportTaskListDialog extends BaseToolDialog {
     }
 
     private void openFile(int row) {
-        ExportTask t = tasks.get(row);
+        TaskEntry t = tasks.get(row);
         if (t.filePath != null) {
             try {
                 Desktop.getDesktop().open(new File(t.filePath));
@@ -432,7 +360,7 @@ public class ExportTaskListDialog extends BaseToolDialog {
     }
 
     private void openFileLocation(int row) {
-        ExportTask t = tasks.get(row);
+        TaskEntry t = tasks.get(row);
         if (t.filePath != null) {
             try {
                 File file = new File(t.filePath);

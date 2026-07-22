@@ -930,6 +930,14 @@ public class ResultPanel extends JPanel {
         this.refreshExecutor = executor;
     }
 
+    public String getCurrentConnName() {
+        int sel = resultTabs.getSelectedIndex();
+        if (sel <= 0) return null;
+        int dataIdx = sel - 1;
+        if (dataIdx < 0 || dataIdx >= tabDataList.size()) return null;
+        return tabDataList.get(dataIdx).connName;
+    }
+
     public TableModel getCurrentTableModel() {
         int sel = resultTabs.getSelectedIndex();
         if (sel <= 0) return null;
