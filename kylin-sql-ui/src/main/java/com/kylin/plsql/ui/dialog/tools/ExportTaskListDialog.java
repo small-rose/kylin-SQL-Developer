@@ -9,6 +9,7 @@ import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.TableModel;
 import java.awt.*;
+import java.awt.event.WindowAdapter;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStreamWriter;
@@ -111,7 +112,7 @@ public class ExportTaskListDialog extends BaseToolDialog {
             tasks.add(t);
         }
 
-        addWindowListener(new java.awt.event.WindowAdapter() {
+        addWindowListener(new WindowAdapter() {
             @Override public void windowClosing(java.awt.event.WindowEvent e) { saveHistory(); }
         });
 
