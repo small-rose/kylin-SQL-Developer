@@ -10,6 +10,7 @@ import com.kylin.plsql.core.service.ExportService;
 import com.kylin.plsql.core.service.SchemaService;
 import com.kylin.plsql.core.service.ServiceFactory;
 import com.kylin.plsql.core.service.model.DataPreview;
+import com.kylin.plsql.ui.component.common.AutoCompleteSupport;
 import com.kylin.plsql.ui.component.common.DateFormatComboBox;
 import com.kylin.plsql.ui.component.common.ToastManager;
 import com.kylin.plsql.ui.dialog.common.BaseToolDialog;
@@ -155,11 +156,15 @@ public class AdvancedExportDialog extends BaseToolDialog {
         });
         connLabel = new JLabel("\u8FDE\u63A5:");
         schemaCombo = new JComboBox<>();
+        schemaCombo.setEditable(true);
+        AutoCompleteSupport.install(schemaCombo);
         schemaCombo.addActionListener(e -> {
             if (schemaCombo.hasFocus() || schemaCombo.getSelectedItem() != null) onSchemaSelected();
         });
         schemaLabel = new JLabel("\u6A21\u5F0F:");
         tableCombo = new JComboBox<>();
+        tableCombo.setEditable(true);
+        AutoCompleteSupport.install(tableCombo);
         tableCombo.addActionListener(e -> {
             if (tableCombo.getSelectedItem() != null
                 && schemaCombo.getSelectedItem() != null
