@@ -395,6 +395,7 @@ public class AdvancedExportDialog extends BaseToolDialog {
         var schemas = schemaSvc.getSchemas(name);
         for (String s : schemas) schemaCombo.addItem(s);
         if (schemas.size() == 1) schemaCombo.setSelectedIndex(0);
+        AutoCompleteSupport.sync(schemaCombo);
     }
 
     private void onSchemaSelected() {
@@ -408,6 +409,7 @@ public class AdvancedExportDialog extends BaseToolDialog {
         var tables = schemaSvc.getTables(conn, schema);
         for (String t : tables) tableCombo.addItem(t);
         if (tables.size() == 1) tableCombo.setSelectedIndex(0);
+        AutoCompleteSupport.sync(tableCombo);
     }
 
     private void onTableSelected() {
