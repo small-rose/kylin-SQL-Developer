@@ -22,14 +22,16 @@ public class SqlExecutor {
         public final int updateCount;
         public final boolean isQuery;
         public final String error;
+        public final List<ColumnMeta> columnMeta;
 
-        public SqlResult(List<String> columns, List<List<Object>> rows, long elapsedMs) {
+        public SqlResult(List<String> columns, List<List<Object>> rows, long elapsedMs, List<ColumnMeta> columnMeta) {
             this.columns = columns;
             this.rows = rows;
             this.elapsedMs = elapsedMs;
             this.updateCount = -1;
             this.isQuery = true;
             this.error = null;
+            this.columnMeta = columnMeta;
         }
 
         public SqlResult(int updateCount, long elapsedMs) {
@@ -39,6 +41,7 @@ public class SqlExecutor {
             this.updateCount = updateCount;
             this.isQuery = false;
             this.error = null;
+            this.columnMeta = null;
         }
 
         public SqlResult(String error, long elapsedMs) {
@@ -48,6 +51,7 @@ public class SqlExecutor {
             this.updateCount = -1;
             this.isQuery = false;
             this.error = error;
+            this.columnMeta = null;
         }
 
         public boolean isSuccess() { return error == null; }
@@ -94,8 +98,15 @@ public class SqlExecutor {
         ResultSetMetaData meta = rs.getMetaData();
         int colCount = meta.getColumnCount();
         List<String> columns = new ArrayList<>(colCount);
+        List<ColumnMeta> colMeta = new ArrayList<>(colCount);
         for (int i = 1; i <= colCount; i++) {
             columns.add(meta.getColumnLabel(i).toUpperCase());
+            colMeta.add(new ColumnMeta(
+                meta.getColumnLabel(i).toUpperCase(),
+                meta.getColumnTypeName(i),
+                meta.getColumnDisplaySize(i),
+                meta.isNullable(i) == ResultSetMetaData.columnNullable
+            ));
         }
         List<List<Object>> rows = new ArrayList<>();
         int maxRows = 50000;
@@ -111,7 +122,7 @@ public class SqlExecutor {
             }
             rows.add(row);
         }
-        return new SqlResult(columns, rows, System.currentTimeMillis() - start);
+        return new SqlResult(columns, rows, System.currentTimeMillis() - start, colMeta);
     }
 
     public static class ColumnMeta {

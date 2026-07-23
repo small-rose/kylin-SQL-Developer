@@ -61,13 +61,15 @@ public class IconUtil {
     private static Color getColorForIcon(String name) {
         if (name == null) return new Color(0x5B5B5B);
         return switch (name) {
-            case "new", "create", "add", "plus", "execute", "append", "commit" -> new Color(0x2E7D32);
+            case "new", "create", "add", "plus", "execute", "append", "commit", "arrow-big-up" -> new Color(0x2E7D32);
             case "open", "locate", "folder", "skip-forward", "forward",
                  "search", "find", "file-search", "database-search",
-                 "refresh", "sync", "reload" -> new Color(0x1565C0);
-            case "save", "save-plus", "copy", "export", "edit" -> new Color(0xF57F17);
+                 "refresh", "sync", "reload",
+                 "arrow-left", "arrow-right", "arrow-left-to-line", "arrow-right-to-line" -> new Color(0x1565C0);
+            case "save", "save-plus", "copy", "export", "edit",
+                 "arrow-down-to-line", "arrow-up-to-line" -> new Color(0xF57F17);
             case "format", "regex", "compile" -> new Color(0x6A1B9A);
-            case "x", "close", "trash", "trash-2", "delete", "remove", "rollback" -> new Color(0xC62828);
+            case "x", "close", "trash", "trash-2", "delete", "remove", "rollback", "zap-off", "minus", "stop" -> new Color(0xC62828);
             case "history", "time", "clock" -> new Color(0xE65100);
             case "connect", "settings", "config", "preference", "compare", "diff" -> new Color(0x00695C);
             case "info", "help", "question", "pin", "pin-off" -> new Color(0x546E7A);

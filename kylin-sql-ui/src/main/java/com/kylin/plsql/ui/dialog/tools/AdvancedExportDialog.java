@@ -10,10 +10,17 @@ import com.kylin.plsql.core.service.ExportService;
 import com.kylin.plsql.core.service.SchemaService;
 import com.kylin.plsql.core.service.ServiceFactory;
 import com.kylin.plsql.core.service.model.DataPreview;
-import com.kylin.plsql.ui.component.common.AutoCompleteSupport;
 import com.kylin.plsql.ui.component.common.DateFormatComboBox;
 import com.kylin.plsql.ui.component.common.ToastManager;
 import com.kylin.plsql.ui.dialog.common.BaseToolDialog;
+import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
+import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import javax.swing.*;
+import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableModel;
 import java.awt.*;
 import java.awt.datatransfer.StringSelection;
 import java.io.File;
@@ -24,13 +31,6 @@ import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import javax.swing.*;
-import javax.swing.table.DefaultTableModel;
-import javax.swing.table.TableModel;
-import org.fife.ui.rsyntaxtextarea.RSyntaxTextArea;
-import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class AdvancedExportDialog extends BaseToolDialog {
     private static final Logger log = LoggerFactory.getLogger(AdvancedExportDialog.class);
@@ -156,15 +156,11 @@ public class AdvancedExportDialog extends BaseToolDialog {
         });
         connLabel = new JLabel("\u8FDE\u63A5:");
         schemaCombo = new JComboBox<>();
-        schemaCombo.setEditable(true);
-        AutoCompleteSupport.install(schemaCombo);
         schemaCombo.addActionListener(e -> {
             if (schemaCombo.hasFocus() || schemaCombo.getSelectedItem() != null) onSchemaSelected();
         });
         schemaLabel = new JLabel("\u6A21\u5F0F:");
         tableCombo = new JComboBox<>();
-        tableCombo.setEditable(true);
-        AutoCompleteSupport.install(tableCombo);
         tableCombo.addActionListener(e -> {
             if (tableCombo.getSelectedItem() != null
                 && schemaCombo.getSelectedItem() != null
@@ -248,18 +244,8 @@ public class AdvancedExportDialog extends BaseToolDialog {
         splitPane.setResizeWeight(0.25);
         splitPane.setContinuousLayout(true);
 
-        JButton syncBtn = new JButton("\u540C\u6B65\u5BFC\u51FA");
+        JButton syncBtn = new JButton("\u590D\u5236");
         syncBtn.addActionListener(e -> {
-            int rowCount = sourceModel.getRowCount();
-            if (rowCount > 1000) {
-                int opt = JOptionPane.showOptionDialog(this,
-                        "\u6570\u636E\u91CF\u8F83\u5927\uFF08" + rowCount + " \u884C\uFF09\uFF0C\u662F\u5426\u6539\u4E3A\u5F02\u6B65\u5BFC\u51FA\uFF1F",
-                        "\u786E\u8BA4", JOptionPane.YES_NO_CANCEL_OPTION,
-                        JOptionPane.QUESTION_MESSAGE, null,
-                        new String[]{"\u5F02\u6B65", "\u540C\u6B65", "\u53D6\u6D88"}, "\u5F02\u6B65");
-                if (opt == 0) { doExportAsync(); return; }
-                if (opt == 2) return;
-            }
             String content = outputArea.getText();
             if (!content.isEmpty()) {
                 Toolkit.getDefaultToolkit().getSystemClipboard()
@@ -281,8 +267,8 @@ public class AdvancedExportDialog extends BaseToolDialog {
             }
         });
 
-        JButton saveBtn = new JButton("\u4FDD\u5B58\u6587\u4EF6");
-        saveBtn.addActionListener(e -> saveToFile());
+        JButton syncExportBtn = new JButton("\u540C\u6B65\u5BFC\u51FA");
+        syncExportBtn.addActionListener(e -> syncExportToFile());
 
         JPanel leftSouth = new JPanel(new FlowLayout(FlowLayout.LEFT, 4, 0));
         leftSouth.add(filePathLabel);
@@ -292,7 +278,7 @@ public class AdvancedExportDialog extends BaseToolDialog {
         JPanel rightSouth = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 4));
         rightSouth.add(syncBtn);
         rightSouth.add(asyncBtn);
-        rightSouth.add(saveBtn);
+        rightSouth.add(syncExportBtn);
 
         JPanel southPanel = new JPanel(new BorderLayout());
         southPanel.add(leftSouth, BorderLayout.WEST);
@@ -395,7 +381,6 @@ public class AdvancedExportDialog extends BaseToolDialog {
         var schemas = schemaSvc.getSchemas(name);
         for (String s : schemas) schemaCombo.addItem(s);
         if (schemas.size() == 1) schemaCombo.setSelectedIndex(0);
-        AutoCompleteSupport.sync(schemaCombo);
     }
 
     private void onSchemaSelected() {
@@ -409,7 +394,6 @@ public class AdvancedExportDialog extends BaseToolDialog {
         var tables = schemaSvc.getTables(conn, schema);
         for (String t : tables) tableCombo.addItem(t);
         if (tables.size() == 1) tableCombo.setSelectedIndex(0);
-        AutoCompleteSupport.sync(tableCombo);
     }
 
     private void onTableSelected() {
@@ -652,23 +636,31 @@ public class AdvancedExportDialog extends BaseToolDialog {
                 opts.getTableName(), opts.isHeader(),
                 Charset.forName(opts.getCharset()),
                 opts.getDateFormat(), opts.getNullPlaceholder(),
-                opts.getMaxBlobSize(), opts.getDialect());
+                opts.getMaxBlobSize(), filePathField.getText().trim());
         taskList.setVisible(true);
     }
 
-    private void saveToFile() {
-        String path = filePathField.getText().trim();
-        if (path.isEmpty()) {
-            ToastManager.showError(this, "\u8BF7\u5148\u8F93\u5165\u5BFC\u51FA\u8DEF\u5F84");
-            return;
-        }
-        File file = new File(path);
-        String charset = (String) charsetCombo.getSelectedItem();
-        try (Writer w = new OutputStreamWriter(new FileOutputStream(file), charset)) {
-            w.write(outputArea.getText());
-            ToastManager.show(this, "\u5DF2\u4FDD\u5B58\u5230: " + file.getAbsolutePath());
+    private void syncExportToFile() {
+        try {
+            String content = outputArea.getText();
+            if (content.isEmpty()) {
+                ToastManager.showError(this, "导出内容为空");
+                return;
+            }
+            String path = filePathField.getText().trim();
+            if (path.isEmpty()) {
+                ToastManager.showError(this, "请先设置导出路径");
+                return;
+            }
+            File file = new File(path);
+            String charset = (String) charsetCombo.getSelectedItem();
+            try (Writer w = new OutputStreamWriter(new FileOutputStream(file), charset)) {
+                w.write(content);
+            }
+            Desktop.getDesktop().open(file.getParentFile());
+            ToastManager.show(this, "已保存到: " + file.getAbsolutePath());
         } catch (Exception e) {
-            ToastManager.showError(this, "\u4FDD\u5B58\u5931\u8D25: " + e.getMessage());
+            ToastManager.showError(this, "导出失败: " + e.getMessage());
         }
     }
 
