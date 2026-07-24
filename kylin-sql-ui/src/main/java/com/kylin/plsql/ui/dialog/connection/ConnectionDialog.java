@@ -8,6 +8,7 @@ import com.kylin.plsql.core.db.type.DbTypeCoordinator;
 import com.kylin.plsql.core.db.type.DbTypeRegistry;
 
 import javax.swing.*;
+import javax.swing.SwingUtilities;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.io.File;
@@ -44,8 +45,13 @@ public class ConnectionDialog extends JDialog {
     private DefaultTableModel paramsTableModel;
     private JTextField customJarField;
     private JComboBox<String> customDriverCombo;
+    private JComboBox<String> mavenGavCombo;
+    private JTextField mavenRepoField;
+    private JProgressBar downloadProgress;
+    private JLabel driverStatusLabel;
     private JCheckBox colorCheck;
     private JButton colorBtn;
+    private JLabel connectionStatusLabel;
     private ConnectionInfo editing;
     private String savedConnName;
     private boolean parsingUrl;
@@ -135,6 +141,13 @@ public class ConnectionDialog extends JDialog {
             if (connList.getSelectedValue() == null) {
                 String key = getSelectedDbTypeKey();
                 portField.setText(String.valueOf(DbTypeCoordinator.forTypeKey(key).getDefaultPort()));
+            }
+            // 自动填充 GAV
+            String gav = com.kylin.plsql.core.db.DriverDownloader.DEFAULT_GAV.get(getSelectedDbTypeKey());
+            if (gav != null) {
+                mavenGavCombo.removeAllItems();
+                mavenGavCombo.addItem(gav);
+                mavenGavCombo.setSelectedItem(gav);
             }
         });
         formPanel.add(dbTypeCombo, c);
@@ -276,16 +289,23 @@ public class ConnectionDialog extends JDialog {
         rightPanel.add(rightTabs, BorderLayout.CENTER);
 
         // 底部：操作按钮
-        JPanel actionPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JPanel actionPanel = new JPanel(new BorderLayout());
+        connectionStatusLabel = new JLabel(" ");
+        connectionStatusLabel.setFont(connectionStatusLabel.getFont().deriveFont(11f));
+        connectionStatusLabel.setForeground(com.kylin.plsql.core.config.ThemeManager.getInstance().resolve("fg.muted"));
+        connectionStatusLabel.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 4));
+        actionPanel.add(connectionStatusLabel, BorderLayout.WEST);
+        JPanel btnBar = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         JButton testBtn = new JButton("测试连接");
         testBtn.addActionListener(e -> testConnection());
         JButton saveBtn = new JButton("保存");
         saveBtn.addActionListener(e -> saveConnection());
         JButton closeBtn = new JButton("关闭");
         closeBtn.addActionListener(e -> dispose());
-        actionPanel.add(testBtn);
-        actionPanel.add(saveBtn);
-        actionPanel.add(closeBtn);
+        btnBar.add(testBtn);
+        btnBar.add(saveBtn);
+        btnBar.add(closeBtn);
+        actionPanel.add(btnBar, BorderLayout.EAST);
         rightPanel.add(actionPanel, BorderLayout.SOUTH);
 
         add(rightPanel, BorderLayout.CENTER);
@@ -481,11 +501,83 @@ public class ConnectionDialog extends JDialog {
         customDriverCombo.setEditable(true);
         form.add(customDriverCombo, gc);
 
+        // ── Row 2: 分隔线 ──
+        gc.gridx = 0; gc.gridy = 2; gc.gridwidth = 3; gc.weightx = 1;
+        form.add(new JSeparator(), gc);
+
+        // ── Row 3: GAV 坐标 ──
+        gc.gridy = 3; gc.gridx = 0; gc.gridwidth = 1; gc.weightx = 0;
+        form.add(new JLabel("GAV 坐标:"), gc);
+        gc.gridx = 1; gc.weightx = 1;
+        mavenGavCombo = new JComboBox<>();
+        mavenGavCombo.setEditable(true);
+        mavenGavCombo.setToolTipText("格式: group:artifact:version，切换数据库类型时自动填充");
+        form.add(mavenGavCombo, gc);
+        gc.gridx = 2; gc.weightx = 0;
+        JButton restoreGavBtn = new JButton("恢复默认");
+        restoreGavBtn.addActionListener(e -> {
+            String gav = com.kylin.plsql.core.db.DriverDownloader.DEFAULT_GAV.get(getSelectedDbTypeKey());
+            if (gav != null) {
+                mavenGavCombo.removeAllItems();
+                mavenGavCombo.addItem(gav);
+                mavenGavCombo.setSelectedItem(gav);
+            }
+        });
+        form.add(restoreGavBtn, gc);
+
+        // ── Row 4: 仓库地址 ──
+        gc.gridy = 4; gc.gridx = 0; gc.weightx = 0;
+        form.add(new JLabel("仓库地址:"), gc);
+        gc.gridx = 1; gc.weightx = 1;
+        mavenRepoField = new JTextField("https://repo1.maven.org/maven2");
+        form.add(mavenRepoField, gc);
+        gc.gridx = 2; gc.weightx = 0;
+        JButton aliyunBtn = new JButton("阿里云镜像");
+        aliyunBtn.addActionListener(e -> mavenRepoField.setText("https://maven.aliyun.com/repository/public"));
+        form.add(aliyunBtn, gc);
+
+        // ── Row 5: 驱动状态 ──
+        gc.gridy = 5; gc.gridx = 0; gc.gridwidth = 3; gc.weightx = 1;
+        driverStatusLabel = new JLabel(" ");
+        driverStatusLabel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+        form.add(driverStatusLabel, gc);
+
+        // ── Row 6: 下载进度 ──
+        gc.gridy = 6;
+        downloadProgress = new JProgressBar();
+        downloadProgress.setStringPainted(true);
+        downloadProgress.setVisible(false);
+        form.add(downloadProgress, gc);
+
         panel.add(form, BorderLayout.NORTH);
         return panel;
     }
 
-    /** 扫描 JAR 包中的 JDBC 驱动类，识别后填入下拉框。 */
+    private void updateDriverStatus() {
+        if (driverStatusLabel == null) return;
+        String driverClass = null;
+        Object sel = customDriverCombo.getSelectedItem();
+        if (sel != null) driverClass = sel.toString().trim();
+        if (driverClass == null || driverClass.isEmpty()) {
+            driverStatusLabel.setText("[!] 未设置驱动类名，将自动检测");
+            driverStatusLabel.setForeground(Color.GRAY);
+            return;
+        }
+        try {
+            Class.forName(driverClass);
+            driverStatusLabel.setText("[OK] 驱动已就绪");
+            driverStatusLabel.setForeground(new Color(0x2E7D32));
+        } catch (ClassNotFoundException e) {
+            String gav = mavenGavCombo.getEditor().getItem().toString().trim();
+            if (!gav.isEmpty()) {
+                driverStatusLabel.setText("[~] 驱动不在 classpath 中，连接时将自动下载");
+                driverStatusLabel.setForeground(new Color(0xE65100));
+            } else {
+                driverStatusLabel.setText("[X] 驱动不可用，请在下方设置 GAV 坐标自动下载");
+                driverStatusLabel.setForeground(new Color(0xC62828));
+            }
+        }
+    }
     private void scanDriverJar() {
         String jarPath = customJarField.getText().trim();
         if (jarPath.isEmpty()) {
@@ -554,6 +646,14 @@ public class ConnectionDialog extends JDialog {
         customJarField.setText(ci.getCustomDriverJar());
         customDriverCombo.removeAllItems();
         if (ci.getCustomDriverClass() != null) customDriverCombo.addItem(ci.getCustomDriverClass());
+        mavenGavCombo.removeAllItems();
+        if (ci.getMavenGav() != null) {
+            mavenGavCombo.addItem(ci.getMavenGav());
+            mavenGavCombo.setSelectedItem(ci.getMavenGav());
+        }
+        mavenRepoField.setText(ci.getMavenRepoUrl() != null && !ci.getMavenRepoUrl().isBlank()
+            ? ci.getMavenRepoUrl() : "https://repo1.maven.org/maven2");
+        updateDriverStatus();
         colorCheck.setSelected(ci.isColorEnabled());
         colorBtn.setBackground(ci.getColorTag() != null ? Color.decode(ci.getColorTag()) : Color.LIGHT_GRAY);
         colorBtn.setEnabled(ci.isColorEnabled());
@@ -577,6 +677,9 @@ public class ConnectionDialog extends JDialog {
         insertPresetParams();
         customJarField.setText("");
         customDriverCombo.removeAllItems();
+        mavenGavCombo.removeAllItems();
+        mavenRepoField.setText("https://repo1.maven.org/maven2");
+        driverStatusLabel.setText(" ");
         colorCheck.setSelected(false);
         colorBtn.setBackground(Color.LIGHT_GRAY);
         colorBtn.setEnabled(false);
@@ -629,6 +732,8 @@ public class ConnectionDialog extends JDialog {
         ci.setCustomDriverJar(customJarField.getText().trim());
         Object sel = customDriverCombo.getSelectedItem();
         ci.setCustomDriverClass(sel != null ? sel.toString().trim() : "");
+        ci.setMavenGav(mavenGavCombo.getEditor().getItem().toString().trim());
+        ci.setMavenRepoUrl(mavenRepoField.getText().trim());
         ci.setSchema(schemaField.getText().trim());
         try {
             ci.setQueryTimeout(Integer.parseInt(timeoutField.getText().trim()));
@@ -671,7 +776,20 @@ public class ConnectionDialog extends JDialog {
         ConnectionInfo ci = new ConnectionInfo();
         ci.setName("__test__");
         ci.setUseUrl(useUrlCheck.isSelected());
-        ci.setDbType(getSelectedDbTypeKey());
+        String dbTypeKey = getSelectedDbTypeKey();
+        String debugDriverClass = customDriverCombo.getSelectedItem() != null
+            ? customDriverCombo.getSelectedItem().toString().trim() : "";
+        System.out.println("【DEBUG】testConnection: dbType=" + dbTypeKey
+            + ", host=" + hostField.getText()
+            + ", port=" + portField.getText()
+            + ", service=" + serviceField.getText()
+            + ", user=" + userField.getText()
+            + ", useUrl=" + useUrlCheck.isSelected()
+            + ", url=" + urlField.getText()
+            + ", driverJar=" + customJarField.getText().trim()
+            + ", driverClass=" + debugDriverClass
+            + ", mavenGav=" + mavenGavCombo.getEditor().getItem());
+        ci.setDbType(dbTypeKey);
         if (useUrlCheck.isSelected()) {
             ci.setJdbcUrl(urlField.getText().trim());
             ci.setHost("");
@@ -684,23 +802,40 @@ public class ConnectionDialog extends JDialog {
         }
         ci.setUsername(userField.getText().trim());
         ci.setPassword(new String(passwordField.getPassword()));
+        ci.setCustomDriverJar(customJarField.getText().trim());
+        Object sel = customDriverCombo.getSelectedItem();
+        ci.setCustomDriverClass(sel != null ? sel.toString().trim() : "");
+        ci.setMavenGav(mavenGavCombo.getEditor().getItem().toString().trim());
+        ci.setMavenRepoUrl(mavenRepoField.getText().trim());
 
         setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+        connectionStatusLabel.setForeground(com.kylin.plsql.core.config.ThemeManager.getInstance().resolve("fg.muted"));
         new SwingWorker<Boolean, Void>() {
             @Override protected Boolean doInBackground() {
-                return connectionManager.testConnection(ci);
+                try {
+                    return connectionManager.testConnection(ci, status -> {
+                        SwingUtilities.invokeLater(() -> connectionStatusLabel.setText(status));
+                    });
+                } catch (Exception ex) {
+                    throw new RuntimeException(ex);
+                }
             }
             @Override protected void done() {
                 if (!ConnectionDialog.this.isDisplayable()) return;
                 try {
                     boolean ok = get();
                     if (ok) {
+                        connectionStatusLabel.setText("[OK] 连接成功");
+                        connectionStatusLabel.setForeground(new Color(0x2E7D32));
                         JOptionPane.showMessageDialog(ConnectionDialog.this, "连接成功！");
                     } else {
-                        JOptionPane.showMessageDialog(ConnectionDialog.this, "连接失败，请检查参数");
+                        connectionStatusLabel.setText("[FAIL] 连接失败");
+                        connectionStatusLabel.setForeground(new Color(0xC62828));
                     }
                 } catch (Exception e) {
-                    JOptionPane.showMessageDialog(ConnectionDialog.this, "连接失败: " + e.getMessage());
+                    connectionStatusLabel.setText("[FAIL] " + e.getCause().getMessage());
+                    connectionStatusLabel.setForeground(new Color(0xC62828));
+                    JOptionPane.showMessageDialog(ConnectionDialog.this, "连接失败: " + e.getCause().getMessage());
                 } finally {
                     setCursor(Cursor.getDefaultCursor());
                 }

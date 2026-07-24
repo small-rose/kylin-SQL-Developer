@@ -33,6 +33,8 @@ public class ConnectionInfo {
     private Map<String, String> jdbcParams = new LinkedHashMap<>();
     private String customDriverClass;
     private String customDriverJar;
+    private String mavenGav;
+    private String mavenRepoUrl;
     private String colorTag;
     private boolean colorEnabled;
 
@@ -90,6 +92,10 @@ public class ConnectionInfo {
     public void setCustomDriverClass(String customDriverClass) { this.customDriverClass = customDriverClass; }
     public String getCustomDriverJar() { return customDriverJar; }
     public void setCustomDriverJar(String customDriverJar) { this.customDriverJar = customDriverJar; }
+    public String getMavenGav() { return mavenGav; }
+    public void setMavenGav(String mavenGav) { this.mavenGav = mavenGav; }
+    public String getMavenRepoUrl() { return mavenRepoUrl; }
+    public void setMavenRepoUrl(String mavenRepoUrl) { this.mavenRepoUrl = mavenRepoUrl; }
     public String getColorTag() { return colorTag; }
     public void setColorTag(String colorTag) { this.colorTag = colorTag; }
     public boolean isColorEnabled() { return colorEnabled; }

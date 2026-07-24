@@ -17,17 +17,24 @@ public class ConnectionManager {
     private final Map<String, Connection> transactionConns = new ConcurrentHashMap<>();
     private final Map<String, Boolean> autoCommitStates = new ConcurrentHashMap<>();
     private final Map<String, Integer> queryTimeouts = new ConcurrentHashMap<>();
+    private final DriverDownloader driverDownloader = new DriverDownloader();
 
     public ConnectionManager() {}
 
     /** 测试连接可用性 / Test connection validity using DriverManager. */
-    public boolean testConnection(ConnectionInfo info) {
+    public boolean testConnection(ConnectionInfo info) throws SQLException {
+        return testConnection(info, msg -> {});
+    }
+
+    public boolean testConnection(ConnectionInfo info, java.util.function.Consumer<String> onStatus) throws SQLException {
+        onStatus.accept("正在检测驱动...");
+        if (!driverDownloader.resolve(info)) {
+            throw new SQLException("无法加载数据库驱动: " + info.getDbType());
+        }
         String url = DbTypeCoordinator.forConnection(info).buildUrl(info);
+        onStatus.accept("正在连接 " + url + " ...");
         try (Connection conn = DriverManager.getConnection(url, info.getUsername(), info.getPassword())) {
             return conn.isValid(5);
-        } catch (SQLException e) {
-            log.error("测试连接失败: {} - {}", info.getName(), e.getMessage());
-            return false;
         }
     }
 
@@ -38,6 +45,13 @@ public class ConnectionManager {
             log.info("连接已存在(将重新连接): {}", key);
             disconnect(key);
         }
+
+        // 确保驱动可用，不可用时尝试下载
+        if (!driverDownloader.resolve(info)) {
+            throw new SQLException("无法加载数据库驱动: " + info.getDbType()
+                + "，请在连接信息的「自定义驱动」标签页中配置驱动 JAR 或设置 GAV 坐标自动下载");
+        }
+
         var coord = DbTypeCoordinator.forConnection(info);
         HikariConfig config = new HikariConfig();
         config.setJdbcUrl(coord.buildUrl(info));
@@ -65,8 +79,15 @@ public class ConnectionManager {
         }
 
         try {
-            HikariDataSource ds = new HikariDataSource(config);
-            dataSources.put(key, ds);
+            ClassLoader original = Thread.currentThread().getContextClassLoader();
+            ClassLoader cl = driverDownloader.getClassLoader();
+            if (cl != null) Thread.currentThread().setContextClassLoader(cl);
+            try {
+                HikariDataSource ds = new HikariDataSource(config);
+                dataSources.put(key, ds);
+            } finally {
+                Thread.currentThread().setContextClassLoader(original);
+            }
             autoCommitStates.put(key, true);
             queryTimeouts.put(key, info.getQueryTimeout());
             log.info("已连接: {}", info);
