@@ -168,7 +168,7 @@ public class MainFrame extends JFrame {
                         icons.add(scaled);
                     }
                 }
-            } catch (java.io.IOException ignored) {}
+            } catch (Exception ignored) {}
         }
         if (!icons.isEmpty()) setIconImages(icons);
     }
@@ -587,17 +587,20 @@ public class MainFrame extends JFrame {
         bottomPanel.setRefreshExecutor((connName, sql) -> {
             if (connName == null || connName.isEmpty()) return;
             boolean closeConn = connectionManager.isAutoCommit(connName);
-            new SwingWorker<com.kylin.plsql.core.db.SqlExecutor.SqlResult, Void>() {
+            var cancelToken = new com.kylin.plsql.ui.component.bottom.ResultPanel.CancelToken();
+            bottomPanel.showResultLoading(sql, connName, cancelToken);
+            SwingWorker<com.kylin.plsql.core.db.SqlExecutor.SqlResult, Void> worker = new SwingWorker<com.kylin.plsql.core.db.SqlExecutor.SqlResult, Void>() {
                 @Override protected com.kylin.plsql.core.db.SqlExecutor.SqlResult doInBackground() {
                     try (java.sql.Connection conn = connectionManager.getConnection(connName)) {
                         int qto = connectionManager.getQueryTimeout(connName);
                         var executor = new com.kylin.plsql.core.db.SqlExecutor();
-                        return executor.execute(conn, sql, qto);
+                        return executor.execute(conn, sql, qto, stmt -> cancelToken.register(stmt));
                     } catch (Exception ex) {
                         return null;
                     }
                 }
                 @Override protected void done() {
+                    cancelToken.clear();
                     try {
                         var result = get();
                         if (result != null) {
@@ -607,8 +610,12 @@ public class MainFrame extends JFrame {
                         bottomPanel.showError(ex.getMessage());
                     }
                 }
-            }.execute();
+            };
+            cancelToken.setOnCancel(() -> worker.cancel(true));
+            worker.execute();
         });
+        bottomPanel.setConnectionManager(connectionManager);
+        bottomPanel.setServiceFactory(serviceFactory);
 
         bottomWrapper = new JPanel(new BorderLayout());
         bottomWrapper.setBorder(null);
@@ -2219,18 +2226,27 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         editor.clearExecResults();
         bottomPanel.appendMessage("----- SQL 执行 ----------------------");
         bottomPanel.appendMessage("执行 SQL: " + sql);
-        new SwingWorker<SingleResult, Void>() {
+        var cancelToken = new com.kylin.plsql.ui.component.bottom.ResultPanel.CancelToken();
+        bottomPanel.showResultLoading(sql, connName, cancelToken);
+        SwingWorker<SingleResult, Void> worker = new SwingWorker<SingleResult, Void>() {
             @Override protected SingleResult doInBackground() {
                 try (Connection conn = connectionManager.getConnection(connName)) {
                     applySchemaIfNeeded(conn, connName, schema);
                     var executor = new com.kylin.plsql.core.db.SqlExecutor();
-                    var result = executor.execute(conn, sql, qto);
+                    var result = executor.execute(conn, sql, qto, stmt -> cancelToken.register(stmt));
                     return new SingleResult(result, null);
                 } catch (Exception e) {
                     return new SingleResult(null, e.getMessage());
                 }
             }
             @Override protected void done() {
+                cancelToken.clear();
+                if (isCancelled()) {
+                    bottomPanel.appendMessage("查询已取消");
+                    bottomPanel.appendMessage("-------------------------------");
+                    statusBar.setMessage("查询已取消");
+                    return;
+                }
                 try {
                     SingleResult sr = get();
                     if (sr.error != null) {
@@ -2269,7 +2285,9 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                         LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
                 }
             }
-        }.execute();
+        };
+        cancelToken.setOnCancel(() -> worker.cancel(true));
+        worker.execute();
     }
 
     private static class StmtResult {

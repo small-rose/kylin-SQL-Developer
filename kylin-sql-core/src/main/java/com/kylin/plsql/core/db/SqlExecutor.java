@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 /** SQL execution engine with DDL generation, DML templates, and source retrieval. */
 public class SqlExecutor {
@@ -70,6 +71,11 @@ public class SqlExecutor {
     }
 
     public SqlResult execute(Connection conn, String sql, int queryTimeoutSec) {
+        return execute(conn, sql, queryTimeoutSec, null);
+    }
+
+    public SqlResult execute(Connection conn, String sql, int queryTimeoutSec,
+                             Consumer<Statement> onStatement) {
         long start = System.currentTimeMillis();
         sql = sql.trim();
         while (sql.endsWith(";")) sql = sql.substring(0, sql.length() - 1).trim();
@@ -78,6 +84,7 @@ public class SqlExecutor {
             boolean isQuery;
             try (Statement stmt = conn.createStatement()) {
                 if (queryTimeoutSec > 0) stmt.setQueryTimeout(queryTimeoutSec);
+                if (onStatement != null) onStatement.accept(stmt);
                 isQuery = stmt.execute(sql);
                 if (isQuery) {
                     try (ResultSet rs = stmt.getResultSet()) {

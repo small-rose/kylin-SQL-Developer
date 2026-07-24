@@ -1,18 +1,25 @@
 package com.kylin.plsql.ui.component.bottom;
 
-import com.kylin.plsql.ui.component.common.IconUtil;
-import com.kylin.plsql.core.config.ThemeManager;
 import com.kylin.plsql.core.config.FontManager;
+import com.kylin.plsql.core.config.ThemeManager;
 import com.kylin.plsql.core.db.SqlExecutor;
+import com.kylin.plsql.core.parser.SqlTableExtractor;
+import com.kylin.plsql.core.service.DataChangeService;
+import com.kylin.plsql.ui.component.common.IconUtil;
 import com.kylin.plsql.ui.dialog.tools.ExportDialog;
+import com.kylin.plsql.ui.dialog.tools.ImportDialog;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
+import javax.swing.event.ListSelectionListener;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.JTableHeader;
 import javax.swing.table.TableCellEditor;
+import javax.swing.table.TableCellRenderer;
 import javax.swing.table.TableColumn;
 import javax.swing.table.TableModel;
 import java.awt.*;
@@ -21,15 +28,13 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
 import java.awt.image.BufferedImage;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.EventObject;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import javax.swing.SwingUtilities;
-import javax.swing.event.DocumentEvent;
-import javax.swing.event.DocumentListener;
-import javax.swing.event.ListSelectionListener;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Paginated result set display with row numbers, column resize, cell expansion. */
 public class ResultPanel extends JPanel {
@@ -42,6 +47,8 @@ public class ResultPanel extends JPanel {
     private final List<ResultTabData> tabDataList = new ArrayList<>();
     private int resultCounter = 0;
     private boolean batchExecuting;
+    private com.kylin.plsql.core.db.ConnectionManager connectionManager;
+    private com.kylin.plsql.core.service.ServiceFactory serviceFactory;
     private java.util.function.BiConsumer<String, String> refreshExecutor;
 
     private static class ResultTabData {
@@ -51,6 +58,7 @@ public class ResultPanel extends JPanel {
         List<String> columns;
         List<SqlExecutor.ColumnMeta> columnMeta;
         List<List<Object>> allRows;
+        List<List<Object>> originalRows;
         int pageSize = 100;
         int currentPage = 0;
         boolean pinned;
@@ -58,8 +66,11 @@ public class ResultPanel extends JPanel {
         JTable rowHeader;
         PaginatedTableModel model;
         JLabel pageInfoLabel;
-        JLabel columnInfoLabel;
+        JTextArea columnInfoLabel;
         JPanel columnInfoBar;
+        CancelToken cancelToken;
+        Set<Integer> newRowIndices = new HashSet<>();
+        Set<Integer> deletedRowIndices = new HashSet<>();
         Set<Point> expandedCells = new HashSet<>();
         transient boolean syncingSelection;
 
@@ -246,14 +257,21 @@ public class ResultPanel extends JPanel {
             label.setText(value != null ? value.toString() : "");
             label.setVerticalAlignment(SwingConstants.CENTER);
             if (!isSelected) {
-                String kw = (String) table.getClientProperty("searchKeyword");
-                if (kw != null && !kw.isEmpty() && value != null
-                        && value.toString().toLowerCase().contains(kw.toLowerCase())) {
-                    label.setBackground(new Color(0xFFFF99));
+                boolean isDeleted = d != null && d.deletedRowIndices.contains(d.getOffset() + row);
+                if (isDeleted) {
+                    label.setBackground(new Color(0xE8E8E8));
+                    label.setForeground(new Color(0xBBBBBB));
                     label.setOpaque(true);
-                } else if (kw != null && !kw.isEmpty()) {
-                    label.setBackground(table.getBackground());
-                    label.setOpaque(table.isOpaque());
+                } else {
+                    String kw = (String) table.getClientProperty("searchKeyword");
+                    if (kw != null && !kw.isEmpty() && value != null
+                            && value.toString().toLowerCase().contains(kw.toLowerCase())) {
+                        label.setBackground(new Color(0xFFFF99));
+                        label.setOpaque(true);
+                    } else if (kw != null && !kw.isEmpty()) {
+                        label.setBackground(table.getBackground());
+                        label.setOpaque(table.isOpaque());
+                    }
                 }
             }
             return label;
@@ -387,52 +405,40 @@ public class ResultPanel extends JPanel {
 
         JButton importBtn = makeTbBtn("arrow-up-to-line", "导入", "导入数据");
         importBtn.addActionListener(e -> {
-            // TODO: 导入功能
-            appendMessage("导入功能待实现");
+            Frame owner = (Frame) SwingUtilities.getWindowAncestor(this);
+            new ImportDialog(owner, d.connName, serviceFactory, connectionManager).setVisible(true);
         });
 
         JButton addRowBtn = makeTbBtn("plus", "\u6DFB\u52A0\u884C", "\u6DFB\u52A0\u884C");
-        addRowBtn.addActionListener(e -> appendMessage("\u6DFB\u52A0\u884C: \u6682\u672A\u5B9E\u73B0"));
+        addRowBtn.addActionListener(e -> {
+            int nCols = d.columns != null ? d.columns.size() : 0;
+            if (nCols == 0) return;
+            java.util.List<Object> newRow = new java.util.ArrayList<>(java.util.Collections.nCopies(nCols, null));
+            d.allRows.add(newRow);
+            d.newRowIndices.add(d.allRows.size() - 1);
+            d.model.fireTableDataChanged();
+        });
 
         JButton deleteRowBtn = makeTbBtn("minus", "\u5220\u9664\u884C", "\u5220\u9664\u884C");
-        deleteRowBtn.addActionListener(e -> appendMessage("\u5220\u9664\u884C: \u6682\u672A\u5B9E\u73B0"));
+        deleteRowBtn.addActionListener(e -> {
+            int[] rows = d.table.getSelectedRows();
+            if (rows.length == 0) return;
+            for (int vRow : rows) {
+                int absRow = d.getOffset() + vRow;
+                if (absRow >= 0 && absRow < d.allRows.size()) {
+                    d.deletedRowIndices.add(absRow);
+                }
+            }
+            d.model.fireTableDataChanged();
+        });
 
         JButton refreshBtn = makeTbBtn("refresh", "刷新", "刷新结果集");
         refreshBtn.addActionListener(e -> { d.currentPage = 0; d.expandedCells.clear(); d.model.fireTableDataChanged(); updatePageInfo(d); });
 
         JButton stopBtn = makeTbBtn("stop", "\u505C\u6B62", "\u505C\u6B62\u67E5\u8BE2");
-        stopBtn.setEnabled(false);
-        stopBtn.addActionListener(e -> appendMessage("\u67E5\u8BE2\u5DF2\u53D6\u6D88"));
-
-        JButton txBtn = new JButton("\u81EA\u52A8\u4E8B\u52A1 \u25BE");
-        ImageIcon chevronIcon = com.kylin.plsql.ui.component.common.IconUtil.loadButtonIcon("chevron-down", null);
-        if (chevronIcon != null) txBtn.setIcon(chevronIcon);
-        txBtn.setFont(FontManager.getInstance().resolve("font.bottom"));
-        txBtn.setFocusable(false);
-        txBtn.setContentAreaFilled(false);
-        txBtn.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
-        txBtn.setForeground(theme.resolve("fg.main"));
-        txBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
-        txBtn.addActionListener(e -> {
-            JPopupMenu menu = new JPopupMenu();
-            JRadioButtonMenuItem autoItem = new JRadioButtonMenuItem("\u81EA\u52A8\u4E8B\u52A1", true);
-            JRadioButtonMenuItem manualItem = new JRadioButtonMenuItem("\u4EBA\u5DE5\u4E8B\u52A1");
-            ButtonGroup group = new ButtonGroup();
-            group.add(autoItem); group.add(manualItem);
-            autoItem.addActionListener(ev -> txBtn.setText("\u81EA\u52A8\u4E8B\u52A1 \u25BE"));
-            manualItem.addActionListener(ev -> txBtn.setText("\u4EBA\u5DE5\u4E8B\u52A1 \u25BE"));
-            menu.add(autoItem);
-            menu.add(manualItem);
-            menu.addSeparator();
-            JMenu isolation = new JMenu("\u4E8B\u52A1\u4F20\u64AD\u7EA7\u522B");
-            JCheckBoxMenuItem rcItem = new JCheckBoxMenuItem("\u8BFB\u5DF2\u63D0\u4EA4", true);
-            JCheckBoxMenuItem rrItem = new JCheckBoxMenuItem("\u53EF\u91CD\u590D\u8BFB");
-            JCheckBoxMenuItem serItem = new JCheckBoxMenuItem("\u53EF\u4E32\u884C\u5316");
-            isolation.add(rcItem);
-            isolation.add(rrItem);
-            isolation.add(serItem);
-            menu.add(isolation);
-            menu.show(txBtn, 0, txBtn.getHeight());
+        stopBtn.setEnabled(d.cancelToken != null);
+        stopBtn.addActionListener(e -> {
+            if (d.cancelToken != null) d.cancelToken.cancel();
         });
 
         JTextField searchField = new JTextField(10);
@@ -451,13 +457,140 @@ public class ResultPanel extends JPanel {
         });
 
         JButton submitBtn = makeTbBtn("arrow-big-up", "\u63D0\u4EA4\u4FEE\u6539", "\u63D0\u4EA4\u4FEE\u6539");
-        submitBtn.addActionListener(e -> appendMessage("\u63D0\u4EA4\u4FEE\u6539: \u6682\u672A\u5B9E\u73B0"));
+        submitBtn.addActionListener(e -> {
+            if (d.connName == null || d.originalRows == null) return;
+            String rawTableName = SqlTableExtractor.guessTableName(d.sql);
+            if (rawTableName == null) {
+                if (d.columnInfoLabel != null) d.columnInfoLabel.setText("\u26A0 \u65E0\u6CD5\u8BC6\u522B\u8868\u540D");
+                return;
+            }
+
+            // 如果表名包含点号，从中提取 schema + table
+            final String schema;
+            final String tableName;
+            int dotIdx = rawTableName.indexOf('.');
+            if (dotIdx > 0) {
+                schema = rawTableName.substring(0, dotIdx);
+                tableName = rawTableName.substring(dotIdx + 1);
+            } else {
+                schema = getSchemaForConn(d.connName);
+                tableName = rawTableName;
+            }
+            String dbType = getDbTypeForConn(d.connName);
+            DataChangeService svc = serviceFactory.getDataChangeService(dbType);
+            DataChangeService.DiffResult diff = svc.diff(d.columns, d.originalRows,
+                    d.allRows, d.newRowIndices, d.deletedRowIndices);
+            if (diff.isEmpty()) { showToast("\u65E0\u53D8\u66F4"); return; }
+
+            int result = JOptionPane.showConfirmDialog(this,
+                    "\u5C06\u63D0\u4EA4 " + diff.totalOps() + " \u6761\u53D8\u66F4\u5230\u6570\u636E\u5E93\uFF0C\u786E\u8BA4\uFF1F",
+                    "\u63D0\u4EA4\u4FEE\u6539", JOptionPane.YES_NO_OPTION);
+            if (result != JOptionPane.YES_OPTION) return;
+
+            javax.swing.SwingWorker<Integer, Void> worker = new javax.swing.SwingWorker<Integer, Void>() {
+                @Override protected Integer doInBackground() throws Exception {
+                    try (java.sql.Connection conn = connectionManager.getConnection(d.connName)) {
+                        return svc.execute(conn, schema, tableName, d.columns, diff);
+                    }
+                }
+                @Override protected void done() {
+                    try {
+                        int n = get();
+                        showToast("\u63D0\u4EA4\u5B8C\u6210: " + n + " \u884C");
+                        if (refreshExecutor != null) refreshExecutor.accept(d.connName, d.sql);
+                    } catch (Exception ex) {
+                        if (d.columnInfoLabel != null) {
+                            d.columnInfoLabel.setText("\u2716 \u63D0\u4EA4\u5931\u8D25: " + ex.getMessage());
+                            d.columnInfoLabel.setForeground(new Color(0xC62828));
+                        }
+                    }
+                }
+            };
+            worker.execute();
+        });
 
         JButton commitBtn = makeTbBtn("commit", "\u4E8B\u52A1\u63D0\u4EA4", "\u4E8B\u52A1\u63D0\u4EA4");
-        commitBtn.addActionListener(e -> appendMessage("\u4E8B\u52A1\u63D0\u4EA4: \u6682\u672A\u5B9E\u73B0"));
+        commitBtn.setEnabled(false);
+        commitBtn.addActionListener(e -> {
+            if (d.connName != null) {
+                try {
+                    connectionManager.commit(d.connName);
+                    if (d.columnInfoLabel != null) {
+                        d.columnInfoLabel.setText("\u2714 \u4E8B\u52A1\u5DF2\u63D0\u4EA4");
+                        d.columnInfoLabel.setForeground(theme.resolve("fg.muted"));
+                    }
+                } catch (Exception ex) {
+                    if (d.columnInfoLabel != null) {
+                        d.columnInfoLabel.setText("\u2716 \u4E8B\u52A1\u63D0\u4EA4\u5931\u8D25: " + ex.getMessage());
+                        d.columnInfoLabel.setForeground(new Color(0xC62828));
+                    }
+                }
+            }
+        });
 
         JButton rollbackBtn = makeTbBtn("rollback", "\u4E8B\u52A1\u56DE\u9000", "\u4E8B\u52A1\u56DE\u9000");
-        rollbackBtn.addActionListener(e -> appendMessage("\u4E8B\u52A1\u56DE\u9000: \u6682\u672A\u5B9E\u73B0"));
+        rollbackBtn.setEnabled(false);
+        rollbackBtn.addActionListener(e -> {
+            if (d.connName != null) {
+                try {
+                    connectionManager.rollback(d.connName);
+                    if (d.columnInfoLabel != null) {
+                        d.columnInfoLabel.setText("\u2714 \u4E8B\u52A1\u5DF2\u56DE\u9000");
+                        d.columnInfoLabel.setForeground(theme.resolve("fg.muted"));
+                    }
+                } catch (Exception ex) {
+                    if (d.columnInfoLabel != null) {
+                        d.columnInfoLabel.setText("\u2716 \u4E8B\u52A1\u56DE\u9000\u5931\u8D25: " + ex.getMessage());
+                        d.columnInfoLabel.setForeground(new Color(0xC62828));
+                    }
+                }
+            }
+        });
+
+        JButton txBtn = new JButton("\u81EA\u52A8\u4E8B\u52A1");
+        ImageIcon chevronIcon = IconUtil.loadButtonIcon("chevron-down", null);
+        if (chevronIcon != null) txBtn.setIcon(chevronIcon);
+        txBtn.setFont(FontManager.getInstance().resolve("font.bottom"));
+        txBtn.setFocusable(false);
+        txBtn.setContentAreaFilled(false);
+        txBtn.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 6));
+        txBtn.setForeground(theme.resolve("fg.main"));
+        txBtn.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        txBtn.addActionListener(e -> {
+            JPopupMenu menu = new JPopupMenu();
+            boolean isManual = !connectionManager.isAutoCommit(d.connName);
+            JRadioButtonMenuItem autoItem = new JRadioButtonMenuItem("\u81EA\u52A8\u4E8B\u52A1", !isManual);
+            JRadioButtonMenuItem manualItem = new JRadioButtonMenuItem("\u4EBA\u5DE5\u4E8B\u52A1", isManual);
+            ButtonGroup group = new ButtonGroup();
+            group.add(autoItem); group.add(manualItem);
+            autoItem.addActionListener(ev -> {
+                connectionManager.setAutoCommit(d.connName, true);
+                txBtn.setText("\u81EA\u52A8\u4E8B\u52A1 \u25BE");
+                commitBtn.setEnabled(false);
+                rollbackBtn.setEnabled(false);
+            });
+            manualItem.addActionListener(ev -> {
+                connectionManager.setAutoCommit(d.connName, false);
+                txBtn.setText("\u4EBA\u5DE5\u4E8B\u52A1 \u25BE");
+                commitBtn.setEnabled(true);
+                rollbackBtn.setEnabled(true);
+            });
+            menu.add(autoItem);
+            menu.add(manualItem);
+            menu.addSeparator();
+            JMenu isolation = new JMenu("\u4E8B\u52A1\u4F20\u64AD\u7EA7\u522B");
+            JCheckBoxMenuItem rcItem = new JCheckBoxMenuItem("\u8BFB\u5DF2\u63D0\u4EA4", true);
+            JCheckBoxMenuItem rrItem = new JCheckBoxMenuItem("\u53EF\u91CD\u590D\u8BFB");
+            JCheckBoxMenuItem serItem = new JCheckBoxMenuItem("\u53EF\u4E32\u884C\u5316");
+            rcItem.addActionListener(ev -> connectionManager.setTransactionIsolation(d.connName, java.sql.Connection.TRANSACTION_READ_COMMITTED));
+            rrItem.addActionListener(ev -> connectionManager.setTransactionIsolation(d.connName, java.sql.Connection.TRANSACTION_REPEATABLE_READ));
+            serItem.addActionListener(ev -> connectionManager.setTransactionIsolation(d.connName, java.sql.Connection.TRANSACTION_SERIALIZABLE));
+            isolation.add(rcItem);
+            isolation.add(rrItem);
+            isolation.add(serItem);
+            menu.add(isolation);
+            menu.show(txBtn, 0, txBtn.getHeight());
+        });
 
         JButton pinBtn = makeTbBtn("pin", "固定", "固定标签不被替换");
         pinBtn.addActionListener(e -> {
@@ -503,7 +636,11 @@ public class ResultPanel extends JPanel {
         d.rowHeader = new JTable(new AbstractTableModel() {
             @Override public int getRowCount() { return d.getDisplayRowCount(); }
             @Override public int getColumnCount() { return 1; }
-            @Override public Object getValueAt(int r, int c) { return d.getOffset() + r + 1; }
+            @Override public Object getValueAt(int r, int c) {
+                int absRow = d.getOffset() + r;
+                String prefix = d.newRowIndices.contains(absRow) ? "+" : d.deletedRowIndices.contains(absRow) ? "-" : "";
+                return prefix + (absRow + 1);
+            }
             @Override public String getColumnName(int c) { return "#"; }
         });
         d.rowHeader.setFont(d.table.getFont());
@@ -521,22 +658,27 @@ public class ResultPanel extends JPanel {
         d.rowHeader.getTableHeader().setReorderingAllowed(false);
         d.rowHeader.getTableHeader().setResizingAllowed(false);
         d.rowHeader.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
-        DefaultTableCellRenderer rhRenderer = new DefaultTableCellRenderer() {
+        d.rowHeader.setSelectionBackground(theme.resolve("selection.bg"));
+        d.rowHeader.setSelectionForeground(theme.resolve("selection.fg"));
+        d.rowHeader.setBorder(BorderFactory.createMatteBorder(0, 1, 0, 1,theme.resolve("border.default")));
+        TableCellRenderer rhRenderer = new TableCellRenderer() {
+            private final JLabel label = new JLabel();
             @Override
             public Component getTableCellRendererComponent(JTable table, Object value,
                     boolean isSelected, boolean hasFocus, int row, int column) {
-                setFont(FontManager.getInstance().resolve("font.bottom.result"));
-                setHorizontalAlignment(SwingConstants.CENTER);
-                setText(value != null ? value.toString() : "");
-                setOpaque(isSelected);
-                if (isSelected) {
-                    setBackground(theme.resolve("selection.bg"));
-                    setForeground(theme.resolve("selection.fg"));
+                label.setFont(FontManager.getInstance().resolve("font.bottom.result"));
+                label.setHorizontalAlignment(SwingConstants.CENTER);
+                label.setText(value != null ? value.toString() : "");
+                boolean rowSel = table.isRowSelected(row);
+                if (rowSel) {
+                    label.setOpaque(true);
+                    label.setBackground(table.getSelectionBackground());
+                    label.setForeground(table.getSelectionForeground());
                 } else {
-                    setBackground(theme.resolve("bg.output"));
-                    setForeground(theme.resolve("fg.muted"));
+                    label.setOpaque(false);
+                    label.setForeground(theme.resolve("fg.muted"));
                 }
-                return this;
+                return label;
             }
         };
         d.rowHeader.setDefaultRenderer(Object.class, rhRenderer);
@@ -546,6 +688,7 @@ public class ResultPanel extends JPanel {
             try {
                 int minM = d.rowHeader.getSelectionModel().getMinSelectionIndex();
                 int maxM = d.rowHeader.getSelectionModel().getMaxSelectionIndex();
+                log.info("行头选中事件: min={}, max={}", minM, maxM);
                 if (minM >= 0) {
                     int vMin = d.table.convertRowIndexToView(minM);
                     int vMax = d.table.convertRowIndexToView(maxM);
@@ -599,6 +742,7 @@ public class ResultPanel extends JPanel {
             } finally { d.syncingSelection = false; }
         });
         scroll.setRowHeaderView(d.rowHeader);
+        scroll.setViewportBorder(BorderFactory.createMatteBorder(1, 1, 0, 0, theme.resolve("border.default")));
         JPanel cornerPanel = new JPanel(new BorderLayout());
         cornerPanel.setBackground(d.table.getTableHeader().getBackground());
         cornerPanel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 1, theme.resolve("border.default")));
@@ -651,13 +795,17 @@ public class ResultPanel extends JPanel {
     }
 
     private JPanel buildColumnInfoBar(ResultTabData d) {
-        JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 2));
+        JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         bar.setBackground(theme.resolve("bg.output"));
         bar.setBorder(BorderFactory.createMatteBorder(1, 0, 0, 0, theme.resolve("border.light")));
-        JLabel label = new JLabel("\u70B9\u51FB\u5217\u5934\u67E5\u770B\u5217\u4FE1\u606F");
+        JTextArea label = new JTextArea("\u70B9\u51FB\u5217\u5934\u67E5\u770B\u5217\u4FE1\u606F");
         label.setFont(FontManager.getInstance().resolve("font.bottom"));
         label.setForeground(theme.resolve("fg.muted"));
-        bar.add(label);
+        label.setEditable(false);
+        label.setBorder(null);
+        label.setBackground(theme.resolve("bg.output"));
+        label.setRows(1);
+        bar.add(label, BorderLayout.CENTER);
         d.columnInfoLabel = label;
         d.columnInfoBar = bar;
         return bar;
@@ -738,7 +886,7 @@ public class ResultPanel extends JPanel {
     }
 
     private void goToRow(ResultTabData d) {
-        String input = JOptionPane.showInputDialog(this, "\u8F93\u5165\u884C\u53F7\uFF081-" + d.allRows.size() + "\uFF09");
+        String input = JOptionPane.showInputDialog(this, "输入行号（1-" + d.allRows.size() + "）");
         if (input == null) return;
         try {
             int row = Integer.parseInt(input.trim()) - 1 + d.getOffset();
@@ -1150,6 +1298,42 @@ public class ResultPanel extends JPanel {
         resultTabs.removeTabAt(tabIndex);
     }
 
+    // === CancelToken ===
+
+    public static class CancelToken {
+        private final AtomicReference<Statement> ref = new AtomicReference<>();
+        private volatile Runnable onCancel;
+        public void register(Statement stmt) { ref.set(stmt); }
+        public void setOnCancel(Runnable r) { this.onCancel = r; }
+        public void cancel() {
+            Statement s = ref.getAndSet(null);
+            if (s != null) try { s.cancel(); } catch (Exception ignored) {}
+            Runnable r = onCancel;
+            if (r != null) r.run();
+        }
+        public boolean isActive() { return ref.get() != null; }
+        public void clear() { ref.set(null); }
+    }
+
+    public synchronized void showResultLoading(String sql, String connName, CancelToken cancelToken) {
+        ResultTabData d = new ResultTabData();
+        d.label = "\u67E5\u8BE2\u4E2D";
+        d.sql = sql;
+        d.connName = connName;
+        d.columns = new ArrayList<>();
+        d.allRows = new ArrayList<>();
+        d.cancelToken = cancelToken;
+        JPanel loadingPanel = new JPanel(new BorderLayout());
+        loadingPanel.setBackground(theme.resolve("bg.output"));
+        JLabel loadingLabel = new JLabel("\u67E5\u8BE2\u6267\u884C\u4E2D...", SwingConstants.CENTER);
+        loadingLabel.setFont(FontManager.getInstance().resolve("font.bottom.result"));
+        loadingLabel.setForeground(theme.resolve("fg.muted"));
+        loadingPanel.add(loadingLabel, BorderLayout.CENTER);
+        resultTabs.addTab(d.label, loadingPanel);
+        resultTabs.setSelectedIndex(resultTabs.getTabCount() - 1);
+        tabDataList.add(d);
+    }
+
     // === Public API ===
 
     public synchronized void showResult(String sql, SqlExecutor.SqlResult result) {
@@ -1157,6 +1341,14 @@ public class ResultPanel extends JPanel {
     }
 
     public synchronized void showResult(String sql, SqlExecutor.SqlResult result, String connName) {
+        // remove loading tab for the same SQL
+        for (int i = tabDataList.size() - 1; i >= 0; i--) {
+            ResultTabData ld = tabDataList.get(i);
+            if ((ld.columns == null || ld.columns.isEmpty()) && sql != null && sql.equals(ld.sql)) {
+                tabDataList.remove(i);
+                resultTabs.removeTabAt(i + 1);
+            }
+        }
         if (result.isSuccess() && result.isQuery && result.columns != null && !result.columns.isEmpty()) {
             // reuse same-sql unpinned tab if exists (skip during batch multi-statement execution)
             if (!batchExecuting) {
@@ -1167,6 +1359,8 @@ public class ResultPanel extends JPanel {
                 if (reuse != null) {
                     reuse.columns = result.columns;
                     reuse.allRows = result.rows;
+                    reuse.originalRows = new ArrayList<>();
+                    for (List<Object> row : result.rows) reuse.originalRows.add(new ArrayList<>(row));
                     reuse.currentPage = 0;
                     reuse.model.setData(reuse, result.columns);
                     resultTabs.setSelectedIndex(tabDataList.indexOf(reuse) + 1);
@@ -1185,6 +1379,8 @@ public class ResultPanel extends JPanel {
             d.columns = result.columns;
             d.columnMeta = result.columnMeta;
             d.allRows = result.rows;
+            d.originalRows = new ArrayList<>();
+            for (List<Object> row : result.rows) d.originalRows.add(new ArrayList<>(row));
             d.pageSize = 100;
             d.currentPage = 0;
             d.pinned = false;
@@ -1194,7 +1390,7 @@ public class ResultPanel extends JPanel {
             d.table.getTableHeader().setReorderingAllowed(false);
             d.table.setCellSelectionEnabled(true);
             d.table.setRowSelectionAllowed(true);
-            d.table.setAutoCreateRowSorter(true);
+            d.table.setAutoCreateRowSorter(false);
             d.table.putClientProperty("terminateEditOnFocusLost", Boolean.TRUE);
             d.table.addMouseListener(new MouseAdapter() {
                 @Override
@@ -1368,6 +1564,14 @@ public class ResultPanel extends JPanel {
         this.refreshExecutor = executor;
     }
 
+    public void setConnectionManager(com.kylin.plsql.core.db.ConnectionManager cm) {
+        this.connectionManager = cm;
+    }
+
+    public void setServiceFactory(com.kylin.plsql.core.service.ServiceFactory sf) {
+        this.serviceFactory = sf;
+    }
+
     public String getCurrentConnName() {
         int sel = resultTabs.getSelectedIndex();
         if (sel <= 0) return null;
@@ -1382,5 +1586,24 @@ public class ResultPanel extends JPanel {
         int dataIdx = sel - 1;
         if (dataIdx < 0 || dataIdx >= tabDataList.size()) return null;
         return tabDataList.get(dataIdx).model;
+    }
+
+    private String getDbTypeForConn(String connName) {
+        var connections = com.kylin.plsql.core.config.ConfigManager.getInstance().loadConnections();
+        for (var ci : connections) {
+            if (ci.getName().equals(connName)) return ci.getDbType();
+        }
+        return "oracle";
+    }
+
+    private String getSchemaForConn(String connName) {
+        var connections = com.kylin.plsql.core.config.ConfigManager.getInstance().loadConnections();
+        for (var ci : connections) {
+            if (ci.getName().equals(connName)) {
+                String s = ci.getSchema();
+                return s != null && !s.isEmpty() ? s : null;
+            }
+        }
+        return null;
     }
 }

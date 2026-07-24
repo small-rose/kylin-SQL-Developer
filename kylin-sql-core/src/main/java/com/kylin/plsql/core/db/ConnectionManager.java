@@ -174,6 +174,17 @@ public class ConnectionManager {
         }
     }
 
+    public void setTransactionIsolation(String name, int level) {
+        Connection conn = transactionConns.get(name);
+        if (conn == null) return;
+        try {
+            conn.setTransactionIsolation(level);
+            log.info("事务隔离级别已设置: {} -> {}", name, level);
+        } catch (SQLException e) {
+            log.error("设置事务隔离级别失败: {}", name, e);
+        }
+    }
+
     public void disconnectAll() {
         for (String key : dataSources.keySet()) {
             disconnect(key);

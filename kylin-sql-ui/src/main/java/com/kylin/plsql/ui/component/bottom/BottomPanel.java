@@ -1,9 +1,11 @@
 package com.kylin.plsql.ui.component.bottom;
 
-import com.kylin.plsql.ui.component.common.IconUtil;
 import com.kylin.plsql.core.config.FontManager;
 import com.kylin.plsql.core.config.ThemeManager;
+import com.kylin.plsql.core.db.ConnectionManager;
 import com.kylin.plsql.core.db.SqlExecutor;
+import com.kylin.plsql.core.service.ServiceFactory;
+import com.kylin.plsql.ui.component.common.IconUtil;
 
 import javax.swing.*;
 import javax.swing.tree.DefaultMutableTreeNode;
@@ -14,6 +16,7 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
 /** DataGrip-style bottom tool window with SQL syntax checker and Services tabs. */
@@ -75,7 +78,9 @@ public class BottomPanel extends JPanel {
         tabBar.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, theme.resolve("border.light")));
 
         sqlBtn = makeTabBtn("SQL检查");
+        sqlBtn.setFont(FontManager.getInstance().resolve("font.bottom.title"));
         servicesBtn = makeTabBtn("Services");
+        sqlBtn.setFont(FontManager.getInstance().resolve("font.bottom.title"));
         tabBar.add(sqlBtn);
         tabBar.add(servicesBtn);
         tabBar.add(Box.createHorizontalGlue());
@@ -129,7 +134,7 @@ public class BottomPanel extends JPanel {
 
         JSplitPane sqlSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, sqlTopPanel, errorScroll);
         sqlSplit.setBorder(null);
-        sqlSplit.setResizeWeight(0.65);
+        sqlSplit.setResizeWeight(0.60);
         sqlSplit.setDividerLocation(180);
         sqlSplit.setDividerSize(3);
         contentPanel.add(sqlSplit, "SQL_CHECK");
@@ -445,8 +450,21 @@ public class BottomPanel extends JPanel {
         if (onShowResult != null) onShowResult.run();
     }
 
-    public void setRefreshExecutor(java.util.function.BiConsumer<String, String> executor) {
+    public void showResultLoading(String sql, String connName, ResultPanel.CancelToken cancelToken) {
+        ensureServicesVisible();
+        resultPanel.showResultLoading(sql, connName, cancelToken);
+    }
+
+    public void setRefreshExecutor(BiConsumer<String, String> executor) {
         resultPanel.setRefreshExecutor(executor);
+    }
+
+    public void setConnectionManager(ConnectionManager cm) {
+        resultPanel.setConnectionManager(cm);
+    }
+
+    public void setServiceFactory(ServiceFactory sf) {
+        resultPanel.setServiceFactory(sf);
     }
 
     public void showError(String message) {

@@ -16,6 +16,7 @@ public class ServiceFactory {
     private final Map<String, SchemaService> schemaCache = new ConcurrentHashMap<>();
     private final Map<String, DataQueryService> queryCache = new ConcurrentHashMap<>();
     private ExportService exportService;
+    private final Map<String, DataChangeService> changeCache = new ConcurrentHashMap<>();
 
     public ServiceFactory(ConnectionManager cm) {
         this.cm = cm;
@@ -50,6 +51,22 @@ public class ServiceFactory {
     public ExportService getExportService() {
         if (exportService == null) exportService = new ExportService();
         return exportService;
+    }
+
+    public DataChangeService getDataChangeService(String dbTypeKey) {
+        return changeCache.computeIfAbsent(normalize(dbTypeKey), key -> {
+            String jdbcKey = JdbcServiceRegistry.forKeyStatic(key).spec().getKey().toLowerCase();
+            if (jdbcKey.contains("mysql") || jdbcKey.contains("mariadb")) {
+                return new MySqlDataChangeService();
+            }
+            if (jdbcKey.equals("postgresql")) {
+                return new PostgreSqlDataChangeService();
+            }
+            if ("oceanbase".equals(jdbcKey) || "oceanbase-oracle".equals(jdbcKey) ){
+                return new OracleDataChangeService();
+            }
+            return new OracleDataChangeService();
+        });
     }
 
     private static String normalize(String key) {
