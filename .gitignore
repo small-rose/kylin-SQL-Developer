@@ -12,9 +12,3 @@ dependency-reduced-pom.xml
 .agents/
 脱敏.md
 批处理导出脱敏.md
-compare_result.txt
-debug_ddl.txt
-demo2.txt
-demo2_result.txt
-process_unicode.py
-scan_unicode.py
