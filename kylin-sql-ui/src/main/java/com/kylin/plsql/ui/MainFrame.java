@@ -228,7 +228,12 @@ public class MainFrame extends JFrame {
 
                 SwingUtilities.invokeAndWait(frame::finishLayout);
             } catch (Exception e) {
-                splash.setStatus("启动失败: " + e.getMessage());
+                String msg = e.getMessage();
+                if (msg == null) {
+                    Throwable cause = e.getCause();
+                    msg = cause != null ? cause.getClass().getSimpleName() : e.getClass().getSimpleName();
+                }
+                splash.setStatus("启动失败: " + msg);
                 log.error("启动失败", e);
             }
         }, "splash-builder").start();
