@@ -233,8 +233,14 @@ public class MainFrame extends JFrame {
                     Throwable cause = e.getCause();
                     msg = cause != null ? cause.getClass().getSimpleName() : e.getClass().getSimpleName();
                 }
-                splash.setStatus("启动失败: " + msg);
+                final String errorMsg = msg;
+                splash.setStatus("启动失败: " + errorMsg);
                 log.error("启动失败", e);
+                SwingUtilities.invokeLater(() -> {
+                    splash.close();
+                    JOptionPane.showMessageDialog(null, "启动失败: " + errorMsg, "错误", JOptionPane.ERROR_MESSAGE);
+                    System.exit(1);
+                });
             }
         }, "splash-builder").start();
         return frame;
