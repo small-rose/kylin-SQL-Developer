@@ -1,7 +1,9 @@
+<!-- keywords: plsql sql-formatter oracle oceanbase mysql postgresql jdbc database-client sql-ide flatlaf swing data-export -->
 <div align="center">
   <img src="kylin-sql-ui/src/main/resources/logo/kylin_192x192.png" alt="Kylin SQL Developer Logo" width="96" height="96">
   <h1>Kylin SQL Developer</h1>
   <p><strong>轻量级 · 跨平台 · PL/SQL 集成开发工具</strong></p>
+  <p>多数据库 SQL 格式化器 · 语法高亮 · 自动补全 · 数据导出 · JDBC 客户端 — 支持 Oracle / OceanBase / MySQL / PostgreSQL</p>
 
   <p>
     <img src="https://img.shields.io/badge/Java-17%2B-blue?logo=openjdk&logoColor=white" alt="Java 17+">

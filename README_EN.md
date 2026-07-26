@@ -2,6 +2,7 @@
   <img src="kylin-sql-ui/src/main/resources/logo/kylin_192x192.png" alt="Kylin SQL Developer Logo" width="96" height="96">
   <h1>Kylin SQL Developer</h1>
   <p><strong>Lightweight · Cross-platform · PL/SQL IDE</strong></p>
+  <p>Multi-database SQL formatter &amp; IDE with syntax highlighting, auto-completion, JDBC client and data export. Supports Oracle, OceanBase, MySQL, PostgreSQL.</p>
 
   <p>
     <img src="https://img.shields.io/badge/Java-17%2B-blue?logo=openjdk&logoColor=white" alt="Java 17+">

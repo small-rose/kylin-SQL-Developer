@@ -10,7 +10,7 @@
     <packaging>pom</packaging>
 
     <name>Kylin SQL Developer</name>
-    <description>麒麟系统 PL/SQL 开发工具 - OceanBase Oracle 模式</description>
+    <description>Multi-database PL/SQL IDE and SQL formatter with syntax highlighting, auto-completion, JDBC client and data export. Supports Oracle, OceanBase, MySQL, PostgreSQL.</description>
 
     <modules>
         <module>kylin-sql-parser</module>
