@@ -28,7 +28,9 @@ public class LogViewerDialog extends JDialog {
 
     public LogViewerDialog(Frame owner) {
         super(owner, "应用日志", false);
-        setSize(800, 500);
+        // 默认大小设为屏幕宽高 70%，适应不同分辨率
+        Dimension screenSize = Toolkit.getDefaultToolkit().getScreenSize();
+        setSize((int)(screenSize.width * 0.70), (int)(screenSize.height * 0.70));
         setLocationRelativeTo(owner);
         initUI();
         new SwingWorker<Void, Void>() {

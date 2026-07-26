@@ -7,7 +7,6 @@ import java.awt.*;
 public class AboutDialog extends JDialog {
 
     private static final String FONT_NAME = "Microsoft YaHei";
-    private static final Color PURPLE = new Color(0x7B1FA2);
 
     private final JLabel versionLabel = new JLabel("Version 1.0.0  (Build 2026.1)");
     private final JLabel copyrightLabel = new JLabel("\u00A9 2026 Kylin Team. All rights reserved.");
@@ -17,30 +16,44 @@ public class AboutDialog extends JDialog {
         setResizable(false);
 
         initUI();
-        pack();
+        setSize(480, 380);
         setLocationRelativeTo(owner);
     }
 
     private void initUI() {
         JPanel root = new JPanel(new BorderLayout());
-        root.setBackground(PURPLE);
+
+        java.net.URL logoUrl = getClass().getResource("/logo/kylin_192x192.png");
+        ImageIcon logoIcon = logoUrl != null ? new ImageIcon(logoUrl) : null;
+        JLabel logoLabel = new JLabel();
+        if (logoIcon != null) {
+            Image scaled = logoIcon.getImage().getScaledInstance(56, 56, Image.SCALE_SMOOTH);
+            logoLabel.setIcon(new ImageIcon(scaled));
+        }
 
         JLabel titleLabel = new JLabel("Kylin SQL Developer");
         titleLabel.setFont(FontManager.getInstance().resolve("font.dialog.title"));
-        titleLabel.setForeground(Color.WHITE);
-        titleLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        titleLabel.setForeground(new Color(0x1A1A1A));
 
         versionLabel.setFont(FontManager.getInstance().resolve("font.dialog"));
-        versionLabel.setForeground(new Color(0xE0E0E0));
-        versionLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        versionLabel.setForeground(new Color(0x666666));
 
-        JPanel headerText = new JPanel();
-        headerText.setLayout(new BoxLayout(headerText, BoxLayout.Y_AXIS));
-        headerText.setOpaque(false);
-        headerText.add(titleLabel);
-        headerText.add(Box.createVerticalStrut(2));
-        headerText.add(versionLabel);
+        // 标题区域（LOGO + 文字水平并排，整体居中）
+        JPanel textCol = new JPanel();
+        textCol.setLayout(new BoxLayout(textCol, BoxLayout.Y_AXIS));
+        textCol.setOpaque(false);
+        textCol.add(Box.createVerticalGlue());
+        textCol.add(titleLabel);
+        textCol.add(Box.createVerticalStrut(2));
+        textCol.add(versionLabel);
+        textCol.add(Box.createVerticalGlue());
 
+        JPanel headerRow = new JPanel(new FlowLayout(FlowLayout.CENTER, 48, 0));
+        headerRow.setOpaque(false);
+        headerRow.add(logoLabel);
+        headerRow.add(textCol);
+
+        // 信息区域（浅色背景，文字使用深色系保证可读性）
         JPanel infoPanel = new JPanel();
         infoPanel.setLayout(new BoxLayout(infoPanel, BoxLayout.Y_AXIS));
         infoPanel.setOpaque(false);
@@ -51,15 +64,15 @@ public class AboutDialog extends JDialog {
                 + " / " + System.getProperty("os.name") + " " + System.getProperty("os.arch"));
 
         copyrightLabel.setFont(FontManager.getInstance().resolve("font.dialog"));
-        copyrightLabel.setForeground(new Color(0xCE93D8));
+        copyrightLabel.setForeground(new Color(0x888888));
         copyrightLabel.setHorizontalAlignment(SwingConstants.CENTER);
 
         JPanel center = new JPanel();
         center.setLayout(new BoxLayout(center, BoxLayout.Y_AXIS));
         center.setOpaque(false);
-        center.setBorder(BorderFactory.createEmptyBorder(24, 40, 24, 40));
-        center.add(headerText);
-        center.add(Box.createVerticalStrut(16));
+        center.setBorder(BorderFactory.createEmptyBorder(48, 40, 12, 40));
+        center.add(headerRow);
+        center.add(Box.createVerticalStrut(4));
         center.add(new JSeparator());
         center.add(Box.createVerticalStrut(16));
         center.add(infoPanel);
@@ -77,13 +90,13 @@ public class AboutDialog extends JDialog {
 
         JLabel lbl = new JLabel(label + ":");
         lbl.setFont(FontManager.getInstance().resolve("font.dialog.title"));
-        lbl.setForeground(new Color(0xCE93D8));
+        lbl.setForeground(new Color(0x7B1FA2));
         lbl.setPreferredSize(new Dimension(100, 24));
         lbl.setHorizontalAlignment(SwingConstants.RIGHT);
 
         JLabel val = new JLabel(value);
         val.setFont(FontManager.getInstance().resolve("font.dialog"));
-        val.setForeground(Color.WHITE);
+        val.setForeground(new Color(0x333333));
 
         row.add(lbl, BorderLayout.WEST);
         row.add(val, BorderLayout.CENTER);
