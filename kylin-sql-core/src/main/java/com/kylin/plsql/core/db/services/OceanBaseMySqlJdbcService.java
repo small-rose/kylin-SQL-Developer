@@ -27,7 +27,7 @@ public class OceanBaseMySqlJdbcService extends JdbcService {
 
     @Override public int getInitFailTimeout() { return 15000; }
 
-    @Override public boolean supportsSetSchema() { return true; }
+    @Override public boolean supportsSetSchema() { return false; }
 
     @Override public Map<String, String> getDefaultJdbcParams(ConnectionInfo info) {
         Map<String, String> m = new LinkedHashMap<>();

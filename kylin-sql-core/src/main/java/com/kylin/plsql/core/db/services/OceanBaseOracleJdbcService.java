@@ -43,7 +43,7 @@ public class OceanBaseOracleJdbcService extends JdbcService {
     @Override public int getInitFailTimeout() { return 15000; }
 
     /** OceanBase 支持 HikariCP setSchema */
-    @Override public boolean supportsSetSchema() { return true; }
+    @Override public boolean supportsSetSchema() { return false; }
 
     @Override public Map<String, String> getDefaultJdbcParams(ConnectionInfo info) {
         Map<String, String> m = new LinkedHashMap<>();
