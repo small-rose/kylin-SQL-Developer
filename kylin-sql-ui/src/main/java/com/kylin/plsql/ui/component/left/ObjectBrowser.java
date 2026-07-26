@@ -328,7 +328,12 @@ public class ObjectBrowser extends JPanel {
                     p.add(bl, BorderLayout.EAST);
                     JPanel wrap = new JPanel(new BorderLayout(6, 0));
                     wrap.setOpaque(false);
-                    JLabel il = new JLabel(ICON_DB); wrap.add(il, BorderLayout.WEST); wrap.add(p, BorderLayout.CENTER);
+                    Icon icon = ICON_DB;
+                    if (node.getUserObject() instanceof ConnHolder connHolder) {
+                        ImageIcon dbIcon = IconUtil.menuIcon(connHolder.info.getDbType());
+                        if (dbIcon != null) icon = dbIcon;
+                    }
+                    JLabel il = new JLabel(icon); wrap.add(il, BorderLayout.WEST); wrap.add(p, BorderLayout.CENTER);
                     return wrap;
                 }
                 JLabel label = (JLabel) super.getTreeCellRendererComponent(t, value, sel, expanded, leaf, row, hasFocus);

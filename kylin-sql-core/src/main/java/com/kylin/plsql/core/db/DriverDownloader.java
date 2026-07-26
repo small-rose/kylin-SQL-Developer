@@ -19,7 +19,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.zip.ZipException;
 import java.util.zip.ZipFile;
 
-/** Maven 仓库驱动下载器。维护一个持久的 URLClassLoader 供 HikariCP 和 DriverManager 使用。 */
+/** Maven 仓库驱动下载器。从 Maven Central 或阿里云镜像下载 JDBC 驱动 JAR，
+ *  通过 URLClassLoader + DriverProxy 注册到 DriverManager，绕过跨 ClassLoader 安全检查。 */
 public class DriverDownloader {
     private static final Logger log = LoggerFactory.getLogger(DriverDownloader.class);
     private static final File LIB_DIR = new File(System.getProperty("user.home"), ".kylin-sql/lib");
@@ -34,9 +35,11 @@ public class DriverDownloader {
         Map.entry("postgresql",        "org.postgresql:postgresql:42.7.5")
     );
 
-    /** 持久 URLClassLoader：包含所有已下载的 JAR，父为系统 ClassLoader。 */
+    /** 持久 URLClassLoader：包含所有已下载的 JAR URL，父为系统 ClassLoader。 */
     private volatile URLClassLoader driverLoader;
+    /** 已下载的 JAR 文件 URL 列表。 */
     private final List<URL> jarUrls = new ArrayList<>();
+    /** 已成功解析的驱动类名缓存。 */
     private final Map<String, Boolean> resolvedDrivers = new ConcurrentHashMap<>();
 
     public DriverDownloader() {
@@ -49,16 +52,35 @@ public class DriverDownloader {
         return driverLoader;
     }
 
+    /** URLClassLoader 是否包含已下载的 JAR。不含时不应设为线程上下文（会阻止 HikariCP 加载 classpath 驱动）。 */
+    public boolean hasJars() {
+        return !jarUrls.isEmpty();
+    }
+
+    /** 返回已下载的 JAR URL 列表（供诊断用）。 */
+    public List<URL> getJarUrls() {
+        return new ArrayList<>(jarUrls);
+    }
+
     /** 确保驱动可用，返回 true 表示加载成功。 */
     public boolean resolve(ConnectionInfo info) {
         String driverClass = resolveDriverClassName(info);
         if (driverClass == null || driverClass.isBlank()) return false;
 
-        if (resolvedDrivers.containsKey(driverClass)) return true;
-        if (isOnClasspath(driverClass)) { resolvedDrivers.put(driverClass, true); return true; }
+        if (resolvedDrivers.containsKey(driverClass)) {
+            log.debug("resolve {}: 已缓存", driverClass);
+            return true;
+        }
+
+        if (isOnClasspath(driverClass)) {
+            resolvedDrivers.put(driverClass, true);
+            log.info("resolve {}: 在 classpath 中找到", driverClass);
+            return true;
+        }
 
         String gav = info.getMavenGav();
         if (gav == null || gav.isBlank()) gav = DEFAULT_GAV.get(info.getDbType());
+        log.info("resolve {}: 开始下载, gav={}", driverClass, gav);
         if (gav != null && !gav.isBlank()) {
             if (tryDownloadAndLoad(gav, info.getMavenRepoUrl(), driverClass)) return true;
         }
@@ -160,13 +182,13 @@ public class DriverDownloader {
         return f.exists() ? f : null;
     }
 
-    /** 将 JAR 加入 URLClassLoader，加载驱动类并注册到 DriverManager。 */
+    /** 从 JAR 文件中加载驱动类。将 JAR 加入 URLClassLoader，通过 DriverProxy 注册到 DriverManager。 */
     private boolean loadFromJar(File jarFile, String driverClass) {
         try {
             addJar(jarFile);
             Class<?> cls = Class.forName(driverClass, true, driverLoader);
             Driver driver = (Driver) cls.getDeclaredConstructor().newInstance();
-            DriverManager.registerDriver(driver);
+            DriverManager.registerDriver(new DriverProxy(driver));
             resolvedDrivers.put(driverClass, true);
             log.info("驱动加载并注册成功: {} <- {}", driverClass, jarFile);
             return true;

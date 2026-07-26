@@ -73,6 +73,13 @@ public class IconUtil {
             case "history", "time", "clock" -> new Color(0xE65100);
             case "connect", "settings", "config", "preference", "compare", "diff" -> new Color(0x00695C);
             case "info", "help", "question", "pin", "pin-off" -> new Color(0x546E7A);
+            case "database", "oracle" -> new Color(0xC74634);
+            case "mysql" -> new Color(0x00758F);
+            case "postgresql" -> new Color(0x336791);
+            case "mariadb" -> new Color(0x003545);
+            case "sqlite" -> new Color(0x003B57);
+            case "oceanbase" -> new Color(0x0089D0);
+            case "microsoftsqlserver" -> new Color(0xCC2927);
             default -> new Color(0x5B5B5B);
         };
     }

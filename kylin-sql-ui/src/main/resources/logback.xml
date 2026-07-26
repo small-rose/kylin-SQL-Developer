@@ -1,6 +1,6 @@
 <configuration scan="true" scanPeriod="30 seconds">
     <property name="LOG_HOME" value="${user.home}/.kylin-sql/logs" />
-    <property name="LOG_PATTERN" value="%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n" />
+    <property name="LOG_PATTERN" value="%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36}:%line - %msg%n" />
 
     <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${LOG_HOME}/kylin-sql.log</file>
