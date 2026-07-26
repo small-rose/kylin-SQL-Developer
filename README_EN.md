@@ -410,6 +410,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 <div align="center">
   <p>⭐ If you find this project helpful, please give it a star! ⭐</p>
+  <p>🤝 PRs are welcome — join us in development!</p>
   <p>
     <a href="https://github.com/small-rose/kylin-SQL-Developer/issues">Report Bug</a>
     ·
