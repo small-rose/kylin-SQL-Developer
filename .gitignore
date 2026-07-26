@@ -9,6 +9,7 @@ dist/
 *.flattened-pom.xml
 dependency-reduced-pom.xml
 
-.agents/
+#.agents/
+skills-lock.json
 脱敏.md
 批处理导出脱敏.md
