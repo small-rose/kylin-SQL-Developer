@@ -5,7 +5,7 @@
 
   <p>
     <img src="https://img.shields.io/badge/Java-17%2B-blue?logo=openjdk&logoColor=white" alt="Java 17+">
-    <img src="https://img.shields.io/badge/License-Apache%202.0-green?logo=apache" alt="License">
+    <img src="https://img.shields.io/badge/License-GPL%20v3-blue?logo=gnu" alt="License">
     <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey?logo=windows" alt="Platform">
     <img src="https://img.shields.io/badge/Kylin_OS-✅-brightgreen?logo=linux" alt="Kylin OS">
     <img src="https://img.shields.io/github/stars/small-rose/kylin-SQL-Developer?style=social" alt="GitHub Stars">
@@ -153,7 +153,7 @@
 |---------|:---:|:---:|:---:|:---:|:---:|
 | Cross-platform | ✅ | ❌ Windows only | ✅ | ❌ Win/Mac | ✅ |
 | Kylin OS support | ✅ Native | ❌ | ⚠️ Manual | ❌ | ❌ |
-| Free & Open Source | ✅ Apache 2.0 | ❌ Commercial | ✅ | ❌ Commercial | ❌ Commercial |
+| Free & Open Source | ✅ GPL v3 | ❌ Commercial | ✅ | ❌ Commercial | ❌ Commercial |
 | Oracle PL/SQL Formatting | ✅ 40+ params | ✅ | ❌ Basic | ✅ Basic | ✅ Medium |
 | Smart Completion | ✅ MetadataCache | ✅ | ✅ | ✅ | ✅ |
 | Data Export | ✅ 5 formats | ✅ Limited | ✅ | ✅ | ✅ |
@@ -384,22 +384,26 @@ Formatted SQL
 
 ## License
 
-This project is licensed under the **Apache License 2.0**.
+This project is licensed under the **GNU General Public License v3 (GPL v3)** — a strong copyleft license that ensures modified versions remain open source.
+
+See the full license text in the [LICENSE](LICENSE) file.
 
 ```
-Copyright © 2026 Kylin Team
+Kylin SQL Developer - Lightweight PL/SQL IDE
+Copyright (C) 2026 Kylin Team
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
 
-    http://www.apache.org/licenses/LICENSE-2.0
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+You should have received a copy of the GNU General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
 ```
 
 ---
