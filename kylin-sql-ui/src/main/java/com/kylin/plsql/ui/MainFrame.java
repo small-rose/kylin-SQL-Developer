@@ -199,17 +199,22 @@ public class MainFrame extends JFrame {
             try {
                 splash.setProgress(5, "正在初始化界面...");
                 SwingUtilities.invokeAndWait(() -> { frame.setupMenu(); frame.buildToolbar(); });
+                log.info("[DIAG] setupMenu+buildToolbar: {}ms", System.currentTimeMillis() - startTime);
 
                 splash.setProgress(25, "正在构建编辑区...");
                 SwingUtilities.invokeAndWait(frame::buildPanels);
+                log.info("[DIAG] buildPanels: {}ms", System.currentTimeMillis() - startTime);
 
                 splash.setProgress(50, "正在构建输出面板...");
                 SwingUtilities.invokeAndWait(frame::buildBottomPanel);
+                log.info("[DIAG] buildBottomPanel: {}ms", System.currentTimeMillis() - startTime);
 
                 splash.setProgress(75, "正在组装界面...");
                 SwingUtilities.invokeAndWait(frame::buildAssembly);
+                log.info("[DIAG] buildAssembly: {}ms", System.currentTimeMillis() - startTime);
 
                 splash.setProgress(90, "正在启动...");
+                log.info("[DIAG] pre-wait: {}ms", System.currentTimeMillis() - startTime);
 
                 watchdog.stop();
                 long elapsed = System.currentTimeMillis() - startTime;
@@ -219,6 +224,7 @@ public class MainFrame extends JFrame {
 
                 splash.setProgress(95, "正在完成初始化...");
                 SwingUtilities.invokeAndWait(frame::finishInit);
+                log.info("[DIAG] finishInit: {}ms", System.currentTimeMillis() - startTime);
 
                 splash.setProgress(100, "启动完成");
                 SwingUtilities.invokeAndWait(() -> {
@@ -227,6 +233,7 @@ public class MainFrame extends JFrame {
                 });
 
                 SwingUtilities.invokeAndWait(frame::finishLayout);
+                log.info("[DIAG] finishLayout + visible: {}ms", System.currentTimeMillis() - startTime);
             } catch (Exception e) {
                 String msg = e.getMessage();
                 if (msg == null) {
@@ -247,15 +254,20 @@ public class MainFrame extends JFrame {
     }
 
     private void finishInit() {
+        long t0 = System.currentTimeMillis();
         loadSavedConnections();
+        log.info("[DIAG] finishInit/loadSavedConnections: {}ms", System.currentTimeMillis() - t0);
         boolean restored = tryRestoreWorkspace();
+        log.info("[DIAG] finishInit/tryRestoreWorkspace: {}ms restored={}", System.currentTimeMillis() - t0, restored);
         if (!restored) showWelcome();
         var cur = EngineManager.getCurrent();
         if (cur != null && engineCombo != null) engineCombo.setSelectedItem(cur);
         bottomPanel.refreshConnTree();
+        log.info("[DIAG] finishInit/refreshConnTree: {}ms", System.currentTimeMillis() - t0);
         restartAutoSaveTimer();
         statusBar.startMemoryMonitor();
         startConnectionMonitor();
+        log.info("[DIAG] finishInit/end: {}ms", System.currentTimeMillis() - t0);
     }
 
     private void finishLayout() {
@@ -685,15 +697,19 @@ public class MainFrame extends JFrame {
         });
 
         editorTabs.addChangeListener(e -> {
+            long ct0 = System.currentTimeMillis();
             Component comp = editorTabs.getSelectedComponent();
             for (int i = 0; i < editorTabs.getTabCount(); i++) {
                 updateEditorTabComponent(i, editorTabs);
             }
+            long ct1 = System.currentTimeMillis();
             if (comp instanceof SqlEditorPanel ae) {
                 rightPanel.setActiveEditor(ae);
                 installCaretListener(ae);
                 String text = ae.getText();
+                long ct2 = System.currentTimeMillis();
                 symbolIndex.indexLocal(text, PlSqlNavigator.parse(text));
+                log.info("[DIAG] tabChange/parse: {}ms textLen={}", System.currentTimeMillis() - ct2, text.length());
             } else if (comp instanceof SourceViewerPanel sv) {
                 rightPanel.setActiveSourceViewer(sv);
                 sv.setOnSourceChanged(() -> rightPanel.setActiveSourceViewer(sv));
@@ -706,7 +722,10 @@ public class MainFrame extends JFrame {
                 if (!found) ta.addCaretListener(new SourceViewerCaretSync(sv));
             }
             updateStatusBar();
+            long ct3 = System.currentTimeMillis();
             bottomPanel.refreshConnTree();
+            log.info("[DIAG] tabChange/refreshConnTree: {}ms", System.currentTimeMillis() - ct3);
+            log.info("[DIAG] tabChange/total: {}ms", System.currentTimeMillis() - ct0);
         });
         verticalSplit = new JSplitPane(JSplitPane.VERTICAL_SPLIT, mainSplit, bottomWrapper);
         verticalSplit.setBorder(null);
@@ -2715,12 +2734,17 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
     }
 
     private boolean tryRestoreWorkspace() {
+        long t0 = System.currentTimeMillis();
         WorkspaceState state = configManager.loadWorkspace();
+        log.info("[DIAG] tryRestore/loadWorkspace: {}ms", System.currentTimeMillis() - t0);
         if (state.tabs == null || state.tabs.isEmpty()) return false;
+        int tabIdx = 0;
         for (TabState ts : state.tabs) {
+            long t1 = System.currentTimeMillis();
             if ("sourceviewer".equals(ts.type)) {
                 openSourceObject(ts.connName, ts.schema, ts.objectType, ts.objectName);
-                // SourceViewer 需要在加载完成后切 spec/body
+                log.info("[DIAG] tryRestore/tab[{}] sourceviewer: {}ms", tabIdx, System.currentTimeMillis() - t1);
+                tabIdx++;
                 continue;
             }
             SqlEditorPanel editor = new SqlEditorPanel(connectionManager, ts.tabName);
@@ -2747,6 +2771,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
             int idx = editorTabs.indexOfComponent(editor);
             initTabComponent(idx, editor);
             installCaretListener(editor);
+            log.info("[DIAG] tryRestore/tab[{}] {} conn={} schema={}: {}ms", tabIdx, ts.tabName, ts.connName, ts.schema, System.currentTimeMillis() - t1);
             // 延迟到布局完成后恢复光标和滚动位置
             int finalIdx = idx;
             SwingUtilities.invokeLater(() -> {
@@ -2766,8 +2791,10 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                     editorTabs.setSelectedIndex(finalIdx);
                 }
             });
+            tabIdx++;
         }
         // 保存 tab 状态以便 finishLayout 完成后延迟恢复连接和 schema
+        long t2 = System.currentTimeMillis();
         this.pendingTabStates = new java.util.ArrayList<>(state.tabs);
         // 恢复格式化配置
         if (state.formatProfiles != null && !state.formatProfiles.isEmpty()) {
@@ -2796,13 +2823,18 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
         if (engineIdx >= 0 && engineIdx < EngineManager.getEngines().size()) {
             EngineManager.setCurrent(engineIdx);
         }
+        log.info("[DIAG] tryRestore/post-loop: {}ms", System.currentTimeMillis() - t2);
 
         // 恢复上次活跃标签（作为后备）
+        long t3 = System.currentTimeMillis();
         int idx = state.lastActiveIndex;
         if (idx >= 0 && idx < editorTabs.getTabCount()) {
             editorTabs.setSelectedIndex(idx);
         }
+        log.info("[DIAG] tryRestore/setSelectedIndex: {}ms idx={}", System.currentTimeMillis() - t3, idx);
+        long t4 = System.currentTimeMillis();
         showEditorTabs();
+        log.info("[DIAG] tryRestore/showEditorTabs: {}ms", System.currentTimeMillis() - t4);
         return true;
     }
 
