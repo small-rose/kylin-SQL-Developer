@@ -22,8 +22,19 @@ public class ServiceFactory {
         this.cm = cm;
     }
 
-    public SchemaService getSchemaService(String dbTypeKey) {
-        return schemaCache.computeIfAbsent(normalize(dbTypeKey), key -> {
+    /** 根据数据库产品名映射到方言 key，"mysql"/"mariadb"/"postgresql"/"edb"/"oceanbase"/"oracle"。 */
+    public static String dbProductToKey(String dbProduct) {
+        if (dbProduct == null) return "oracle";
+        String p = dbProduct.toLowerCase();
+        if (p.contains("mysql") || p.contains("mariadb")) return "mysql";
+        if (p.contains("postgresql") || p.contains("edb")) return "postgresql";
+        if (p.contains("oceanbase")) return "oceanbase";
+        return "oracle";
+    }
+
+    public SchemaService getSchemaService(String dbProduct) {
+        String key = dbProductToKey(dbProduct);
+        return schemaCache.computeIfAbsent(normalize(key), actualKey -> {
             String jdbcKey = JdbcServiceRegistry.forKeyStatic(key).spec().getKey().toLowerCase();
             if (jdbcKey.contains("mysql") || jdbcKey.contains("mariadb")) {
                 return new MySqlSchemaService(cm);
@@ -36,8 +47,9 @@ public class ServiceFactory {
     }
 
     public DataQueryService getDataQueryService(String dbTypeKey) {
-        return queryCache.computeIfAbsent(normalize(dbTypeKey), key -> {
-            String jdbcKey = JdbcServiceRegistry.forKeyStatic(key).spec().getKey().toLowerCase();
+        String key = dbProductToKey(dbTypeKey);
+        return queryCache.computeIfAbsent(normalize(key), actualKey -> {
+            String jdbcKey = JdbcServiceRegistry.forKeyStatic(actualKey).spec().getKey().toLowerCase();
             if (jdbcKey.contains("mysql") || jdbcKey.contains("mariadb")) {
                 return new MySqlDataQueryService(cm);
             }
@@ -54,8 +66,9 @@ public class ServiceFactory {
     }
 
     public DataChangeService getDataChangeService(String dbTypeKey) {
-        return changeCache.computeIfAbsent(normalize(dbTypeKey), key -> {
-            String jdbcKey = JdbcServiceRegistry.forKeyStatic(key).spec().getKey().toLowerCase();
+        String key = dbProductToKey(dbTypeKey);
+        return changeCache.computeIfAbsent(normalize(key), actualKey -> {
+            String jdbcKey = JdbcServiceRegistry.forKeyStatic(actualKey).spec().getKey().toLowerCase();
             if (jdbcKey.contains("mysql") || jdbcKey.contains("mariadb")) {
                 return new MySqlDataChangeService();
             }

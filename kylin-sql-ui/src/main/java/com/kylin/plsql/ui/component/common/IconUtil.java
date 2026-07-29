@@ -1,21 +1,18 @@
 package com.kylin.plsql.ui.component.common;
 
+import com.kitfox.svg.SVGDiagram;
+import com.kitfox.svg.SVGUniverse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import javax.imageio.ImageIO;
-import javax.swing.ImageIcon;
-import java.awt.Color;
-import java.awt.Graphics2D;
-import java.awt.Image;
-import java.awt.RenderingHints;
+import javax.swing.*;
+import java.awt.*;
 import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-
-import com.kitfox.svg.SVGUniverse;
-import com.kitfox.svg.SVGDiagram;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class IconUtil {
 
@@ -80,6 +77,7 @@ public class IconUtil {
             path = "/icons/database/" + name + ".svg";
             in = IconUtil.class.getResourceAsStream(path);
         }
+        log.info("load path {}", path);
         if (in == null) return null;
         try {
             String svgText = new String(in.readAllBytes(), StandardCharsets.UTF_8);
@@ -137,11 +135,11 @@ public class IconUtil {
     private static Color getColorForIcon(String name) {
         if (name == null) return new Color(0x5B5B5B);
         return switch (name) {
-            case "new", "create", "add", "plus", "execute", "append", "commit", "arrow-big-up" -> new Color(0x2E7D32);
+            case "new", "create", "add", "plus", "execute", "append", "commit", "arrow-big-up" -> new Color(0x1EA322);
             case "open", "locate", "folder", "skip-forward", "forward",
                  "search", "find", "file-search", "database-search",
                  "refresh", "sync", "reload",
-                 "arrow-left", "arrow-right", "arrow-left-to-line", "arrow-right-to-line" -> new Color(0x1565C0);
+                 "arrow-left", "arrow-right", "arrow-left-to-line", "arrow-right-to-line" -> new Color(0x0D70E1);
             case "save", "save-plus", "copy", "export", "edit",
                  "arrow-down-to-line", "arrow-up-to-line" -> new Color(0xF57F17);
             case "format", "regex", "compile" -> new Color(0x6A1B9A);
@@ -150,7 +148,7 @@ public class IconUtil {
             case "connect", "settings", "config", "preference", "compare", "diff" -> new Color(0x00695C);
             case "info", "help", "question", "pin", "pin-off" -> new Color(0x546E7A);
             case "database", "oracle" -> new Color(0xC74634);
-            case "mysql" -> new Color(0x00758F);
+            case "mysql" -> new Color(0x037E98);
             case "postgresql" -> new Color(0x336791);
             case "mariadb" -> new Color(0x003545);
             case "sqlite" -> new Color(0x003B57);
@@ -158,5 +156,23 @@ public class IconUtil {
             case "microsoftsqlserver" -> new Color(0xCC2927);
             default -> new Color(0x5B5B5B);
         };
+    }
+
+
+
+    public static Icon makeIcon(String text, Color bg) {
+        BufferedImage img = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = img.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setColor(bg);
+        g.fillRoundRect(1, 1, 14, 14, 3, 3);
+        g.setColor(Color.WHITE);
+        g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 9));
+        FontMetrics fm = g.getFontMetrics();
+        int x = (16 - fm.stringWidth(text)) / 2;
+        int y = (16 + fm.getAscent()) / 2 - 1;
+        g.drawString(text, x, y);
+        g.dispose();
+        return new ImageIcon(img);
     }
 }
