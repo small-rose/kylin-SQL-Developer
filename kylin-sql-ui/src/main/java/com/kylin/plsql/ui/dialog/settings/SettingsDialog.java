@@ -170,6 +170,7 @@ public class SettingsDialog extends JDialog {
     private JPanel cardPanel;
     private CardLayout cardLayout;
     private JTextField autocompleteDelayField;
+    private JTextField acFuzzyThresholdField;
     private JSpinner oracleBatchSpinner;
     private JSpinner obBatchSpinner;
     private JSpinner mysqlBatchSpinner;
@@ -1292,6 +1293,15 @@ public class SettingsDialog extends JDialog {
         autocompleteDelayField.setToolTipText("输入后等待多少毫秒触发自动补全");
         grid.add(autocompleteDelayField, c);
 
+        row++;
+        c.gridy = row; c.gridx = 0; c.gridwidth = 1; c.weightx = 0;
+        c.insets = new Insets(4, 6, 4, 6);
+        grid.add(new JLabel("包含/模糊匹配阈值:"), c);
+        c.gridx = 1; c.weightx = 1;
+        acFuzzyThresholdField = new JTextField(configManager.getPreference("autocomplete.fuzzyThreshold", "2"), 10);
+        acFuzzyThresholdField.setToolTipText("输入达到该字母数时才启用包含/模糊匹配（1~10）");
+        grid.add(acFuzzyThresholdField, c);
+
         // ── Section 4: 批量执行 ──
         row += 2;
         hc.gridy = row;
@@ -1898,6 +1908,7 @@ public class SettingsDialog extends JDialog {
         configManager.setPreference("format.maxWidth", String.valueOf(workingOptions.getMaxLineWidth()));
         configManager.setPreference("format.lineEnding", workingOptions.getLineEnding());
         if (autocompleteDelayField != null) configManager.setPreference("autocomplete.delay", autocompleteDelayField.getText());
+        if (acFuzzyThresholdField != null) configManager.setPreference("autocomplete.fuzzyThreshold", acFuzzyThresholdField.getText());
         // 常用配置 - 自动保存
         if (autoIntervalSpinner != null) {
             configManager.setAutoSaveInterval((Integer) autoIntervalSpinner.getValue());

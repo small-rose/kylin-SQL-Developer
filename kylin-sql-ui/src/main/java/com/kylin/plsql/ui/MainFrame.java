@@ -2348,7 +2348,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                 try (Statement st = conn.createStatement()) {
                     st.execute("USE " + schema);
                 }
-            } else if (dbProduct.contains("oracle") && !dbProduct.contains("oceanbase")) {
+            } else if (dbProduct.contains("oracle") || dbProduct.contains("oceanbase")) {
                 try (Statement st = conn.createStatement()) {
                     st.execute("ALTER SESSION SET CURRENT_SCHEMA = " + schema);
                 }
