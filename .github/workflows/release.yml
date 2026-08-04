@@ -38,6 +38,7 @@ jobs:
           name: Kylin SQL Developer ${{ env.RELEASE_VERSION }}
           tag_name: ${{ github.ref_name }}
           body_path: docs/CHANGELOG.md
+          draft: true
           fail_on_unmatched_files: false
           files: |
             kylin-sql-assembly/target/kylin-sql-*.zip
