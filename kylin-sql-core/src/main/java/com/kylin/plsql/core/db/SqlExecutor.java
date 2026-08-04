@@ -137,12 +137,18 @@ public class SqlExecutor {
         public final String type;
         public final int size;
         public final boolean nullable;
+        public final String comment;
 
         public ColumnMeta(String name, String type, int size, boolean nullable) {
+            this(name, type, size, nullable, null);
+        }
+
+        public ColumnMeta(String name, String type, int size, boolean nullable, String comment) {
             this.name = name;
             this.type = type;
             this.size = size;
             this.nullable = nullable;
+            this.comment = comment;
         }
     }
 
@@ -625,7 +631,8 @@ public class SqlExecutor {
                     rs.getString("COLUMN_NAME"),
                     rs.getString("TYPE_NAME"),
                     rs.getInt("COLUMN_SIZE"),
-                    rs.getString("IS_NULLABLE").equals("YES")
+                    "YES".equals(rs.getString("IS_NULLABLE")),
+                    rs.getString("REMARKS")
                 ));
             }
         }

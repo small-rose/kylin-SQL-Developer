@@ -70,9 +70,14 @@ public class PlSqlSymbolIndex {
         globalIndex.clear();
         dbIndexed = true;
 
+        String owner = schema != null ? schema.toUpperCase() : null;
+        if (owner == null) {
+            try { owner = conn.getSchema(); } catch (SQLException e) { owner = null; }
+        }
+
         String sql = "SELECT NAME, TYPE, LINE, TEXT FROM ALL_SOURCE WHERE OWNER = ? ORDER BY NAME, TYPE, LINE";
         try (var ps = conn.prepareStatement(sql)) {
-            ps.setString(1, schema != null ? schema.toUpperCase() : conn.getSchema());
+            ps.setString(1, owner);
             try (var rs = ps.executeQuery()) {
                 while (rs.next()) {
                     String name = rs.getString("NAME");

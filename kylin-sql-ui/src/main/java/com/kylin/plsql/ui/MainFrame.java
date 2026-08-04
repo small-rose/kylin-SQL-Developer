@@ -11,7 +11,6 @@ import com.kylin.plsql.core.db.ConnectionInfo;
 import com.kylin.plsql.core.db.ConnectionManager;
 import com.kylin.plsql.core.db.SqlExecutor;
 import com.kylin.plsql.core.db.SqlHistory;
-import com.kylin.plsql.core.service.ServiceFactory;
 import com.kylin.plsql.core.format.EngineManager;
 import com.kylin.plsql.core.format.FormatOptions;
 import com.kylin.plsql.core.format.SqlFormatterEngine;
@@ -20,6 +19,7 @@ import com.kylin.plsql.core.format.dialect.SqlDialect;
 import com.kylin.plsql.core.parser.PlSqlCallHierarchy;
 import com.kylin.plsql.core.parser.PlSqlNavigator;
 import com.kylin.plsql.core.parser.PlSqlSymbolIndex;
+import com.kylin.plsql.core.service.ServiceFactory;
 import com.kylin.plsql.ui.component.bottom.BottomPanel;
 import com.kylin.plsql.ui.component.bottom.BottomPanel.TabInfo;
 import com.kylin.plsql.ui.component.bottom.StatusBar;
@@ -31,6 +31,7 @@ import com.kylin.plsql.ui.component.common.ToastManager;
 import com.kylin.plsql.ui.component.left.LeftPanel;
 import com.kylin.plsql.ui.component.left.LocalFileBrowser;
 import com.kylin.plsql.ui.component.left.ObjectBrowser;
+import com.kylin.plsql.ui.component.left.ObjectBrowserCallback;
 import com.kylin.plsql.ui.component.right.RightPanel;
 import com.kylin.plsql.ui.dialog.common.AboutDialog;
 import com.kylin.plsql.ui.dialog.connection.ConnectionDialog;
@@ -52,7 +53,6 @@ import javax.swing.*;
 import javax.swing.event.CaretEvent;
 import javax.swing.event.CaretListener;
 import javax.swing.filechooser.FileNameExtensionFilter;
-import javax.swing.table.DefaultTableModel;
 import javax.swing.text.BadLocationException;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeCellRenderer;
@@ -394,7 +394,7 @@ public class MainFrame extends JFrame {
     }
 
     private void buildPanels() {
-        objectBrowser = new ObjectBrowser(new ObjectBrowser.Callback() {
+        objectBrowser = new ObjectBrowser(new ObjectBrowserCallback() {
             @Override
             public void onObjectAction(String connName, String schema, String objectType, String objectName, String action) {
                 MainFrame.this.onObjectAction(connName, schema, objectType, objectName, action);
@@ -453,6 +453,7 @@ public class MainFrame extends JFrame {
             }
         });
         objectBrowser.setConfigManager(configManager);
+        objectBrowser.setServiceFactory(serviceFactory);
 
         fileBrowser = new LocalFileBrowser(path -> {
             fileBrowser.markOpened(new File(path).getName());
@@ -2347,7 +2348,7 @@ editor.setOnHistoryRequest(() -> rightPanel.selectHistoryTab());
                 try (Statement st = conn.createStatement()) {
                     st.execute("USE " + schema);
                 }
-            } else if (dbProduct.contains("oracle") && !dbProduct.contains("oceanbase")) {
+            } else if (dbProduct.contains("oracle") || dbProduct.contains("oceanbase")) {
                 try (Statement st = conn.createStatement()) {
                     st.execute("ALTER SESSION SET CURRENT_SCHEMA = " + schema);
                 }

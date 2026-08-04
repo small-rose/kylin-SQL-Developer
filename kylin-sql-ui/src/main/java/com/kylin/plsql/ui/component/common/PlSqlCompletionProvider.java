@@ -1,6 +1,7 @@
 package com.kylin.plsql.ui.component.common;
 
 import com.kylin.plsql.core.cache.MetadataCache;
+import com.kylin.plsql.core.config.ConfigManager;
 import com.kylin.plsql.core.db.type.DbTypeCoordinator;
 import org.fife.ui.autocomplete.BasicCompletion;
 import org.fife.ui.autocomplete.Completion;
@@ -71,26 +72,33 @@ public class PlSqlCompletionProvider extends DefaultCompletionProvider {
         String entered = super.getAlreadyEnteredText(comp);
         String connName = connNameSupplier != null ? connNameSupplier.get() : null;
         String tableName = (connName != null && !connName.isEmpty()) ? getTableBeforeDot(comp) : null;
+        int threshold = fuzzyThreshold();
 
         if (tableName != null) {
-            List<Completion> result = new ArrayList<>();
+            List<Match> matches = new ArrayList<>();
             if (isSystemSchema(tableName)) {
-                addSystemViewCompletionsForSchema(result, tableName, entered);
+                addSystemViewCompletionsForSchema(matches, tableName, entered, threshold);
             } else {
-                addColumnCompletions(result, connName, tableName, entered);
+                addColumnCompletions(matches, connName, tableName, entered, threshold);
             }
+            List<Completion> result = toCompletions(matches);
             log.info("getCompletionsImpl entered='{}', dot=table={}, total={}", entered, tableName, result.size());
             return result;
         }
 
-        List<Completion> result = super.getCompletionsImpl(comp);
-        if (result == null) result = new ArrayList<>();
+        List<Match> matches = new ArrayList<>();
+        // SQL 关键字：保持前缀匹配（库父类），标记为 level 0
+        List<Completion> kw = super.getCompletionsImpl(comp);
+        if (kw != null) {
+            for (Completion c : kw) matches.add(new Match(0, c));
+        }
         if (connName != null && !connName.isEmpty() && entered != null && !entered.isEmpty()) {
-            addObjectCompletions(result, connName, entered);
+            addObjectCompletions(matches, connName, entered, threshold);
         }
         if (entered != null && !entered.isEmpty()) {
-            addSystemViewCompletions(result, entered);
+            addSystemViewCompletions(matches, entered, threshold);
         }
+        List<Completion> result = toCompletions(matches);
 
         log.info("getCompletionsImpl entered='{}', conn={}, total={}", entered, connName, result.size());
         if (!result.isEmpty()) {
@@ -102,6 +110,44 @@ public class PlSqlCompletionProvider extends DefaultCompletionProvider {
     /** Return the current schema (may be null). */
     private String getCurrentSchema() {
         return schemaSupplier != null ? schemaSupplier.get() : null;
+    }
+
+    /** 候选匹配项：level 0=前缀 1=包含 2=模糊，用于全局按匹配度排序。 */
+    private record Match(int level, Completion completion) {}
+
+    /** 包含/模糊匹配生效的最小输入字符数（低于该值只做前缀匹配）。 */
+    private int fuzzyThreshold() {
+        try {
+            return Integer.parseInt(ConfigManager.getInstance().getPreference("autocomplete.fuzzyThreshold", "2"));
+        } catch (Exception e) {
+            return 2;
+        }
+    }
+
+    /** 大小写不敏感匹配：0=前缀、1=包含、2=模糊（子序列）、-1=不匹配。
+     *  低于阈值时只做前缀匹配，跳过包含/模糊计算。 */
+    static int matchLevel(String input, String candidate, int threshold) {
+        if (input == null || input.isEmpty()) return 0;
+        String ci = input.toUpperCase();
+        String cc = candidate.toUpperCase();
+        if (cc.startsWith(ci)) return 0;
+        if (ci.length() < threshold) return -1;
+        if (cc.contains(ci)) return 1;
+        int i = 0;
+        for (int j = 0; i < ci.length() && j < cc.length(); j++) {
+            if (ci.charAt(i) == cc.charAt(j)) i++;
+        }
+        return i == ci.length() ? 2 : -1;
+    }
+
+    /** 按 (匹配度, 名称) 排序后转为完成项列表。 */
+    private static List<Completion> toCompletions(List<Match> matches) {
+        matches.sort(java.util.Comparator
+            .comparingInt((Match m) -> m.level)
+            .thenComparing((Match m) -> m.completion.getInputText(), String.CASE_INSENSITIVE_ORDER));
+        List<Completion> result = new ArrayList<>(matches.size());
+        for (Match m : matches) result.add(m.completion);
+        return result;
     }
 
     // ── Type-based icons (same style as ObjectBrowser) ──
@@ -293,35 +339,35 @@ public class PlSqlCompletionProvider extends DefaultCompletionProvider {
     }
 
     /** Add table / view names matching entered text, scoped to current schema if set. */
-    private void addObjectCompletions(List<Completion> result, String connName, String entered) {
+    private void addObjectCompletions(List<Match> matches, String connName, String entered, int threshold) {
         if (entered == null || entered.isEmpty()) return;
         String upper = entered.toUpperCase();
         String currentSchema = getCurrentSchema();
         if (currentSchema != null && !currentSchema.isEmpty()) {
-            addObjectsForSchema(result, connName, currentSchema, upper);
+            addObjectsForSchema(matches, connName, currentSchema, upper, threshold);
         } else {
             for (String schema : cache.getSchemas(connName)) {
-                addObjectsForSchema(result, connName, schema, upper);
+                addObjectsForSchema(matches, connName, schema, upper, threshold);
             }
         }
     }
 
-    private void addObjectsForSchema(List<Completion> result, String connName, String schema, String upper) {
+    private void addObjectsForSchema(List<Match> matches, String connName, String schema, String upper, int threshold) {
         var byType = cache.getObjectNamesByType(connName, schema);
         if (byType == null) return;
         for (var entry : byType.entrySet()) {
             String type = entry.getKey();
             for (String name : entry.getValue()) {
-                if (name.toUpperCase().startsWith(upper)) {
-                    String comment = cache.getTableComment(connName, schema, name);
-                    result.add(new TableCompletion(this, name, schema, type, comment));
-                }
+                int level = matchLevel(upper, name, threshold);
+                if (level < 0) continue;
+                String comment = cache.getTableComment(connName, schema, name);
+                matches.add(new Match(level, new TableCompletion(this, name, schema, type, comment)));
             }
         }
     }
 
     /** Add column names of the given table (lazy-load from DB if not cached). */
-    private void addColumnCompletions(List<Completion> result, String connName, String tableName, String entered) {
+    private void addColumnCompletions(List<Match> matches, String connName, String tableName, String entered, int threshold) {
         String upper = entered == null ? "" : entered.toUpperCase();
         String currentSchema = getCurrentSchema();
         List<String> schemas;
@@ -339,9 +385,9 @@ public class PlSqlCompletionProvider extends DefaultCompletionProvider {
             }
             if (cols != null && !cols.isEmpty()) {
                 for (var col : cols) {
-                    if (col.name.toUpperCase().startsWith(upper)) {
-                        result.add(new ColumnCompletion(this, col.name, col.type, col.comment));
-                    }
+                    int level = matchLevel(upper, col.name, threshold);
+                    if (level < 0) continue;
+                    matches.add(new Match(level, new ColumnCompletion(this, col.name, col.type, col.comment)));
                 }
                 return;
             }
@@ -375,7 +421,7 @@ public class PlSqlCompletionProvider extends DefaultCompletionProvider {
     }
 
     /** Path 1+2: Flat match (info → information_schema.tables) + schema self-match (inf → information_schema). */
-    private void addSystemViewCompletions(List<Completion> result, String entered) {
+    private void addSystemViewCompletions(List<Match> matches, String entered, int threshold) {
         if (entered == null || entered.isEmpty()) return;
         ensureSystemViews();
         String upper = entered.toUpperCase();
@@ -384,31 +430,31 @@ public class PlSqlCompletionProvider extends DefaultCompletionProvider {
             String schema = entry.getKey();
             for (String name : entry.getValue()) {
                 String fullName = schema.isEmpty() ? name : schema + "." + name;
-                if (fullName.toUpperCase().startsWith(upper)) {
-                    result.add(new TableCompletion(this, fullName, schema, "VIEW", null));
-                }
+                int level = matchLevel(upper, fullName, threshold);
+                if (level < 0) continue;
+                matches.add(new Match(level, new TableCompletion(this, fullName, schema, "VIEW", null)));
             }
         }
 
         for (String schema : systemSchemas) {
-            if (schema.toUpperCase().startsWith(upper)) {
-                List<String> children = systemViews.getOrDefault(schema.toLowerCase(), List.of());
-                String comment = !children.isEmpty() ? children.size() + " children" : null;
-                result.add(new TableCompletion(this, schema, "", "SCHEMA", comment));
-            }
+            int level = matchLevel(upper, schema, threshold);
+            if (level < 0) continue;
+            List<String> children = systemViews.getOrDefault(schema.toLowerCase(), List.of());
+            String comment = !children.isEmpty() ? children.size() + " children" : null;
+            matches.add(new Match(level, new TableCompletion(this, schema, "", "SCHEMA", comment)));
         }
     }
 
     /** Path 3: Dot-notation child items (information_schema. → tables, columns). */
-    private void addSystemViewCompletionsForSchema(List<Completion> result, String schema, String entered) {
+    private void addSystemViewCompletionsForSchema(List<Match> matches, String schema, String entered, int threshold) {
         ensureSystemViews();
         String upper = entered != null ? entered.toUpperCase() : "";
         for (var entry : systemViews.entrySet()) {
             if (entry.getKey().equalsIgnoreCase(schema)) {
                 for (String name : entry.getValue()) {
-                    if (name.toUpperCase().startsWith(upper)) {
-                        result.add(new TableCompletion(this, name, schema, "VIEW", null));
-                    }
+                    int level = matchLevel(upper, name, threshold);
+                    if (level < 0) continue;
+                    matches.add(new Match(level, new TableCompletion(this, name, schema, "VIEW", null)));
                 }
                 return;
             }
