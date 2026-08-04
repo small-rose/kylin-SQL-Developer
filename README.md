@@ -124,15 +124,17 @@
 
 ## 界面预览
 
-> 截图待补充
+### Darcula（暗色主题）
 
-| 模块 | 预览 |
-|------|------|
-| 主界面 | `[TODO: 主窗口截图]` |
-| SQL 编辑器 | `[TODO: 编辑器截图]` |
-| 格式化设置 | `[TODO: 设置对话框截图]` |
-| 数据导出 | `[TODO: 导出对话框截图]` |
-| 对象浏览器 | `[TODO: 对象树截图]` |
+![Darcula](docs/images/Darcula.png)
+
+### 豆沙绿（护眼模式）
+
+![Green](docs/images/Green.png)
+
+### Light（亮色主题）
+
+![Light](docs/images/Light.png)
 
 ---
 

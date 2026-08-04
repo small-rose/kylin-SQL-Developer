@@ -123,15 +123,17 @@
 
 ## Screenshots
 
-> Screenshots coming soon
+### Darcula (Dark Theme)
 
-| Module | Preview |
-|--------|---------|
-| Main Window | `[TODO: screenshot]` |
-| SQL Editor | `[TODO: screenshot]` |
-| Format Settings | `[TODO: screenshot]` |
-| Data Export | `[TODO: screenshot]` |
-| Object Browser | `[TODO: screenshot]` |
+![Darcula](docs/images/Darcula.png)
+
+### Green (Eye-care Theme)
+
+![Green](docs/images/Green.png)
+
+### Light (Light Theme)
+
+![Light](docs/images/Light.png)
 
 ---
 
