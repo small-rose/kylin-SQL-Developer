@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.1.1 (2026-08-04)
+
+### 🐛 Bug 修复
+- **OceanBase 连接** — HikariCP schema 设置兼容性修复
+
+### 📚 文档
+- README 优化 GitHub 搜索关键词（README + pom.xml description）
+
+### 🔧 基础设施
+- GitHub Release 默认以草稿（draft）创建，确认无误后再手动发布
+- 移除 skills-lock.json 与 .agents/ 的版本追踪
+
 ## v1.1.0 (2026-07-27)
 
 ### ✨ 新功能
