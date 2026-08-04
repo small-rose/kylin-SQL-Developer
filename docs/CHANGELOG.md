@@ -2,6 +2,12 @@
 
 ## v1.1.1 (2026-08-04)
 
+### ✨ 新功能
+- **自动补全模糊匹配** — contains/模糊匹配 + 可配置匹配阈值
+
+### 🛠️ 重构
+- **ObjectBrowser 拆解** — 内部类提取到独立文件（Delegate/ExpandListener/MouseAdapter/CellRenderer），元数据加载下沉到 MetadataLoadService（+231 行）
+
 ### 🐛 Bug 修复
 - **OceanBase 连接** — HikariCP schema 设置兼容性修复
 
@@ -10,7 +16,7 @@
 
 ### 🔧 基础设施
 - GitHub Release 默认以草稿（draft）创建，确认无误后再手动发布
-- 移除 skills-lock.json 与 .agents/ 的版本追踪
+- 移除 skills-lock.json 与 .agents/ 的版本追踪；.gitignore 添加 `*.bak*`
 
 ## v1.1.0 (2026-07-27)
 
